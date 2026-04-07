@@ -23,6 +23,7 @@ from typing import Any, Literal, Optional
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
 
 import config as cfg
@@ -145,6 +146,11 @@ def _run_pipeline(req: PipelineRequest) -> dict:
 
 
 # ─── Endpoints ───────────────────────────────────────────────────────────────
+
+@app.get("/", include_in_schema=False)
+def root():
+    return RedirectResponse(url="/docs")
+
 
 @app.get("/health", tags=["Sistema"])
 def health():
