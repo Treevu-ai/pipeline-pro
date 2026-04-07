@@ -1,0 +1,261 @@
+"""
+config.py — Edita este archivo para adaptar el agente a tu producto y mercado.
+"""
+from __future__ import annotations
+
+# ─── Conexión a Ollama ────────────────────────────────────────────────────────
+OLLAMA = {
+    "url": "http://127.0.0.1:11434/api/chat",
+    "model": "mistral:7b-instruct-q4_0",   # cambia por llama3, mistral, etc.
+    "timeout_s": 180,
+    "temperature": 0.2,
+    "retries": 3,
+    "backoff_s": 2,
+}
+
+# ─── Tu producto ─────────────────────────────────────────────────────────────
+PRODUCT = {
+    "name": "AgentePyme SDR",
+    "short_pitch": (
+        "Automatizamos la calificación de tus leads y el primer contacto "
+        "para que tu equipo solo hable con quienes ya están listos para comprar."
+    ),
+    # EDITA ESTO: describe qué vendes en 2-3 frases concretas.
+    # El agente usa este texto para personalizar los borradores.
+    # Ejemplo: "Ofrecemos factoring express para MIPYME: adelanto de facturas
+    # pendientes en 48 horas, sin garantías hipotecarias, desde S/. 5,000."
+    "description": (
+        "Ofrecemos un agente SDR automatizado que califica leads de MIPYME "
+        "y redacta mensajes de primer contacto personalizados por industria, "
+        "usando inteligencia artificial local. Sin CRM costoso, sin datos en la nube."
+    ),
+    "benefits": [
+        "Calificación de leads en minutos, no días",
+        "Borradores de mensaje personalizados por industria",
+        "Pipeline limpio con etapas, score y siguiente acción",
+        "Sin necesidad de CRM: funciona sobre tu CSV",
+    ],
+    "cta": "¿Podemos agendar 20 minutos esta semana para mostrarte cómo funciona?",
+}
+
+# ─── ICP (Ideal Customer Profile) ─────────────────────────────────────────────
+# El agente usa estas reglas ANTES del LLM para pre-calcular un score base.
+ICP = {
+    "target_industries": [
+        "Retail", "Comercio", "Logística", "Construcción",
+        "Manufactura", "Servicios", "Tecnología", "Salud",
+        "Educación", "Alimentos", "Transporte",
+    ],
+    "min_invoices_pending": 5,        # facturas_pendientes mínimas para ser interesante
+    "high_value_invoices": 30,        # umbral para score extra
+    "excluded_keywords": [            # empresas a descartar automáticamente
+        "holding", "SAC inactiva", "en liquidación",
+    ],
+    # Pesos calibrados para que el pre-score máximo sea ~65.
+    # El LLM ajusta los 35 puntos restantes según señales cualitativas
+    # (decisor identificado, urgencia percibida, coherencia del perfil).
+    "score_weights": {
+        "industry_match": 15,         # puntos si la industria está en target_industries
+        "invoices_high": 15,          # puntos si facturas_pendientes >= high_value_invoices
+        "invoices_low": 8,            # puntos si facturas_pendientes >= min_invoices_pending
+        "has_email": 12,              # puntos si tiene email válido
+        "has_phone": 8,               # puntos si tiene teléfono
+        "has_contact": 7,             # puntos si tiene nombre de contacto
+        "has_cargo": 5,               # puntos si tiene cargo del contacto
+        "base": 5,                    # score base mínimo (cualquier lead conocido vale algo)
+    },
+}
+
+# ─── Canal de outreach ────────────────────────────────────────────────────────
+# "email"     → genera draft_subject + draft_message (formato email)
+# "whatsapp"  → genera solo draft_message (~80 palabras, sin asunto)
+# "both"      → genera ambos
+CHANNEL = "email"
+
+# ─── Playbook del agente (instrucciones del sistema) ─────────────────────────
+# Personaliza el tono, las reglas y el contexto de tu negocio aquí.
+PLAYBOOK = f"""
+Eres un SDR experto para MIPYME en Latinoamérica que trabaja para {PRODUCT['name']}.
+
+QUÉ VENDEMOS:
+{PRODUCT['description']}
+
+REGLAS ESTRICTAS:
+1. No inventes datos que no estén en la fila del lead; si falta información, indícalo en qualification_notes.
+2. No prometas tasas, plazos legales, rendimientos ni resultados garantizados.
+3. No menciones competidores.
+4. El mensaje de outreach debe tener máximo 100 palabras, en español neutro latinoamericano.
+5. El mensaje debe mencionar el dolor específico del sector del lead (retail → rotación de inventario,
+   logística → costos operativos, construcción → flujo de caja en obra, etc.).
+6. Usa un solo CTA claro al final del mensaje: "{PRODUCT['cta']}"
+7. Si el lead tiene señales de alto potencial (muchas facturas, industria clave, email válido, cargo decisor), sube el score.
+   El score base ya viene calculado por reglas (máximo 65). Tú ajustas con señales cualitativas hasta 100.
+8. Si faltan datos críticos (email, decisor, industria), marca next_action como "completar dato" y baja el score.
+9. Salida EXCLUSIVAMENTE como objeto JSON válido. Sin markdown, sin texto fuera del JSON.
+
+CRITERIOS DE CALIFICACIÓN:
+- "Calificado": industria objetivo + email + señal de necesidad clara + cargo sugiere poder de decisión.
+- "En seguimiento": interés probable pero falta algún dato o señal (sin teléfono, cargo ambiguo, etc.).
+- "Prospección": lead frío sin señales suficientes, primer contacto exploratorio.
+- "Descartado": fuera de ICP, sin forma de contacto, o empresa con señales negativas (liquidación, holding sin operaciones).
+"""
+
+# ─── Columnas de salida que el agente produce ────────────────────────────────
+OUTPUT_KEYS = (
+    "crm_stage",           # Prospección | Calificado | En seguimiento | Descartado
+    "lead_score",          # 0-100
+    "fit_product",         # si | no | dudoso
+    "intent_timeline",     # <30d | 30-90d | >90d | desconocido
+    "decision_maker",      # si | no | desconocido
+    "blocker",             # texto breve o vacío
+    "next_action",         # acción concreta
+    "qualification_notes", # resumen 2-4 frases
+    "draft_subject",       # asunto del email (vacío si canal=whatsapp)
+    "draft_message",       # cuerpo del mensaje listo para copiar
+    "qualify_error",       # error técnico si hubo fallo
+)
+
+
+# ─── Configuración de enriquecimiento de contactos ─────────────────────────────
+ENRICHMENT = {
+    # Dominios a excluir (emails genéricos/irrelevantes)
+    "blacklist_domains": {
+        "sentry.io", "example.com", "wixpress.com", "squarespace.com",
+        "wordpress.com", "googleapis.com", "schema.org", "facebook.com",
+        "instagram.com", "linkedin.com", "twitter.com", "x.com", "tiktok.com",
+        "youtube.com",
+    },
+    # Patrones de regex para extraer teléfonos
+    "phone_patterns": [
+        r"(?:tel:|phone:|whatsapp:)?(\+?\d[\d\s\-().]{6,17}\d)",
+        r"\+?\d{1,3}[\s\-]?\(?\d{2,3}\)?[\s\-]?\d{3,4}[\s\-]?\d{3,4}",
+        r"\b\d{9,11}\b",  # Perú: 9 dígitos + código país
+    ],
+    # Patrones de regex para extraer redes sociales
+    "social_patterns": {
+        "linkedin": [
+            r'linkedin\.com/(company|in)/[a-zA-Z0-9\-]+',
+            r'linkedin\.com/[a-zA-Z0-9\-]+',
+        ],
+        "facebook": [
+            r'facebook\.com/[a-zA-Z0-9\.\-]+',
+            r'fb\.com/[a-zA-Z0-9\.\-]+',
+        ],
+        "instagram": [
+            r'instagram\.com/[a-zA-Z0-9_\.]+',
+        ],
+        "twitter": [
+            r'twitter\.com/[a-zA-Z0-9_]+',
+            r'x\.com/[a-zA-Z0-9_]+',
+        ],
+        "youtube": [
+            r'youtube\.com/(channel|c|user)/[a-zA-Z0-9\-]+',
+        ],
+        "tiktok": [
+            r'tiktok\.com/@[a-zA-Z0-9_\.]+',
+        ],
+    },
+    # Prefijos comunes de email corporativo
+    "email_prefixes": [
+        "info", "contacto", "ventas", "hola", "gerencia",
+        "administracion", "soporte", "webmaster",
+    ],
+    # Límites de validación
+    "min_phone_digits": 9,
+    "max_phone_digits": 17,
+    "min_domain_length": 5,
+}
+
+
+# ─── Configuración de scraping ─────────────────────────────────────────────────
+SCRAPING = {
+    # Límites por defecto
+    "default_limit": 20,
+    "default_delay": 1.2,
+    "default_timeout": 10,
+    "google_maps_timeout": 30_000,
+    "cookie_accept_timeout": 3_000,
+    # Delays aleatorios (en milisegundos)
+    "scroll_delay_min": 700,
+    "scroll_delay_max": 1100,
+    "article_click_delay_min": 1200,
+    "article_click_delay_max": 1800,
+}
+
+
+# ─── Configuración de calificación ─────────────────────────────────────────────
+QUALIFICATION = {
+    # Valores por defecto
+    "default_delay": 0.3,
+    "default_workers": 1,
+    # Límites de score
+    "max_pre_score": 65,
+    "max_score": 100,
+    "min_score": 0,
+    # Límites de palabras por canal
+    "word_limits": {
+        "email": 100,
+        "whatsapp": 80,
+        "both": 100,
+    },
+}
+
+
+# ─── Configuración de rate limiting ────────────────────────────────────────────
+RATE_LIMITING = {
+    # Límites por API externa
+    "google_search": {"calls": 5, "period": 60},  # 5 llamadas por minuto
+    "sunat_api": {"calls": 10, "period": 60},     # 10 llamadas por minuto
+    "website_scraping": {"calls": 3, "period": 10},  # 3 llamadas cada 10 segundos
+}
+
+
+# ─── Validación de configuración ─────────────────────────────────────────────
+
+def validate_config() -> list[str]:
+    """
+    Valida la configuración y devuelve una lista de errores.
+
+    Returns:
+        Lista de mensajes de error (vacía si no hay errores).
+    """
+    errors = []
+
+    # Validar OLLAMA
+    if not OLLAMA.get("url"):
+        errors.append("OLLAMA.url no está configurado")
+    if not OLLAMA.get("model"):
+        errors.append("OLLAMA.model no está configurado")
+    if OLLAMA.get("timeout_s", 0) <= 0:
+        errors.append("OLLAMA.timeout_s debe ser positivo")
+    if OLLAMA.get("retries", 0) < 0:
+        errors.append("OLLAMA.retries no puede ser negativo")
+    if OLLAMA.get("backoff_s", 0) < 0:
+        errors.append("OLLAMA.backoff_s no puede ser negativo")
+
+    # Validar ICP
+    if not ICP.get("target_industries"):
+        errors.append("ICP.target_industries está vacío")
+    if ICP.get("min_invoices_pending", 0) < 0:
+        errors.append("ICP.min_invoices_pending no puede ser negativo")
+    if ICP.get("high_value_invoices", 0) < ICP.get("min_invoices_pending", 0):
+        errors.append("ICP.high_value_invoices debe ser >= min_invoices_pending")
+
+    # Validar CHANNEL
+    if CHANNEL not in ("email", "whatsapp", "both"):
+        errors.append(f"CHANNEL inválido: {CHANNEL}")
+
+    # Validar ENRICHMENT
+    if ENRICHMENT.get("min_phone_digits", 0) < 1:
+        errors.append("ENRICHMENT.min_phone_digits debe ser >= 1")
+    if ENRICHMENT.get("max_phone_digits", 0) < ENRICHMENT.get("min_phone_digits", 0):
+        errors.append("ENRICHMENT.max_phone_digits debe ser >= min_phone_digits")
+
+    return errors
+
+
+# Validar configuración al importar (solo si no se ejecuta como script)
+if __name__ != "__main__":
+    config_errors = validate_config()
+    if config_errors:
+        raise ValueError(f"Errores de configuración: {', '.join(config_errors)}")
