@@ -3,11 +3,20 @@ config.py — Edita este archivo para adaptar el agente a tu producto y mercado.
 """
 from __future__ import annotations
 
-# ─── Conexión a Ollama ────────────────────────────────────────────────────────
+# ─── Conexión a Ollama (legacy — solo para uso local) ─────────────────────────
 OLLAMA = {
     "url": "http://127.0.0.1:11434/api/chat",
-    "model": "mistral:7b-instruct-q4_0",   # cambia por llama3, mistral, etc.
+    "model": "mistral:7b-instruct-q4_0",
     "timeout_s": 180,
+    "temperature": 0.2,
+    "retries": 3,
+    "backoff_s": 2,
+}
+
+# ─── Groq API (producción) ────────────────────────────────────────────────────
+# Requiere variable de entorno: GROQ_API_KEY
+GROQ = {
+    "model": "llama-3.3-70b-versatile",   # o "llama-3.1-8b-instant" para menor latencia
     "temperature": 0.2,
     "retries": 3,
     "backoff_s": 2,
@@ -221,17 +230,13 @@ def validate_config() -> list[str]:
     """
     errors = []
 
-    # Validar OLLAMA
-    if not OLLAMA.get("url"):
-        errors.append("OLLAMA.url no está configurado")
-    if not OLLAMA.get("model"):
-        errors.append("OLLAMA.model no está configurado")
-    if OLLAMA.get("timeout_s", 0) <= 0:
-        errors.append("OLLAMA.timeout_s debe ser positivo")
-    if OLLAMA.get("retries", 0) < 0:
-        errors.append("OLLAMA.retries no puede ser negativo")
-    if OLLAMA.get("backoff_s", 0) < 0:
-        errors.append("OLLAMA.backoff_s no puede ser negativo")
+    # Validar GROQ
+    if not GROQ.get("model"):
+        errors.append("GROQ.model no está configurado")
+    if GROQ.get("retries", 0) < 0:
+        errors.append("GROQ.retries no puede ser negativo")
+    if GROQ.get("backoff_s", 0) < 0:
+        errors.append("GROQ.backoff_s no puede ser negativo")
 
     # Validar ICP
     if not ICP.get("target_industries"):
