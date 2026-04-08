@@ -35,6 +35,7 @@ import pandas as pd
 import config as cfg
 import constants as const
 import exceptions as exc
+import llm_client
 import models
 import utils
 
@@ -257,9 +258,9 @@ Devuelve EXACTAMENTE estas claves en el JSON:
 """
 
     try:
-        raw = ollama_call(cfg.PLAYBOOK, user_prompt)
+        raw = llm_client.call(cfg.PLAYBOOK, user_prompt)
     except exc.OllamaError as e:
-        raise exc.QualificationError(f"Error al llamar a Ollama: {e}") from e
+        raise exc.QualificationError(f"Error al llamar al LLM: {e}") from e
 
     result = {k: raw.get(k, "") for k in cfg.OUTPUT_KEYS if k != "qualify_error"}
 
