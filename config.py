@@ -69,37 +69,56 @@ ICP = {
     "reviews_high": 50,               # reseñas → negocio activo y establecido
     "reviews_mid": 10,                # reseñas mínimas para señal positiva
     "rating_min_good": 4.0,           # rating mínimo para considerar buena reputación
-    # Distritos por nivel socioeconómico alto (proxy de capacidad de pago).
-    # Cubre Lima + 4 ciudades principales de Perú.
+    # Distritos por nivel socioeconómico (proxy de capacidad de pago).
+    # Cobertura: Lima + 9 ciudades = 10 ciudades principales de Perú.
+    # Metodología: distritos_high → NSE A/B (target prioritario),
+    #              distritos_medium → NSE C (target secundario).
+    # La búsqueda es substring en ciudad + dirección + dirección_fiscal.
     "distritos_high": [
-        # Lima NSE A/B
+        # 1. Lima NSE A/B
         "san isidro", "miraflores", "surco", "santiago de surco",
         "san borja", "la molina", "barranco",
-        # Trujillo NSE A/B (urbanizaciones exclusivas)
+        # 2. Trujillo NSE A/B (urbanizaciones)
         "el golf", "california", "san andres", "el recreo",
-        # Arequipa NSE A/B
+        # 3. Arequipa NSE A/B
         "cayma", "yanahuara", "selva alegre",
-        # Chiclayo NSE A/B
+        # 4. Chiclayo NSE A/B
         "santa victoria", "la primavera",
-        # Piura NSE A/B
-        "miraflores piura", "los cocos",
-        # Cusco NSE A/B
+        # 5. Piura NSE A/B
+        "los cocos", "country club piura",
+        # 6. Cusco NSE A/B
         "san blas", "wanchaq",
+        # 7. Iquitos NSE A/B (hub comercial amazónico)
+        "san juan bautista iquitos", "urb. country iquitos", "los rosales iquitos",
+        # 8. Huancayo NSE A/B (hub comercial sierra central)
+        "el tambo", "urb. san carlos huancayo", "chilca huancayo",
+        # 9. Tacna NSE A/B (hub comercio fronterizo)
+        "gregorio albarracin", "ciudad nueva tacna",
+        # 10. Cajamarca NSE A/B (hub minero-comercial norte)
+        "urb. los fresnos", "los sauces cajamarca", "la colmena cajamarca",
     ],
     "distritos_medium": [
-        # Lima NSE C
+        # 1. Lima NSE C
         "jesús maría", "jesus maria", "lince", "magdalena", "pueblo libre",
         "san miguel", "chorrillos", "la victoria", "breña", "cercado", "lima cercado",
-        # Trujillo NSE C
+        # 2. Trujillo NSE C
         "el porvenir", "la esperanza", "florencia de mora", "trujillo centro",
-        # Arequipa NSE C
+        # 3. Arequipa NSE C
         "cercado de arequipa", "cerro colorado", "mariano melgar", "sachaca",
-        # Chiclayo NSE C
+        # 4. Chiclayo NSE C
         "jose leonardo ortiz", "la victoria chiclayo", "reque",
-        # Piura NSE C
+        # 5. Piura NSE C
         "castilla", "piura centro", "veintiséis de octubre",
-        # Cusco NSE C
+        # 6. Cusco NSE C
         "santiago cusco", "san jeronimo cusco", "cusco centro",
+        # 7. Iquitos NSE C
+        "punchana", "belen iquitos", "maynas",
+        # 8. Huancayo NSE C
+        "huancayo centro", "pilcomayo", "san agustin huancayo",
+        # 9. Tacna NSE C
+        "tacna centro", "pocollay", "alto de la alianza",
+        # 10. Cajamarca NSE C
+        "cajamarca centro", "los banos del inca", "baños del inca",
     ],
     # Velocidad de reseñas: reseñas/mes — negocio activo vs. heredado
     "review_velocity_high": 2.0,   # ≥2 reseñas/mes → muy activo
