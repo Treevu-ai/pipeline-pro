@@ -55,6 +55,12 @@ output/
 .coverage
 htmlcov/
 
+# Node / Frontend (landing vive en su propio repo: Treevu-ai/pipeline-x-landing)
+pipeline-x-landing/
+node_modules/
+dist/
+.vite/
+
 # Environment variables
 .env
 .env.local

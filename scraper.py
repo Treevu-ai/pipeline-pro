@@ -291,6 +291,9 @@ async def _scrape_maps_async(query: str, limit: int, headful: bool = False) -> l
             for i, article in enumerate(articles[:limit]):
                 empresa: dict[str, Any] = {}
                 try:
+                    # Nombre desde aria-label ANTES de hacer click
+                    nombre_pre = (await article.get_attribute("aria-label") or "").strip()
+
                     await article.click()
                     delay = random.randint(
                         cfg.SCRAPING["article_click_delay_min"],
@@ -298,13 +301,17 @@ async def _scrape_maps_async(query: str, limit: int, headful: bool = False) -> l
                     )
                     await page.wait_for_timeout(delay)
 
-                    # Nombre
+                    # Nombre: panel de detalle (selectores específicos) o fallback a aria-label
                     try:
-                        empresa[const.ColumnNames.EMPRESA] = (
-                            await page.locator("h1").first.text_content(timeout=3000) or ""
+                        nombre_panel = (
+                            await page.locator("h1.DUwDvf, h1.fontHeadlineLarge").first.text_content(timeout=3000) or ""
                         ).strip()
+                        empresa[const.ColumnNames.EMPRESA] = (
+                            nombre_panel if nombre_panel and nombre_panel.lower() not in ("resultados", "")
+                            else nombre_pre
+                        )
                     except Exception:
-                        empresa[const.ColumnNames.EMPRESA] = ""
+                        empresa[const.ColumnNames.EMPRESA] = nombre_pre
 
                     if not empresa[const.ColumnNames.EMPRESA]:
                         continue
@@ -347,11 +354,34 @@ async def _scrape_maps_async(query: str, limit: int, headful: bool = False) -> l
 
                     # Rating y reseñas (señal de actividad del negocio)
                     try:
-                        rating_el = page.locator('[jsaction*="rating"]').first
-                        rating_text = await rating_el.text_content(timeout=2000) or ""
+                        # Intentar múltiples selectores para el bloque de rating
+                        rating_text = ""
+                        for sel in [
+                            'div.F7nice',                       # contenedor rating + reseñas
+                            'span[aria-label*="estrellas"]',
+                            'span[aria-label*="stars"]',
+                            '[jsaction*="rating"]',
+                        ]:
+                            try:
+                                rating_text = await page.locator(sel).first.text_content(timeout=1500) or ""
+                                if rating_text:
+                                    break
+                            except Exception:
+                                continue
+
+                        # Intentar también aria-label del elemento de rating para reseñas
+                        try:
+                            aria_rating = await page.locator('span[aria-label*="reseña"], span[aria-label*="review"]').first.get_attribute("aria-label", timeout=1500) or ""
+                            if aria_rating:
+                                rating_text = (rating_text + " " + aria_rating).strip()
+                        except Exception:
+                            pass
+
                         m = utils.re.search(r"(\d+[.,]\d+)", rating_text)
                         empresa[const.ColumnNames.RATING] = m.group(1).replace(",", ".") if m else ""
                         m2 = utils.re.search(r"([\d.,]+)\s*reseña", rating_text, utils.re.IGNORECASE)
+                        if not m2:
+                            m2 = utils.re.search(r"([\d.,]+)\s*review", rating_text, utils.re.IGNORECASE)
                         empresa[const.ColumnNames.NUM_RESENAS] = m2.group(1).replace(".", "").replace(",", "") if m2 else ""
                     except Exception:
                         empresa[const.ColumnNames.RATING] = ""

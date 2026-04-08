@@ -31,6 +31,8 @@ from pathlib import Path
 from typing import Any
 
 import pandas as pd
+from dotenv import load_dotenv
+load_dotenv()
 
 import config as cfg
 import constants as const
@@ -70,6 +72,7 @@ log = logging.getLogger("sdr_agent")
 def pre_score(row: dict[str, Any]) -> int:
     """
     Calcula un score base con reglas deterministas antes de llamar al LLM.
+    Basado en señales de Google Maps: reseñas, rating, sitio web y distrito.
 
     Args:
         row: Diccionario con datos del lead.
@@ -85,38 +88,68 @@ def pre_score(row: dict[str, Any]) -> int:
     if any(t.lower() in industry.lower() for t in cfg.ICP["target_industries"]):
         score += weights["industry_match"]
 
-    # Facturas pendientes
+    # Reseñas de Google Maps
     try:
-        invoices = int(float(str(row.get(const.ColumnNames.FACTURAS_PENDIENTES, 0))))
+        resenas = int(float(str(row.get(const.ColumnNames.NUM_RESENAS, 0) or 0)))
     except (ValueError, TypeError):
-        invoices = 0
+        resenas = 0
 
-    if invoices >= cfg.ICP["high_value_invoices"]:
-        score += weights["invoices_high"]
-    elif invoices >= cfg.ICP["min_invoices_pending"]:
-        score += weights["invoices_low"]
+    if resenas >= cfg.ICP["reviews_high"]:
+        score += weights["reviews_high"]
+    elif resenas >= cfg.ICP["reviews_mid"]:
+        score += weights["reviews_mid"]
+
+    # Rating de Google Maps
+    try:
+        rating = float(str(row.get(const.ColumnNames.RATING, 0) or 0))
+    except (ValueError, TypeError):
+        rating = 0.0
+
+    if rating >= cfg.ICP["rating_min_good"]:
+        score += weights["rating_good"]
+
+    # Sitio web
+    sitio_web = str(row.get(const.ColumnNames.SITIO_WEB, "")).strip()
+    if sitio_web and sitio_web not in ("", "nan", "None"):
+        score += weights["has_website"]
 
     # Email
     email = str(row.get(const.ColumnNames.EMAIL, "")).strip()
     if email and "@" in email and "." in email.split("@")[-1]:
         score += weights["has_email"]
 
-    # Teléfono (soporta múltiples nombres de columna)
+    # Teléfono
     phone = str(row.get(const.ColumnNames.TELEFONO, row.get("phone", ""))).strip()
-    if phone and len(phone.replace(".", "").replace("+", "")) >= 7:
+    if phone and len(phone.replace(".", "").replace("+", "").replace(" ", "")) >= 7:
         score += weights["has_phone"]
 
-    # Contacto (soporta múltiples nombres de columna)
+    # Distrito (proxy de nivel socioeconómico)
+    address_fields = " ".join([
+        str(row.get(const.ColumnNames.CIUDAD, "")),
+        str(row.get(const.ColumnNames.DIRECCION, "")),
+        str(row.get(const.ColumnNames.DIRECCION_FISCAL, "")),
+    ]).lower()
+    if any(d in address_fields for d in cfg.ICP["distritos_high"]):
+        score += weights["distrito_high"]
+    elif any(d in address_fields for d in cfg.ICP["distritos_medium"]):
+        score += weights["distrito_medium"]
+
+    # Contacto
     if str(row.get(const.ColumnNames.CONTACTO_NOMBRE, row.get("contact_name", ""))).strip():
         score += weights.get("has_contact", 0)
 
-    # Cargo (soporta múltiples nombres de columna)
+    # Cargo
     if str(row.get(const.ColumnNames.CARGO, row.get("position", ""))).strip():
         score += weights.get("has_cargo", 0)
 
-    # Palabras clave excluidas
+    # Penalización por palabras clave excluidas
     empresa = str(row.get(const.ColumnNames.EMPRESA, "")).lower()
     if any(kw.lower() in empresa for kw in cfg.ICP["excluded_keywords"]):
+        score = max(0, score - 40)
+
+    # Penalización por estado SUNAT irregular
+    estado_sunat = str(row.get("estado_sunat", "")).lower()
+    if estado_sunat and any(s in estado_sunat for s in ("baja", "suspension", "suspensión")):
         score = max(0, score - 40)
 
     # Capear el pre-score en 65 para dejar margen al LLM
@@ -428,7 +461,7 @@ def print_summary(df: pd.DataFrame) -> None:
     print(f"  Descartados      : {by_stage.get(const.CRMStages.DISCARDED, 0)}")
     print(f"  Score promedio   : {avg_score:.1f}/100")
     if errors:
-        print(f"  Errores          : {errors}  ← revisar columna qualify_error")
+        print(f"  Errores          : {errors}  (revisar columna qualify_error)")
     print("=" * 52 + "\n")
 
 

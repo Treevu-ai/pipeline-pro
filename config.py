@@ -24,7 +24,7 @@ GROQ = {
 
 # ─── Tu producto ─────────────────────────────────────────────────────────────
 PRODUCT = {
-    "name": "AgentePyme SDR",
+    "name": "Pipeline_X",
     "short_pitch": (
         "Automatizamos la calificación de tus leads y el primer contacto "
         "para que tu equipo solo hable con quienes ya están listos para comprar."
@@ -54,24 +54,39 @@ ICP = {
         "Retail", "Comercio", "Logística", "Construcción",
         "Manufactura", "Servicios", "Tecnología", "Salud",
         "Educación", "Alimentos", "Transporte",
+        "Contabilidad", "Estudio Contable", "Marketing", "Agencia",
     ],
-    "min_invoices_pending": 5,        # facturas_pendientes mínimas para ser interesante
-    "high_value_invoices": 30,        # umbral para score extra
     "excluded_keywords": [            # empresas a descartar automáticamente
         "holding", "SAC inactiva", "en liquidación",
     ],
+    # Señales de Google Maps
+    "reviews_high": 50,               # reseñas → negocio activo y establecido
+    "reviews_mid": 10,                # reseñas mínimas para señal positiva
+    "rating_min_good": 4.0,           # rating mínimo para considerar buena reputación
+    # Distritos de Lima por nivel socioeconómico (proxy de capacidad de pago)
+    "distritos_high": [
+        "san isidro", "miraflores", "surco", "santiago de surco",
+        "san borja", "la molina", "barranco",
+    ],
+    "distritos_medium": [
+        "jesús maría", "jesus maria", "lince", "magdalena", "pueblo libre",
+        "san miguel", "chorrillos", "la victoria", "breña", "cercado", "lima cercado",
+    ],
     # Pesos calibrados para que el pre-score máximo sea ~65.
-    # El LLM ajusta los 35 puntos restantes según señales cualitativas
-    # (decisor identificado, urgencia percibida, coherencia del perfil).
+    # El LLM ajusta los 35 puntos restantes según señales cualitativas.
     "score_weights": {
-        "industry_match": 15,         # puntos si la industria está en target_industries
-        "invoices_high": 15,          # puntos si facturas_pendientes >= high_value_invoices
-        "invoices_low": 8,            # puntos si facturas_pendientes >= min_invoices_pending
-        "has_email": 12,              # puntos si tiene email válido
-        "has_phone": 8,               # puntos si tiene teléfono
-        "has_contact": 7,             # puntos si tiene nombre de contacto
-        "has_cargo": 5,               # puntos si tiene cargo del contacto
         "base": 5,                    # score base mínimo (cualquier lead conocido vale algo)
+        "industry_match": 15,         # puntos si la industria está en target_industries
+        "reviews_high": 12,           # puntos si num_resenas >= reviews_high
+        "reviews_mid": 6,             # puntos si num_resenas >= reviews_mid
+        "rating_good": 8,             # puntos si rating >= rating_min_good
+        "has_website": 10,            # puntos si tiene sitio web
+        "has_email": 8,               # puntos si tiene email válido
+        "has_phone": 6,               # puntos si tiene teléfono
+        "distrito_high": 8,           # puntos si está en distrito A
+        "distrito_medium": 4,         # puntos si está en distrito B
+        "has_contact": 5,             # puntos si tiene nombre de contacto
+        "has_cargo": 3,               # puntos si tiene cargo del contacto
     },
 }
 
@@ -97,8 +112,10 @@ REGLAS ESTRICTAS:
 5. El mensaje debe mencionar el dolor específico del sector del lead (retail → rotación de inventario,
    logística → costos operativos, construcción → flujo de caja en obra, etc.).
 6. Usa un solo CTA claro al final del mensaje: "{PRODUCT['cta']}"
-7. Si el lead tiene señales de alto potencial (muchas facturas, industria clave, email válido, cargo decisor), sube el score.
+7. Si el lead tiene señales de alto potencial (muchas reseñas en Google, rating alto, sitio web, distrito A, email válido, cargo decisor), sube el score.
    El score base ya viene calculado por reglas (máximo 65). Tú ajustas con señales cualitativas hasta 100.
+   Señales positivas: >50 reseñas, rating ≥4.0, presencia web activa, distrito premium Lima, nombre de decisor identificado.
+   Señales negativas: sin reseñas, sin sitio web, sin forma de contacto, estado SUNAT irregular.
 8. Si faltan datos críticos (email, decisor, industria), marca next_action como "completar dato" y baja el score.
 9. Salida EXCLUSIVAMENTE como objeto JSON válido. Sin markdown, sin texto fuera del JSON.
 

@@ -1,8 +1,8 @@
 """
-llm_client.py — Cliente LLM usando Groq API.
+llm_client.py — Cliente LLM con soporte para Claude y Groq.
 
-Reemplaza la llamada a Ollama con Groq, manteniendo
-la misma interfaz: call(system, user) -> dict.
+Prioridad: Claude (si ANTHROPIC_API_KEY está disponible) → Groq (fallback).
+Interfaz: call(system, user) -> dict
 """
 from __future__ import annotations
 
@@ -14,19 +14,6 @@ from typing import Any
 
 import config as cfg
 import exceptions as exc
-
-_client = None
-
-
-def _get_client():
-    global _client
-    if _client is None:
-        from groq import Groq
-        api_key = os.environ.get("GROQ_API_KEY")
-        if not api_key:
-            raise exc.ConfigurationError("GROQ_API_KEY no está configurada en las variables de entorno")
-        _client = Groq(api_key=api_key)
-    return _client
 
 
 def _parse_json_loose(text: str) -> dict[str, Any]:
@@ -42,27 +29,68 @@ def _parse_json_loose(text: str) -> dict[str, Any]:
         return json.loads(m.group(0))
 
 
-def call(system: str, user: str) -> dict[str, Any]:
-    """
-    Llama a Groq con reintentos y backoff exponencial.
+# ── Claude ────────────────────────────────────────────────────────────────────
 
-    Interfaz idéntica a ollama_call() para facilitar la migración.
+_claude_client = None
 
-    Args:
-        system: Prompt del sistema.
-        user:   Prompt del usuario.
+def _get_claude():
+    global _claude_client
+    if _claude_client is None:
+        import anthropic
+        _claude_client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
+    return _claude_client
 
-    Returns:
-        Diccionario con la respuesta del LLM.
 
-    Raises:
-        OllamaError: Si Groq no responde tras todos los reintentos.
-    """
-    client = _get_client()
+def _call_claude(system: str, user: str) -> dict[str, Any]:
+    client = _get_claude()
+    model = "claude-haiku-4-5-20251001"   # rápido y barato (~$0.01/lead)
+    retries = 3
+    backoff = 2
+
+    last_err: Exception | None = None
+    for attempt in range(1, retries + 1):
+        try:
+            msg = client.messages.create(
+                model=model,
+                max_tokens=1024,
+                system=system,
+                messages=[{"role": "user", "content": user}],
+                temperature=0.2,
+            )
+            content = msg.content[0].text if msg.content else ""
+            return _parse_json_loose(content)
+        except exc.LLMResponseError:
+            raise
+        except Exception as e:
+            last_err = e
+            if attempt < retries:
+                time.sleep(backoff * attempt)
+
+    raise exc.OllamaError(
+        f"Claude no respondió después de {retries} intentos", model=model
+    ) from last_err
+
+
+# ── Groq (fallback) ───────────────────────────────────────────────────────────
+
+_groq_client = None
+
+def _get_groq():
+    global _groq_client
+    if _groq_client is None:
+        from groq import Groq
+        api_key = os.environ.get("GROQ_API_KEY")
+        if not api_key:
+            raise exc.ConfigurationError("GROQ_API_KEY no está configurada")
+        _groq_client = Groq(api_key=api_key)
+    return _groq_client
+
+
+def _call_groq(system: str, user: str) -> dict[str, Any]:
+    client = _get_groq()
     model = cfg.GROQ.get("model", "llama-3.3-70b-versatile")
     retries = cfg.GROQ.get("retries", 3)
     backoff = cfg.GROQ.get("backoff_s", 2)
-    temperature = cfg.GROQ.get("temperature", 0.2)
 
     last_err: Exception | None = None
     for attempt in range(1, retries + 1):
@@ -73,7 +101,7 @@ def call(system: str, user: str) -> dict[str, Any]:
                     {"role": "system", "content": system},
                     {"role": "user", "content": user},
                 ],
-                temperature=temperature,
+                temperature=cfg.GROQ.get("temperature", 0.2),
                 response_format={"type": "json_object"},
             )
             content = response.choices[0].message.content or ""
@@ -83,10 +111,27 @@ def call(system: str, user: str) -> dict[str, Any]:
         except Exception as e:
             last_err = e
             if attempt < retries:
-                wait = backoff * attempt
-                time.sleep(wait)
+                time.sleep(backoff * attempt)
 
     raise exc.OllamaError(
-        f"Groq no respondió después de {retries} intentos",
-        model=model,
+        f"Groq no respondió después de {retries} intentos", model=model
     ) from last_err
+
+
+# ── Interfaz pública ──────────────────────────────────────────────────────────
+
+def call(system: str, user: str) -> dict[str, Any]:
+    """
+    Llama al LLM disponible: Claude si ANTHROPIC_API_KEY está en el entorno,
+    Groq como fallback.
+
+    Args:
+        system: Prompt del sistema.
+        user:   Prompt del usuario.
+
+    Returns:
+        Diccionario con la respuesta del LLM.
+    """
+    if os.environ.get("ANTHROPIC_API_KEY"):
+        return _call_claude(system, user)
+    return _call_groq(system, user)
