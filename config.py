@@ -8,7 +8,7 @@ OLLAMA = {
     "url": "http://127.0.0.1:11434/api/chat",
     "model": "mistral:7b-instruct-q4_0",
     "timeout_s": 180,
-    "temperature": 0.2,
+    "temperature": 0,   # 0 = determinista — mismos datos → mismo score siempre
     "retries": 3,
     "backoff_s": 2,
 }
@@ -17,7 +17,7 @@ OLLAMA = {
 # Requiere variable de entorno: GROQ_API_KEY
 GROQ = {
     "model": "llama-3.3-70b-versatile",   # o "llama-3.1-8b-instant" para menor latencia
-    "temperature": 0.2,
+    "temperature": 0,   # 0 = determinista
     "retries": 3,
     "backoff_s": 2,
 }
@@ -50,11 +50,17 @@ PRODUCT = {
 # ─── ICP (Ideal Customer Profile) ─────────────────────────────────────────────
 # El agente usa estas reglas ANTES del LLM para pre-calcular un score base.
 ICP = {
+    # Sectores con fit real probado para Pipeline_X.
+    # Deliberadamente estrecha: industry_match (+15 pts) debe ser una señal fuerte,
+    # no un comodín que se activa para el 90% de leads.
     "target_industries": [
-        "Retail", "Comercio", "Logística", "Construcción",
-        "Manufactura", "Servicios", "Tecnología", "Salud",
-        "Educación", "Alimentos", "Transporte",
-        "Contabilidad", "Estudio Contable", "Marketing", "Agencia",
+        # Canal intermediario — quienes revenden el servicio SDR
+        "Contabilidad", "Estudio Contable", "Contador",
+        "Marketing", "Agencia", "Consultoría", "Consultor",
+        # Canal MYPE directa — quienes necesitan leads para su propio negocio
+        "Retail", "Comercio",
+        "Construcción", "Inmobiliaria",
+        "Logística", "Transporte",
     ],
     "excluded_keywords": [            # empresas a descartar automáticamente
         "holding", "SAC inactiva", "en liquidación",
@@ -218,6 +224,11 @@ QUALIFICATION = {
     "max_pre_score": 65,
     "max_score": 100,
     "min_score": 0,
+    # Clamping: cuánto puede alejarse el LLM del pre-score.
+    # El LLM puede bajar hasta 20 pts (señal negativa fuerte que las reglas no ven)
+    # o subir hasta 25 pts (señal positiva como decisor identificado, urgencia clara).
+    "score_drift_down": 20,
+    "score_drift_up":   25,
     # Límites de palabras por canal
     "word_limits": {
         "email": 100,

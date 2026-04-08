@@ -142,18 +142,34 @@ def pre_score(row: dict[str, Any]) -> int:
     if str(row.get(const.ColumnNames.CARGO, row.get("position", ""))).strip():
         score += weights.get("has_cargo", 0)
 
-    # Penalización por palabras clave excluidas
-    empresa = str(row.get(const.ColumnNames.EMPRESA, "")).lower()
-    if any(kw.lower() in empresa for kw in cfg.ICP["excluded_keywords"]):
-        score = max(0, score - 40)
-
-    # Penalización por estado SUNAT irregular
-    estado_sunat = str(row.get("estado_sunat", "")).lower()
-    if estado_sunat and any(s in estado_sunat for s in ("baja", "suspension", "suspensión")):
-        score = max(0, score - 40)
-
     # Capear el pre-score en 65 para dejar margen al LLM
     return min(score, cfg.QUALIFICATION["max_pre_score"])
+
+
+def should_auto_discard(row: dict[str, Any]) -> tuple[bool, str]:
+    """
+    Determina si un lead debe ser descartado automáticamente por reglas duras,
+    SIN pasar por el LLM.  Devuelve (descartado, motivo).
+
+    Las reglas duras son criterios binarios de exclusión — no degradaciones de
+    score — y no tienen sentido enviarlas al LLM para "ajuste cualitativo".
+
+    Args:
+        row: Diccionario con datos del lead.
+
+    Returns:
+        Tupla (bool, str): True + motivo si debe descartarse; False + "" si no.
+    """
+    empresa = str(row.get(const.ColumnNames.EMPRESA, "")).lower()
+    for kw in cfg.ICP["excluded_keywords"]:
+        if kw.lower() in empresa:
+            return True, f"keyword excluida: '{kw}'"
+
+    estado_sunat = str(row.get("estado_sunat", "")).lower()
+    if estado_sunat and any(s in estado_sunat for s in ("baja", "suspension", "suspensión")):
+        return True, f"estado SUNAT irregular: '{estado_sunat}'"
+
+    return False, ""
 
 
 def should_skip(row: dict[str, Any]) -> bool:
@@ -311,6 +327,20 @@ Devuelve EXACTAMENTE estas claves en el JSON:
     except (ValueError, TypeError):
         result["lead_score"] = base_score
         log.warning("lead_score inválido del LLM; usando pre-score: %d", base_score)
+
+    # Clamping: el LLM no puede alejarse más de DRIFT_DOWN/DRIFT_UP del pre-score.
+    # Evita que el LLM ignore el scorecard de reglas completamente.
+    raw_llm = result["lead_score"]
+    result["lead_score"] = max(
+        base_score - cfg.QUALIFICATION["score_drift_down"],
+        min(base_score + cfg.QUALIFICATION["score_drift_up"], raw_llm),
+    )
+    if raw_llm != result["lead_score"]:
+        log.warning(
+            "lead_score clamped: LLM=%d → final=%d (base=%d, drift ±%d/+%d)",
+            raw_llm, result["lead_score"], base_score,
+            cfg.QUALIFICATION["score_drift_down"], cfg.QUALIFICATION["score_drift_up"],
+        )
 
     return result
 
@@ -524,8 +554,28 @@ def main() -> None:
         if args.resume and should_skip(base):
             return idx, {**base, **{k: "" for k in cfg.OUTPUT_KEYS if k not in base}}
 
+        # ── Reglas duras: auto-descarte sin tocar el LLM ─────────────────────
+        disc, motivo = should_auto_discard(base)
+        if disc:
+            log.info("[%d/%d] %s | AUTO-DESCARTADO: %s",
+                     idx, total, base.get(const.ColumnNames.EMPRESA, "?"), motivo)
+            result: dict[str, Any] = {k: "" for k in cfg.OUTPUT_KEYS}
+            result.update({
+                "crm_stage":            "Descartado",
+                "lead_score":           0,
+                "fit_product":          "no",
+                "next_action":          "excluido por reglas",
+                "qualification_notes":  f"Auto-descartado: {motivo}.",
+                "qualify_error":        "",
+                "auto_descartado":      True,
+                "score_delta":          0,
+            })
+            return idx, {**base, **result}
+
+        # ── Flujo normal ──────────────────────────────────────────────────────
         base_score = pre_score(base)
-        log.info("[%d/%d] %s | pre-score: %d", idx, total, base.get(const.ColumnNames.EMPRESA, "?"), base_score)
+        log.info("[%d/%d] %s | pre-score: %d",
+                 idx, total, base.get(const.ColumnNames.EMPRESA, "?"), base_score)
         try:
             result = qualify_row(base, args.channel, base_score)
             result[const.ColumnNames.QUALIFY_ERROR] = ""
@@ -533,6 +583,13 @@ def main() -> None:
             log.error("[%d/%d] Error calificando: %s", idx, total, e)
             result = {k: "" for k in cfg.OUTPUT_KEYS if k != const.ColumnNames.QUALIFY_ERROR}
             result[const.ColumnNames.QUALIFY_ERROR] = str(e)
+            result["auto_descartado"] = False
+            result["score_delta"]     = 0
+            time.sleep(args.delay)
+            return idx, {**base, **result}
+
+        result["auto_descartado"] = False
+        result["score_delta"]     = abs(result.get("lead_score", base_score) - base_score)
 
         time.sleep(args.delay)
         return idx, {**base, **result}
