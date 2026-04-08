@@ -42,7 +42,7 @@ _SWAGGER_CSS = """
   .swagger-ui .topbar .download-url-wrapper { display: none !important; }
   .swagger-ui .topbar-wrapper img { display: none !important; }
   .swagger-ui .topbar-wrapper::before {
-    content: 'Pipeline_X API';
+    content: 'Pipeline_X SDR API';
     font-family: 'IBM Plex Mono', monospace !important;
     font-weight: 700;
     font-size: 14px;
@@ -132,7 +132,7 @@ _SWAGGER_CSS = """
 """
 
 app = FastAPI(
-    title="Pipeline_X API",
+    title="Pipeline_X SDR API",
     description="API para calificación de leads de MIPYME con IA · [pipelinex.app](https://pipelinex.app)",
     version="1.0.0",
     docs_url=None,
@@ -255,7 +255,7 @@ def _run_pipeline(req: PipelineRequest) -> dict:
 async def custom_docs():
     html = get_swagger_ui_html(
         openapi_url="/openapi.json",
-        title="Pipeline_X API",
+        title="Pipeline_X SDR API",
         swagger_ui_parameters={"defaultModelsExpandDepth": -1, "tryItOutEnabled": True},
     )
     body = html.body.decode().replace("</head>", f"{_SWAGGER_CSS}</head>")
