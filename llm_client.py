@@ -29,6 +29,21 @@ def _parse_json_loose(text: str) -> dict[str, Any]:
         return json.loads(m.group(0))
 
 
+def _fix_encoding(obj: Any) -> Any:
+    """Corrige doble-codificación UTF-8 que algunos LLMs producen en texto español.
+    Ejemplo: 'presentaciÃ³n' (latin-1 mal interpretado) → 'presentación'."""
+    if isinstance(obj, str):
+        try:
+            return obj.encode("latin-1").decode("utf-8")
+        except (UnicodeDecodeError, UnicodeEncodeError):
+            return obj
+    if isinstance(obj, dict):
+        return {k: _fix_encoding(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_fix_encoding(i) for i in obj]
+    return obj
+
+
 # ── Claude ────────────────────────────────────────────────────────────────────
 
 _claude_client = None
@@ -105,7 +120,7 @@ def _call_groq(system: str, user: str) -> dict[str, Any]:
                 response_format={"type": "json_object"},
             )
             content = response.choices[0].message.content or ""
-            return _parse_json_loose(content)
+            return _fix_encoding(_parse_json_loose(content))
         except exc.LLMResponseError:
             raise
         except Exception as e:
