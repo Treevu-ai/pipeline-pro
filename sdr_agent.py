@@ -27,6 +27,7 @@ import urllib.error
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
+from dateutil.relativedelta import relativedelta
 from pathlib import Path
 from typing import Any
 
@@ -67,6 +68,28 @@ def _setup_logging(log_dir: Path) -> logging.Logger:
 log = logging.getLogger("sdr_agent")
 
 
+# ─── Helpers ─────────────────────────────────────────────────────────────────
+
+_DATE_FMTS = ("%d/%m/%Y", "%Y-%m-%d", "%d-%m-%Y", "%Y/%m/%d", "%d/%m/%y")
+
+def _months_active(date_str: str) -> int:
+    """
+    Devuelve los meses transcurridos desde la fecha de inscripción/apertura.
+    Soporta los formatos más comunes en datos SUNAT y Google Maps.
+    Retorna 0 si la fecha es inválida o ausente.
+    """
+    if not date_str or str(date_str).strip() in ("", "nan", "None"):
+        return 0
+    for fmt in _DATE_FMTS:
+        try:
+            dt = datetime.strptime(str(date_str).strip(), fmt)
+            delta = relativedelta(datetime.now(), dt)
+            return max(0, delta.years * 12 + delta.months)
+        except ValueError:
+            continue
+    return 0
+
+
 # ─── Pre-scoring basado en reglas (sin LLM) ───────────────────────────────────
 
 def pre_score(row: dict[str, Any]) -> int:
@@ -98,6 +121,18 @@ def pre_score(row: dict[str, Any]) -> int:
         score += weights["reviews_high"]
     elif resenas >= cfg.ICP["reviews_mid"]:
         score += weights["reviews_mid"]
+
+    # Velocidad de reseñas (reseñas / mes de actividad)
+    # Un negocio con 80 reseñas en 6 meses es mucho más activo que
+    # uno con 80 reseñas en 10 años.
+    fecha = str(row.get("fecha_inscripcion", row.get("fecha_inicio_actividades", ""))).strip()
+    meses = _months_active(fecha)
+    if meses > 0 and resenas > 0:
+        velocity = resenas / meses
+        if velocity >= cfg.ICP["review_velocity_high"]:
+            score += weights.get("review_velocity_high", 0)
+        elif velocity >= cfg.ICP["review_velocity_mid"]:
+            score += weights.get("review_velocity_mid", 0)
 
     # Rating de Google Maps
     try:
@@ -301,7 +336,9 @@ Devuelve EXACTAMENTE estas claves en el JSON:
 - decision_maker: string ("si" | "no" | "desconocido")
 - blocker: string (breve descripción del obstáculo, o "" si no hay)
 - next_action: string (acción concreta y específica)
-- qualification_notes: string (2-4 frases explicando la calificación)
+- positive_signals: array de strings, máximo 3 (señales positivas que subieron el score; solo cita datos presentes en el lead, no inventes)
+- negative_signals: array de strings, máximo 3 (señales negativas que bajaron el score; ídem)
+- qualification_notes: string (2-3 frases explicando el score en base a las señales anteriores)
 - draft_subject: string (asunto del mensaje)
 - draft_message: string (cuerpo del mensaje listo para enviar)
 """
@@ -312,6 +349,14 @@ Devuelve EXACTAMENTE estas claves en el JSON:
         raise exc.QualificationError(f"Error al llamar al LLM: {e}") from e
 
     result = {k: raw.get(k, "") for k in cfg.OUTPUT_KEYS if k != "qualify_error"}
+
+    # Normalizar positive_signals / negative_signals: array → pipe-separated string
+    for sig_key in ("positive_signals", "negative_signals"):
+        val = result.get(sig_key, [])
+        if isinstance(val, list):
+            result[sig_key] = " | ".join(str(s).strip() for s in val[:3] if s)
+        elif not isinstance(val, str):
+            result[sig_key] = str(val)
 
     # Enforce límite de palabras en draft_message
     max_words = cfg.QUALIFICATION["word_limits"].get(channel, 100)
@@ -377,17 +422,28 @@ def generate_html_report(df: pd.DataFrame, output_path: Path) -> None:
         stage = str(r.get(const.ColumnNames.CRM_STAGE, ""))
         color = stage_colors.get(stage, "#6b7280")
         score = r.get(const.ColumnNames.LEAD_SCORE, "")
-        notes = esc(str(r.get(const.ColumnNames.QUALIFICATION_NOTES, "")).replace("\n", " ")[:120])
+        delta = r.get("score_delta", "")
+        delta_html = (
+            f'<span style="font-size:10px;color:#6b7280;margin-left:4px">(Δ{delta})</span>'
+            if delta != "" else ""
+        )
+        pos = esc(str(r.get("positive_signals", "")))
+        neg = esc(str(r.get("negative_signals", "")))
+        signals_html = ""
+        if pos:
+            signals_html += f'<div style="font-size:11px;color:#16a34a">▲ {pos}</div>'
+        if neg:
+            signals_html += f'<div style="font-size:11px;color:#dc2626">▼ {neg}</div>'
         rows_html += f"""
         <tr>
           <td>{esc(r.get(const.ColumnNames.EMPRESA, ''))}</td>
           <td>{esc(r.get(const.ColumnNames.INDUSTRIA, ''))}</td>
           <td><span style="background:{color};color:white;padding:2px 8px;border-radius:9999px;font-size:12px">{esc(stage)}</span></td>
-          <td style="text-align:center;font-weight:bold">{esc(score)}</td>
-          <td>{esc(r.get(const.ColumnNames.FIT_PRODUCT,''))}</td>
+          <td style="text-align:center;font-weight:bold">{esc(score)}{delta_html}</td>
+          <td>{signals_html}</td>
           <td>{esc(r.get(const.ColumnNames.INTENT_TIMELINE,''))}</td>
           <td>{esc(r.get(const.ColumnNames.NEXT_ACTION,''))}</td>
-          <td style="font-size:12px;color:#4b5563">{notes}…</td>
+          <td style="font-size:12px;color:#4b5563">{esc(str(r.get(const.ColumnNames.QUALIFICATION_NOTES, ''))[:140])}</td>
         </tr>"""
 
     html = f"""<!DOCTYPE html>
@@ -434,8 +490,8 @@ def generate_html_report(df: pd.DataFrame, output_path: Path) -> None:
   <table>
     <thead>
       <tr>
-        <th>Empresa</th><th>Industria</th><th>Etapa</th><th>Score</th>
-        <th>Encaje</th><th>Timeline</th><th>Siguiente acción</th><th>Notas</th>
+        <th>Empresa</th><th>Industria</th><th>Etapa</th><th>Score (Δ)</th>
+        <th>Señales</th><th>Timeline</th><th>Siguiente acción</th><th>Notas</th>
       </tr>
     </thead>
     <tbody>{rows_html}</tbody>

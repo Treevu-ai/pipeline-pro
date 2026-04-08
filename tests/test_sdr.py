@@ -232,3 +232,53 @@ class TestScoreDrift:
         monkeypatch.setattr(llm_client, "call", self._make_mock_llm(55))
         result = sdr.qualify_row({"empresa": "Test"}, "whatsapp", base)
         assert result["lead_score"] == 55
+
+
+# ─── _months_active ───────────────────────────────────────────────────────────
+
+class TestMonthsActive:
+    def test_fecha_dd_mm_yyyy(self):
+        from datetime import datetime
+        # Hace exactamente 24 meses
+        dt = datetime.now().replace(day=1)
+        from dateutil.relativedelta import relativedelta
+        dt24 = dt - relativedelta(months=24)
+        fecha = dt24.strftime("%d/%m/%Y")
+        meses = sdr._months_active(fecha)
+        assert 23 <= meses <= 25
+
+    def test_fecha_iso(self):
+        meses = sdr._months_active("2020-01-01")
+        assert meses > 48  # al menos 4 años
+
+    def test_fecha_vacia_retorna_cero(self):
+        assert sdr._months_active("") == 0
+        assert sdr._months_active("nan") == 0
+        assert sdr._months_active("None") == 0
+
+    def test_fecha_invalida_retorna_cero(self):
+        assert sdr._months_active("no-es-fecha") == 0
+
+
+# ─── review_velocity en pre_score ────────────────────────────────────────────
+
+class TestReviewVelocity:
+    def test_alta_velocidad_suma_mas(self):
+        # Negocio con 120 reseñas en 2 años (5/mes) vs sin fecha
+        from datetime import datetime
+        from dateutil.relativedelta import relativedelta
+        dt = datetime.now() - relativedelta(months=24)
+        fecha = dt.strftime("%d/%m/%Y")
+        lead_con_velocity = {"num_resenas": "120", "fecha_inscripcion": fecha, "industria": ""}
+        lead_sin_fecha    = {"num_resenas": "120", "industria": ""}
+        assert sdr.pre_score(lead_con_velocity) > sdr.pre_score(lead_sin_fecha)
+
+    def test_sin_resenas_velocity_no_suma(self):
+        from datetime import datetime
+        from dateutil.relativedelta import relativedelta
+        dt = datetime.now() - relativedelta(months=12)
+        fecha = dt.strftime("%d/%m/%Y")
+        lead = {"num_resenas": "0", "fecha_inscripcion": fecha}
+        # No debe sumar puntos de velocity si no hay reseñas
+        base = sdr.pre_score({"industria": ""})
+        assert sdr.pre_score(lead) == base

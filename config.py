@@ -69,15 +69,41 @@ ICP = {
     "reviews_high": 50,               # reseñas → negocio activo y establecido
     "reviews_mid": 10,                # reseñas mínimas para señal positiva
     "rating_min_good": 4.0,           # rating mínimo para considerar buena reputación
-    # Distritos de Lima por nivel socioeconómico (proxy de capacidad de pago)
+    # Distritos por nivel socioeconómico alto (proxy de capacidad de pago).
+    # Cubre Lima + 4 ciudades principales de Perú.
     "distritos_high": [
+        # Lima NSE A/B
         "san isidro", "miraflores", "surco", "santiago de surco",
         "san borja", "la molina", "barranco",
+        # Trujillo NSE A/B (urbanizaciones exclusivas)
+        "el golf", "california", "san andres", "el recreo",
+        # Arequipa NSE A/B
+        "cayma", "yanahuara", "selva alegre",
+        # Chiclayo NSE A/B
+        "santa victoria", "la primavera",
+        # Piura NSE A/B
+        "miraflores piura", "los cocos",
+        # Cusco NSE A/B
+        "san blas", "wanchaq",
     ],
     "distritos_medium": [
+        # Lima NSE C
         "jesús maría", "jesus maria", "lince", "magdalena", "pueblo libre",
         "san miguel", "chorrillos", "la victoria", "breña", "cercado", "lima cercado",
+        # Trujillo NSE C
+        "el porvenir", "la esperanza", "florencia de mora", "trujillo centro",
+        # Arequipa NSE C
+        "cercado de arequipa", "cerro colorado", "mariano melgar", "sachaca",
+        # Chiclayo NSE C
+        "jose leonardo ortiz", "la victoria chiclayo", "reque",
+        # Piura NSE C
+        "castilla", "piura centro", "veintiséis de octubre",
+        # Cusco NSE C
+        "santiago cusco", "san jeronimo cusco", "cusco centro",
     ],
+    # Velocidad de reseñas: reseñas/mes — negocio activo vs. heredado
+    "review_velocity_high": 2.0,   # ≥2 reseñas/mes → muy activo
+    "review_velocity_mid":  0.5,   # ≥0.5 reseñas/mes → activo
     # Pesos calibrados para que el pre-score máximo sea ~65.
     # El LLM ajusta los 35 puntos restantes según señales cualitativas.
     "score_weights": {
@@ -93,6 +119,8 @@ ICP = {
         "distrito_medium": 4,         # puntos si está en distrito B
         "has_contact": 5,             # puntos si tiene nombre de contacto
         "has_cargo": 3,               # puntos si tiene cargo del contacto
+        "review_velocity_high": 7,    # puntos si ≥2 reseñas/mes (negocio muy activo)
+        "review_velocity_mid":  3,    # puntos si ≥0.5 reseñas/mes (negocio activo)
     },
 }
 
@@ -141,7 +169,9 @@ OUTPUT_KEYS = (
     "decision_maker",      # si | no | desconocido
     "blocker",             # texto breve o vacío
     "next_action",         # acción concreta
-    "qualification_notes", # resumen 2-4 frases
+    "positive_signals",    # señales positivas (pipe-separated): ">50 reseñas | rating 4.5"
+    "negative_signals",    # señales negativas (pipe-separated): "sin email | cargo ambiguo"
+    "qualification_notes", # resumen 2-3 frases explicando el score
     "draft_subject",       # asunto del email (vacío si canal=whatsapp)
     "draft_message",       # cuerpo del mensaje listo para copiar
     "qualify_error",       # error técnico si hubo fallo
@@ -220,8 +250,9 @@ QUALIFICATION = {
     # Valores por defecto
     "default_delay": 0.3,
     "default_workers": 1,
-    # Límites de score
-    "max_pre_score": 65,
+    # Límites de score.  El cap sube a 70 para absorber review_velocity.
+    # El LLM sigue teniendo banda [base-20, base+25] para ajuste cualitativo.
+    "max_pre_score": 70,
     "max_score": 100,
     "min_score": 0,
     # Clamping: cuánto puede alejarse el LLM del pre-score.
