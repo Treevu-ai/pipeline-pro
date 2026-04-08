@@ -70,7 +70,7 @@ ICP = {
     "reviews_mid": 10,                # reseñas mínimas para señal positiva
     "rating_min_good": 4.0,           # rating mínimo para considerar buena reputación
     # Distritos por nivel socioeconómico (proxy de capacidad de pago).
-    # Cobertura: Lima + 9 ciudades = 10 ciudades principales de Perú.
+    # Cobertura: Lima + 14 ciudades = 15 ciudades principales de Perú.
     # Metodología: distritos_high → NSE A/B (target prioritario),
     #              distritos_medium → NSE C (target secundario).
     # La búsqueda es substring en ciudad + dirección + dirección_fiscal.
@@ -88,14 +88,24 @@ ICP = {
         "los cocos", "country club piura",
         # 6. Cusco NSE A/B
         "san blas", "wanchaq",
-        # 7. Iquitos NSE A/B (hub comercial amazónico)
-        "san juan bautista iquitos", "urb. country iquitos", "los rosales iquitos",
-        # 8. Huancayo NSE A/B (hub comercial sierra central)
-        "el tambo", "urb. san carlos huancayo", "chilca huancayo",
-        # 9. Tacna NSE A/B (hub comercio fronterizo)
+        # 7. Iquitos NSE A/B
+        "san juan bautista iquitos", "los rosales iquitos",
+        # 8. Huancayo NSE A/B
+        "el tambo", "chilca huancayo",
+        # 9. Tacna NSE A/B
         "gregorio albarracin", "ciudad nueva tacna",
-        # 10. Cajamarca NSE A/B (hub minero-comercial norte)
-        "urb. los fresnos", "los sauces cajamarca", "la colmena cajamarca",
+        # 10. Cajamarca NSE A/B
+        "los fresnos cajamarca", "los sauces cajamarca",
+        # 11. Chimbote NSE A/B (pesca industrial + siderurgia, Áncash)
+        "nuevo chimbote", "urb. buenos aires chimbote", "la caleta chimbote",
+        # 12. Ica NSE A/B (agroexportación + vitivinicultura)
+        "ica centro", "los aquijes", "san isidro ica",
+        # 13. Juliaca NSE A/B (hub comercial sur, Puno)
+        "san roman juliaca", "urb. los alamos juliaca",
+        # 14. Pucallpa NSE A/B (hub amazónico central, Ucayali)
+        "yarinacocha", "urb. country pucallpa",
+        # 15. Tarapoto NSE A/B (hub selva norte, San Martín)
+        "banda de shilcayo", "urb. los jardines tarapoto",
     ],
     "distritos_medium": [
         # 1. Lima NSE C
@@ -118,7 +128,17 @@ ICP = {
         # 9. Tacna NSE C
         "tacna centro", "pocollay", "alto de la alianza",
         # 10. Cajamarca NSE C
-        "cajamarca centro", "los banos del inca", "baños del inca",
+        "cajamarca centro", "baños del inca", "los banos del inca",
+        # 11. Chimbote NSE C
+        "chimbote centro", "el progreso chimbote", "villa maria chimbote",
+        # 12. Ica NSE C
+        "la tinguina", "subtanjalla", "parcona",
+        # 13. Juliaca NSE C
+        "juliaca centro", "caracoto", "san miguel juliaca",
+        # 14. Pucallpa NSE C
+        "pucallpa centro", "calleria", "manantay",
+        # 15. Tarapoto NSE C
+        "morales tarapoto", "tarapoto centro", "la banda de shilcayo",
     ],
     # Velocidad de reseñas: reseñas/mes — negocio activo vs. heredado
     "review_velocity_high": 2.0,   # ≥2 reseñas/mes → muy activo
