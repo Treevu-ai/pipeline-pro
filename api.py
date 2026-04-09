@@ -587,6 +587,88 @@ async def _deliver_and_notify(query: str, chat_id: int, limit: int, channel: str
         await _tg_message(chat_id, f"❌ Error procesando el reporte.\n`{str(exc)[:300]}`")
 
 
+# ─── Demo Request endpoint ────────────────────────────────────────────────────
+
+_DEMO_STORE = Path("output/.demo_requests.json")
+
+def _load_demo_store() -> list[dict]:
+    if _DEMO_STORE.exists():
+        try:
+            return json.loads(_DEMO_STORE.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+    return []
+
+def _save_demo_store(data: list[dict]) -> None:
+    _DEMO_STORE.parent.mkdir(parents=True, exist_ok=True)
+    _DEMO_STORE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+class DemoRequest(BaseModel):
+    nombre:    str = Field(..., min_length=2)
+    empresa:   str = Field(..., min_length=2)
+    ruc:       str = Field(..., pattern=r"^\d{8}$|^\d{11}$")
+    email:     str = Field(..., pattern=r"^[^@]+@[^@]+\.[^@]+$")
+    industria: str = Field(..., min_length=2)
+    ciudad:    str = Field(..., min_length=2)
+
+
+@app.post("/demo-request", tags=["Pipeline"], status_code=202)
+async def demo_request(req: DemoRequest, request: Request):
+    """
+    Registra una solicitud de demo gratuita desde la landing.
+    Deduplica por email y RUC. Lanza pipeline en background y notifica al admin.
+    """
+    records = _load_demo_store()
+
+    # Deduplicación
+    for r in records:
+        if r["email"].lower() == req.email.lower():
+            raise HTTPException(status_code=409, detail="Email ya registrado para una demo")
+        if r["ruc"] == req.ruc:
+            raise HTTPException(status_code=409, detail="RUC ya registrado para una demo")
+
+    # Guardar registro
+    ip = request.headers.get("x-forwarded-for", request.client.host if request.client else "unknown")
+    record = {
+        "nombre":    req.nombre,
+        "empresa":   req.empresa,
+        "ruc":       req.ruc,
+        "email":     req.email,
+        "industria": req.industria,
+        "ciudad":    req.ciudad,
+        "ip":        ip,
+        "ts":        datetime.now(timezone.utc).isoformat(),
+        "status":    "pending",
+    }
+    records.append(record)
+    _save_demo_store(records)
+    log.info("Demo solicitada: %s (%s) RUC=%s", req.empresa, req.email, req.ruc)
+
+    # Notificar al admin vía Telegram (usa bot externo Alex que ya está configurado)
+    admin_id = os.environ.get("ADMIN_CHAT_ID")
+    if admin_id:
+        msg = (
+            f"🆕 *Nueva demo solicitada*\n\n"
+            f"*Empresa:* {req.empresa}\n"
+            f"*RUC:* `{req.ruc}`\n"
+            f"*Contacto:* {req.nombre}\n"
+            f"*Email:* {req.email}\n"
+            f"*Industria:* {req.industria}\n"
+            f"*Ciudad:* {req.ciudad}"
+        )
+        asyncio.create_task(_tg_message(int(admin_id), msg))
+
+    # Lanzar pipeline en background y entregar CSV al admin
+    if admin_id:
+        query = f"{req.industria} en {req.ciudad}"
+        asyncio.create_task(
+            _deliver_and_notify(query, int(admin_id), limit=20, channel="email", enrich_sunat=False)
+        )
+
+    return {"ok": True, "message": "Demo en proceso"}
+
+
 # ─── Deliver endpoint ─────────────────────────────────────────────────────────
 
 class DeliverRequest(BaseModel):
