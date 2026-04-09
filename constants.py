@@ -26,7 +26,6 @@ class ColumnNames:
     TELEFONO = "telefono"
     CIUDAD = "ciudad"
     PAIS = "pais"
-    FACTURAS_PENDIENTES = "facturas_pendientes"
     CONTACTO_NOMBRE = "contacto_nombre"
     CARGO = "cargo"
     SITIO_WEB = "sitio_web"
@@ -64,8 +63,8 @@ class ColumnNames:
     YOUTUBE = "youtube"
     TIKTOK = "tiktok"
     DOMINIO_WEB = "dominio_web"
-    EMAIL_PERSONAL_GUESS = "email_personal_guess"
-    EMAIL_PERSONAL_GUESS_2 = "email_personal_guess_2"
+    EMAIL_ESTIMADO = "email_estimado"
+    EMAIL_ESTIMADO_2 = "email_estimado_2"
 
     # Campos de calificación
     CRM_STAGE = "crm_stage"

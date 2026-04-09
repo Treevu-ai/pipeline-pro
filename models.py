@@ -29,7 +29,6 @@ class Lead:
         telefono: Teléfono de contacto.
         ciudad: Ciudad.
         pais: País (default: "Peru").
-        facturas_pendientes: Número de facturas pendientes.
         contacto_nombre: Nombre del contacto.
         cargo: Cargo del contacto.
         sitio_web: URL del sitio web.
@@ -63,8 +62,8 @@ class Lead:
         youtube: URL de YouTube.
         tiktok: URL de TikTok.
         dominio_web: Dominio del sitio web.
-        email_personal_guess: Email personal estimado.
-        email_personal_guess_2: Segundo email personal estimado.
+        email_estimado: Email personal estimado.
+        email_estimado_2: Segundo email personal estimado.
 
         # Campos de calificación
         crm_stage: Etapa en el CRM.
@@ -89,7 +88,6 @@ class Lead:
     telefono: Optional[str] = None
     ciudad: Optional[str] = None
     pais: str = "Peru"
-    facturas_pendientes: int = 0
     contacto_nombre: Optional[str] = None
     cargo: Optional[str] = None
     sitio_web: Optional[str] = None
@@ -109,6 +107,7 @@ class Lead:
     direccion_fiscal: str = ""
     actividad_economica: str = ""
     tipo_contribuyente: str = ""
+    capacidad_pago: str = ""           # Alta | Media | Básica | Sin datos — derivado de SUNAT
 
     # Campos de enriquecimiento de contactos
     email_web: str = ""
@@ -123,11 +122,12 @@ class Lead:
     youtube: str = ""
     tiktok: str = ""
     dominio_web: str = ""
-    email_personal_guess: str = ""
-    email_personal_guess_2: str = ""
+    email_estimado: str = ""
+    email_estimado_2: str = ""
 
     # Campos de calificación
     crm_stage: str = const.CRMStages.PROSPECCION
+    prioridad: str = ""                # Alta | Media | Baja — calculado post-calificación
     notas_previas: str = ""
     lead_score: int = 0
     fit_product: str = "dudoso"
@@ -251,12 +251,12 @@ class Lead:
         """
         Obtiene el email principal del lead.
 
-        Prioridad: email > email_web > email_personal_guess.
+        Prioridad: email > email_web > email_estimado.
 
         Returns:
             Email principal o None si no hay.
         """
-        return self.email or self.email_web or self.email_personal_guess or None
+        return self.email or self.email_web or self.email_estimado or None
 
     def get_primary_phone(self) -> Optional[str]:
         """

@@ -375,7 +375,42 @@ Devuelve EXACTAMENTE estas claves en el JSON:
             cfg.QUALIFICATION["score_drift_down"], cfg.QUALIFICATION["score_drift_up"],
         )
 
+    # Traducir intent_timeline a texto legible
+    _timeline_map = {
+        "<30d":       "Inmediato (< 30 días)",
+        "30-90d":     "Corto plazo (1–3 meses)",
+        ">90d":       "Largo plazo (> 3 meses)",
+        "desconocido": "Sin definir",
+    }
+    result["intent_timeline"] = _timeline_map.get(
+        str(result.get("intent_timeline", "desconocido")),
+        str(result.get("intent_timeline", "Sin definir")),
+    )
+
+    # Calcular prioridad sintetizada
+    result["prioridad"] = _calc_prioridad(
+        score=result["lead_score"],
+        decision_maker=str(result.get("decision_maker", "")),
+        timeline=str(result.get("intent_timeline", "")),
+        stage=str(result.get("crm_stage", "")),
+    )
+
     return result
+
+
+def _calc_prioridad(score: int, decision_maker: str, timeline: str, stage: str) -> str:
+    """Alta / Media / Baja según score + decisor + timeline + etapa CRM."""
+    if stage == "Descartado":
+        return "Baja"
+    is_decision_maker = decision_maker == "si"
+    is_urgent = timeline in ("<30d", "Inmediato", "Inmediato (< 30 días)")
+    if score >= 65 and (is_decision_maker or is_urgent):
+        return "Alta"
+    if score >= 65 or (score >= 45 and is_decision_maker):
+        return "Media"
+    if score >= 40:
+        return "Media"
+    return "Baja"
 
 
 # ─── Reporte HTML ─────────────────────────────────────────────────────────────

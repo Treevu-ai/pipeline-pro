@@ -221,10 +221,33 @@ def enrich_sunat(ruc: str) -> dict[str, Any]:
                 data.get("fechaInscripcion") or data.get("fechaInicioActividades", "")
             ),
             "tipo_contribuyente":    data.get("tipoContribuyente", ""),
+            "capacidad_pago":        _capacidad_pago(
+                data.get("tipoContribuyente", ""),
+                data.get("regimenTributario", ""),
+            ),
         }
     except Exception as e:
         log.debug("SUNAT lookup falló para RUC %s: %s", ruc, e)
         raise exc.SunatError(f"No se pudo consultar RUC {ruc}", ruc=ruc) from e
+
+
+def _capacidad_pago(tipo_contribuyente: str, regimen: str) -> str:
+    """Traduce régimen SUNAT a capacidad de pago legible para el equipo comercial."""
+    t = tipo_contribuyente.upper()
+    r = regimen.upper()
+    # Régimen General → empresas medianas/grandes, mayor capacidad de pago
+    if "GENERAL" in r or "TERCERA CATEGORIA" in t:
+        return "Alta"
+    # Régimen MYPE Tributario → MYPE consolidada
+    if "MYPE" in r or "MYPE" in t:
+        return "Media"
+    # Régimen Especial de Renta → microempresa activa
+    if "ESPECIAL" in r or "RER" in r:
+        return "Básica"
+    # RUS → microempresa mínima
+    if "RUS" in r or "SIMPLIFICADO" in r or "UNICO" in r:
+        return "Básica"
+    return "Sin datos"
 
 
 # ─── Scraper de Google Maps (Playwright async) ────────────────────────────────
