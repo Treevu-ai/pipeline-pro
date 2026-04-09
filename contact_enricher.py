@@ -242,6 +242,130 @@ def find_website(empresa: str, ciudad: str = "", headful: bool = False) -> str:
     return asyncio.run(_find_website_async(empresa, ciudad, headful))
 
 
+async def _find_websites_batch_async(
+    queries: list[tuple[str, str]], headful: bool = False
+) -> list[str]:
+    """
+    Busca sitios web de varias empresas reutilizando un único browser.
+
+    Args:
+        queries: Lista de (empresa, ciudad).
+        headful: Si abrir el navegador visible.
+
+    Returns:
+        Lista de URLs (mismo orden que queries); string vacío si no se encuentra.
+    """
+    try:
+        from playwright.async_api import async_playwright
+    except ImportError:
+        raise exc.PlaywrightNotAvailableError(
+            "Playwright no instalado. Ejecuta: pip install playwright && playwright install chromium"
+        )
+
+    results = [""] * len(queries)
+    _SKIP_DOMAINS = [
+        "facebook.com", "linkedin.com", "youtube.com", "instagram.com",
+        "twitter.com", "x.com", "tiktok.com", "google.com", "googleapis.com",
+    ]
+
+    try:
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(headless=not headful, slow_mo=50 if headful else 0)
+            ctx = await browser.new_context(
+                locale="es-419",
+                user_agent=(
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/120.0.0.0 Safari/537.36"
+                ),
+            )
+            page = await ctx.new_page()
+            cookies_accepted = False
+
+            for i, (empresa, ciudad) in enumerate(queries):
+                if not empresa:
+                    continue
+
+                query = f'"{empresa}" sitio web oficial'
+                if ciudad:
+                    query += f" {ciudad}"
+
+                log.info("Buscando sitio web [%d/%d]: %s", i + 1, len(queries), empresa)
+
+                try:
+                    google_url = (
+                        f"https://www.google.com/search?q={utils.urllib.parse.quote(query)}"
+                    )
+                    await page.goto(google_url, wait_until="domcontentloaded", timeout=30_000)
+                    await page.wait_for_timeout(1500)
+
+                    if not cookies_accepted:
+                        try:
+                            await page.click('button:has-text("Aceptar todo")', timeout=1500)
+                            await page.wait_for_timeout(300)
+                            cookies_accepted = True
+                        except Exception:
+                            pass
+
+                    selectors = [
+                        'div.g a[href^="http"]',
+                        'div[data-hveid] a[href^="http"]',
+                        'a[href^="http"]',
+                    ]
+                    found = ""
+                    for selector in selectors:
+                        els = await page.locator(selector).all()
+                        for el in els[:10]:
+                            href = await el.get_attribute("href")
+                            if not href or "google.com" in href or "url?q=" in href:
+                                continue
+                            if any(d in href.lower() for d in _SKIP_DOMAINS):
+                                continue
+                            parsed = utils.urllib.parse.urlparse(href)
+                            domain = parsed.netloc
+                            if (
+                                domain
+                                and "example.com" not in domain
+                                and len(domain) > cfg.ENRICHMENT["min_domain_length"]
+                            ):
+                                found = f"https://{domain}"
+                                break
+                        if found:
+                            break
+
+                    results[i] = found
+                    log.info("  → %s", found or "no encontrado")
+                    await page.wait_for_timeout(800)  # pausa cortés entre búsquedas
+
+                except Exception as e:
+                    log.debug("Error buscando %s: %s", empresa, e)
+
+            await browser.close()
+
+    except exc.PlaywrightNotAvailableError:
+        raise
+    except Exception as e:
+        log.warning("Batch browser search error: %s", e)
+
+    return results
+
+
+def find_websites_batch(queries: list[tuple[str, str]], headful: bool = False) -> list[str]:
+    """
+    Busca sitios web de múltiples empresas reutilizando un único browser (wrapper síncrono).
+
+    Más eficiente que llamar a find_website() por cada lead.
+
+    Args:
+        queries: Lista de (empresa, ciudad).
+        headful: Si abrir el navegador visible.
+
+    Returns:
+        Lista de URLs en el mismo orden que queries.
+    """
+    return asyncio.run(_find_websites_batch_async(queries, headful))
+
+
 # ─── Enriquecimiento desde sitio web ───────────────────────────────────────────
 
 @utils.rate_limit(**cfg.RATE_LIMITING["website_scraping"])
@@ -377,6 +501,9 @@ def enrich_leads(leads: list[dict[str, Any]], delay: float = 1.0, headful: bool 
     """
     Enriquece una lista de leads.
 
+    Hace una búsqueda batch de sitios web (un solo browser para todos los leads
+    sin sitio web) antes de procesar el enriquecimiento individual.
+
     Args:
         leads: Lista de leads a enriquecer.
         delay: Pausa entre peticiones en segundos.
@@ -386,10 +513,39 @@ def enrich_leads(leads: list[dict[str, Any]], delay: float = 1.0, headful: bool 
     Returns:
         Lista de leads enriquecidos.
     """
+    if not leads:
+        return []
+
+    # Pre-paso: buscar sitios web faltantes con un único browser compartido.
+    needs_idx = [
+        i for i, l in enumerate(leads)
+        if not l.get(const.ColumnNames.SITIO_WEB)
+    ]
+    if needs_idx:
+        queries = [
+            (
+                leads[i].get(const.ColumnNames.EMPRESA, ""),
+                leads[i].get(const.ColumnNames.CIUDAD, ""),
+            )
+            for i in needs_idx
+        ]
+        log.info("Buscando sitios web faltantes: %d leads (batch browser)", len(needs_idx))
+        try:
+            found_sites = find_websites_batch(queries, headful)
+        except Exception as e:
+            log.warning("Batch website search failed, se intentará por lead: %s", e)
+            found_sites = [""] * len(needs_idx)
+
+        # Copiar lista para no mutar el argumento del llamador
+        leads = [l.copy() for l in leads]
+        for i_lead, website in zip(needs_idx, found_sites):
+            if website:
+                leads[i_lead][const.ColumnNames.SITIO_WEB] = website
+
+    # Enriquecimiento desde sitios web (enrich_lead ya no llama find_website si hay sitio)
     if workers == 1:
         return [enrich_lead(lead, delay, headful) for lead in leads]
 
-    # Procesamiento paralelo
     with ThreadPoolExecutor(max_workers=workers) as executor:
         futures = {executor.submit(enrich_lead, lead, delay, headful): i
                   for i, lead in enumerate(leads)}

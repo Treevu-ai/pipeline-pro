@@ -36,11 +36,15 @@ class ColumnNames:
 
     # Campos de enriquecimiento SUNAT
     RAZON_SOCIAL_OFICIAL = "razon_social_oficial"
-    ESTADO_SUNAT = "estado_sunat"
-    CONDICION_SUNAT = "condicion_sunat"
-    DIRECCION_FISCAL = "direccion_fiscal"
-    ACTIVIDAD_ECONOMICA = "actividad_economica"
-    TIPO_CONTRIBUYENTE = "tipo_contribuyente"
+    ESTADO_SUNAT          = "estado_sunat"
+    CONDICION_SUNAT       = "condicion_sunat"
+    DIRECCION_FISCAL      = "direccion_fiscal"
+    UBIGEO                = "ubigeo"
+    ACTIVIDAD_ECONOMICA   = "actividad_economica"
+    CIIU                  = "ciiu"
+    REGIMEN_TRIBUTARIO    = "regimen_tributario"
+    FECHA_INSCRIPCION     = "fecha_inscripcion"
+    TIPO_CONTRIBUYENTE    = "tipo_contribuyente"
 
     # Campos de enriquecimiento de contactos
     EMAIL_WEB = "email_web"
@@ -310,3 +314,60 @@ class ExitCodes:
     FILE_NOT_FOUND = 3
     NETWORK_ERROR = 4
     VALIDATION_ERROR = 5
+
+
+# ─── CIIU → Industria (CIIU rev.4 — sección + división) ───────────────────────
+# Clave: primeros 2 dígitos del código CIIU.
+# Valor: label que coincide con ICP["target_industries"].
+# Solo se mapean las secciones con fit real para Pipeline_X.
+CIIU_TO_INDUSTRY: dict[str, str] = {
+    # Comercio al por mayor y menor
+    "45": "Comercio",      # venta/reparación vehículos
+    "46": "Comercio",      # comercio al por mayor
+    "47": "Retail",        # comercio al por menor
+    # Construcción
+    "41": "Construcción",
+    "42": "Construcción",  # ingeniería civil
+    "43": "Construcción",  # actividades especializadas
+    # Transporte y logística
+    "49": "Logística",     # transporte terrestre
+    "50": "Logística",     # transporte acuático
+    "51": "Logística",     # transporte aéreo
+    "52": "Logística",     # almacenamiento
+    "53": "Logística",     # correo y mensajería
+    # Inmobiliaria
+    "68": "Inmobiliaria",
+    # Actividades profesionales (canal intermediario)
+    "69": "Contabilidad",  # contabilidad, auditoría, teneduría
+    "70": "Consultoría",   # actividades de dirección/gestión
+    "71": "Consultoría",   # arquitectura, ingeniería, consultoría
+    "73": "Marketing",     # publicidad y estudios de mercado
+    "74": "Consultoría",   # otras actividades profesionales
+}
+
+# ─── Régimen tributario → peso de tamaño (1=micro … 4=grande) ─────────────────
+# Fuente: SUNAT campo regimenTributario (cuando está disponible).
+REGIMEN_SIZE: dict[str, int] = {
+    "NUEVO RUS":                    1,
+    "NRUS":                         1,
+    "RÉGIMEN ESPECIAL":             2,
+    "RER":                          2,
+    "RÉGIMEN MYPE TRIBUTARIO":      3,
+    "RMT":                          3,
+    "RÉGIMEN GENERAL":              4,
+    "RG":                           4,
+}
+
+# ─── Ubigeo (primeros 2 dígitos = departamento) → ciudad principal ─────────────
+# Permite identificar la ciudad a partir del código ubigeo sin lookup completo.
+UBIGEO_DEPT_TO_CITY: dict[str, str] = {
+    "01": "Amazonas",    "02": "Chimbote",    "03": "Apurímac",
+    "04": "Arequipa",    "05": "Ayacucho",    "06": "Cajamarca",
+    "07": "Callao",      "08": "Cusco",       "09": "Huancavelica",
+    "10": "Huánuco",     "11": "Ica",         "12": "Huancayo",
+    "13": "Trujillo",    "14": "Chiclayo",    "15": "Lima",
+    "16": "Iquitos",     "17": "Madre de Dios","18": "Moquegua",
+    "19": "Pasco",       "20": "Piura",       "21": "Juliaca",
+    "22": "Tarapoto",    "23": "Tacna",       "24": "Tumbes",
+    "25": "Pucallpa",
+}

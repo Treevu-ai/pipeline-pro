@@ -160,6 +160,11 @@ ICP = {
         "has_cargo": 3,               # puntos si tiene cargo del contacto
         "review_velocity_high": 7,    # puntos si ≥2 reseñas/mes (negocio muy activo)
         "review_velocity_mid":  3,    # puntos si ≥0.5 reseñas/mes (negocio activo)
+        # Régimen tributario SUNAT (proxy de tamaño y capacidad de pago)
+        "regimen_general": 8,         # Régimen General → empresa mediana/grande
+        "regimen_mype":    5,         # Régimen MYPE Tributario → MYPE establecida
+        "regimen_rer":     2,         # Régimen Especial → microempresa activa
+        # RUS no suma — microempresa mínima, capacidad de pago insuficiente
     },
 }
 

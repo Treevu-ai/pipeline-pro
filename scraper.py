@@ -203,12 +203,24 @@ def enrich_sunat(ruc: str) -> dict[str, Any]:
         with utils.urllib.request.urlopen(req, timeout=8) as resp:
             data = json.loads(resp.read().decode("utf-8"))
         return {
-            "razon_social_oficial": data.get("razonSocial", ""),
-            "estado_sunat": data.get("estado", ""),
-            "condicion_sunat": data.get("condicion", ""),
-            "direccion_fiscal": data.get("direccion", ""),
-            "actividad_economica": data.get("actividadEconomica", ""),
-            "tipo_contribuyente": data.get("tipoContribuyente", ""),
+            "razon_social_oficial":  data.get("razonSocial", ""),
+            "estado_sunat":          data.get("estado", ""),
+            "condicion_sunat":       data.get("condicion", ""),
+            "direccion_fiscal":      data.get("direccion", ""),
+            "ubigeo":                data.get("ubigeo", ""),
+            "actividad_economica":   data.get("actividadEconomica", ""),
+            # Código CIIU — algunos endpoints lo devuelven como "ciiu" o "codigoCIIU"
+            "ciiu":                  (
+                data.get("ciiu") or data.get("codigoCIIU") or
+                # Fallback: extraer los primeros 4 dígitos de actividadEconomica si empieza con número
+                (data.get("actividadEconomica", "")[:4]
+                 if data.get("actividadEconomica", "")[:1].isdigit() else "")
+            ),
+            "regimen_tributario":    data.get("regimenTributario", ""),
+            "fecha_inscripcion":     (
+                data.get("fechaInscripcion") or data.get("fechaInicioActividades", "")
+            ),
+            "tipo_contribuyente":    data.get("tipoContribuyente", ""),
         }
     except Exception as e:
         log.debug("SUNAT lookup falló para RUC %s: %s", ruc, e)

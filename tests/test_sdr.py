@@ -282,3 +282,69 @@ class TestReviewVelocity:
         # No debe sumar puntos de velocity si no hay reseñas
         base = sdr.pre_score({"industria": ""})
         assert sdr.pre_score(lead) == base
+
+
+# ─── Edge cases ───────────────────────────────────────────────────────────────
+
+class TestEdgeCases:
+    """Casos borde: campos nan, None, LLM que falla."""
+
+    def test_pre_score_nan_string_fields_no_crash(self):
+        """Pandas puede pasar 'nan' como string en campos numéricos."""
+        lead = {
+            "empresa": "Test SAC",
+            "num_resenas": "nan",
+            "rating": "nan",
+            "facturas_pendientes": "nan",
+            "fecha_inscripcion": "nan",
+        }
+        score = sdr.pre_score(lead)
+        assert isinstance(score, int)
+        assert 0 <= score <= 65
+
+    def test_pre_score_none_fields_no_crash(self):
+        """Campos con None no deben romper pre_score."""
+        lead = {
+            "empresa": "Test SAC",
+            "email": None,
+            "telefono": None,
+            "sitio_web": None,
+            "num_resenas": None,
+            "rating": None,
+        }
+        score = sdr.pre_score(lead)
+        assert isinstance(score, int)
+        assert 0 <= score <= 65
+
+    def test_qualify_row_llm_exception_propagates(self, monkeypatch):
+        """Si el LLM lanza excepción, qualify_row la propaga (el pipeline la captura)."""
+        import llm_client
+        import exceptions as exc_mod
+
+        monkeypatch.setattr(
+            llm_client, "call",
+            lambda s, u: (_ for _ in ()).throw(exc_mod.LLMResponseError("mock fail"))
+        )
+        with pytest.raises(Exception):
+            sdr.qualify_row({"empresa": "Test"}, "email", 30)
+
+    def test_should_auto_discard_sac_inactiva(self):
+        """'SAC inactiva' como keyword debe descartar."""
+        disc, motivo = sdr.should_auto_discard({"empresa": "Comercio SAC inactiva SRL"})
+        assert disc is True
+        assert "sac inactiva" in motivo.lower()
+
+    def test_pre_score_empty_string_fields(self):
+        """Campos vacíos no deben sumar ni romper."""
+        lead = {
+            "empresa": "",
+            "industria": "",
+            "email": "",
+            "telefono": "",
+            "sitio_web": "",
+            "num_resenas": "",
+            "rating": "",
+        }
+        import config as cfg
+        score = sdr.pre_score(lead)
+        assert score == cfg.ICP["score_weights"]["base"]

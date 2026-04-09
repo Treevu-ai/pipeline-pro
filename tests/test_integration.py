@@ -729,5 +729,75 @@ class TestEndToEndIntegration:
         assert top_3[1].lead_score >= top_3[2].lead_score
 
 
+# ─── Tests de casos edge ──────────────────────────────────────────────────────
+
+class TestEdgeCasesIntegration:
+    """Casos borde: listas vacías, archivos inexistentes, datos inválidos."""
+
+    def test_enrich_leads_empty_list(self) -> None:
+        """enrich_leads con lista vacía debe devolver lista vacía."""
+        from contact_enricher import enrich_leads
+        result = enrich_leads([])
+        assert result == []
+
+    def test_read_csv_not_found(self, tmp_path: Path) -> None:
+        """read_csv con archivo inexistente debe levantar FileNotFoundError."""
+        from contact_enricher import read_csv
+        with pytest.raises(exc.FileNotFoundError):
+            read_csv(tmp_path / "nonexistent.csv")
+
+    def test_save_csv_empty_list_no_crash(self, output_dir: Path) -> None:
+        """save_csv con lista vacía no debe fallar ni crear archivo."""
+        from contact_enricher import save_csv
+        path = output_dir / "empty.csv"
+        save_csv([], path)
+        assert not path.exists()
+
+    def test_validate_lead_data_negative_facturas(self) -> None:
+        """facturas_pendientes negativo debe reportar error de validación."""
+        data = {
+            const.ColumnNames.EMPRESA: "Test SAC",
+            const.ColumnNames.FACTURAS_PENDIENTES: "-5",
+        }
+        errors = utils.validate_lead_data(data)
+        assert any("factura" in e.lower() for e in errors)
+
+    def test_pre_score_all_nans(self) -> None:
+        """pre_score con todos los campos como 'nan' no debe fallar."""
+        from sdr_agent import pre_score
+        import config as cfg
+        lead = {
+            const.ColumnNames.EMPRESA: "nan",
+            const.ColumnNames.INDUSTRIA: "nan",
+            const.ColumnNames.EMAIL: "nan",
+            const.ColumnNames.TELEFONO: "nan",
+            const.ColumnNames.NUM_RESENAS: "nan",
+            const.ColumnNames.RATING: "nan",
+        }
+        score = pre_score(lead)
+        assert isinstance(score, int)
+        assert score == cfg.ICP["score_weights"]["base"]
+
+    def test_lead_from_dict_extra_fields_ignored(self, sample_lead_data: dict) -> None:
+        """Lead.from_dict debe ignorar campos desconocidos sin fallar."""
+        data = {**sample_lead_data, "campo_inventado": "valor_cualquiera"}
+        lead = models.Lead.from_dict(data)
+        assert lead.empresa == sample_lead_data[const.ColumnNames.EMPRESA]
+
+    def test_csv_with_missing_column_reads_ok(self, tmp_path: Path) -> None:
+        """Un CSV sin la columna 'industria' debe leerse sin error."""
+        from contact_enricher import read_csv
+        csv_path = tmp_path / "minimal.csv"
+        with open(csv_path, "w", newline="", encoding="utf-8-sig") as f:
+            import csv as csv_mod
+            writer = csv_mod.DictWriter(f, fieldnames=["empresa", "email"])
+            writer.writeheader()
+            writer.writerow({"empresa": "Test SAC", "email": "a@b.com"})
+        leads = read_csv(csv_path)
+        assert len(leads) == 1
+        assert leads[0]["empresa"] == "Test SAC"
+        assert "industria" not in leads[0]
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

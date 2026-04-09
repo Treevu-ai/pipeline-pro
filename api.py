@@ -16,13 +16,16 @@ Endpoints:
 Variables de entorno requeridas:
   GROQ_API_KEY          — clave de API de Groq
   TELEGRAM_BOT_TOKEN    — token del bot de Telegram (@BotFather)
+  NOTION_DB_ID          — ID de la BD Notion para marcar leads (opcional)
 """
 from __future__ import annotations
 
 import asyncio
 import csv
 import io
+import json
 import os
+from pathlib import Path
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Literal, Optional
@@ -400,10 +403,34 @@ def get_job_result(job_id: str):
 _TG_TOKEN      = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 _TG_API        = "https://api.telegram.org/bot"
 _NOTION_TOKEN  = os.environ.get("NOTION_PIPELINE_TOKEN", "")
-_NOTION_DB_ID  = "c8e55705-b3ab-4e79-a977-cd4f7c64dd51"
+_NOTION_DB_ID  = os.environ.get("NOTION_DB_ID", "c8e55705-b3ab-4e79-a977-cd4f7c64dd51")
 
-# Estado de conversación por chat_id (persiste en memoria mientras Railway corre)
-_bot_states: dict[int, dict] = {}
+# Estado de conversación — persistido en archivo JSON para sobrevivir reinicios.
+_BOT_STATES_FILE = Path("output/.bot_states.json")
+
+
+def _load_bot_states() -> dict[int, dict]:
+    """Carga el estado del bot desde disco."""
+    try:
+        data = json.loads(_BOT_STATES_FILE.read_text(encoding="utf-8"))
+        return {int(k): v for k, v in data.items()}
+    except Exception:
+        return {}
+
+
+def _save_bot_states() -> None:
+    """Persiste el estado del bot a disco."""
+    try:
+        _BOT_STATES_FILE.parent.mkdir(parents=True, exist_ok=True)
+        _BOT_STATES_FILE.write_text(
+            json.dumps({str(k): v for k, v in _bot_states.items()}, ensure_ascii=False),
+            encoding="utf-8",
+        )
+    except Exception:
+        pass
+
+
+_bot_states: dict[int, dict] = _load_bot_states()
 
 
 async def _tg_post(method: str, payload: dict) -> None:
@@ -593,6 +620,7 @@ def _alex_reply(chat_id: int, user_text: str) -> str:
         reply_dict = llm_client.call(_get_alex_prompt(), user_text)
         reply = str(reply_dict) if isinstance(reply_dict, dict) else str(reply_dict)
         history.append({"role": "assistant", "content": reply})
+        _save_bot_states()
         return reply
     except Exception:
         return (
@@ -641,12 +669,14 @@ async def telegram_webhook(request: Request):
             loop = asyncio.get_event_loop()
             reply = await loop.run_in_executor(None, _alex_reply, chat_id, "/start")
             await _tg_message(chat_id, reply)
+        _save_bot_states()
         return {"ok": True}
 
     # ── Flujo de reporte: esperando target ────────────────────────────────────
     if state.get("flow") == "report":
         target = text
         _bot_states[chat_id] = {}
+        _save_bot_states()
         asyncio.create_task(
             _deliver_and_notify(target, chat_id, limit=30, channel="whatsapp", enrich_sunat=True)
         )

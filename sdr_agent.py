@@ -106,10 +106,22 @@ def pre_score(row: dict[str, Any]) -> int:
     weights = cfg.ICP["score_weights"]
     score = weights["base"]
 
-    # Industria
+    # ── Industria ────────────────────────────────────────────────────────────
+    # Prioridad: CIIU (código oficial SUNAT) > texto libre de industria.
+    # CIIU es 100% confiable; el texto de Google Maps puede ser ambiguo.
+    ciiu = str(row.get(const.ColumnNames.CIIU, "")).strip()
     industry = str(row.get(const.ColumnNames.INDUSTRIA, "")).strip()
-    if any(t.lower() in industry.lower() for t in cfg.ICP["target_industries"]):
-        score += weights["industry_match"]
+    industry_matched = False
+    if ciiu:
+        prefix = ciiu[:2]
+        if prefix in const.CIIU_TO_INDUSTRY:
+            matched_label = const.CIIU_TO_INDUSTRY[prefix]
+            if matched_label in cfg.ICP["target_industries"]:
+                score += weights["industry_match"]
+                industry_matched = True
+    if not industry_matched and industry:
+        if any(t.lower() in industry.lower() for t in cfg.ICP["target_industries"]):
+            score += weights["industry_match"]
 
     # Reseñas de Google Maps
     try:
@@ -158,18 +170,44 @@ def pre_score(row: dict[str, Any]) -> int:
     if phone and len(phone.replace(".", "").replace("+", "").replace(" ", "")) >= 7:
         score += weights["has_phone"]
 
-    # Distrito (proxy de nivel socioeconómico)
+    # ── Distrito (proxy de nivel socioeconómico) ─────────────────────────────
+    # Construimos address_fields con todos los campos de dirección disponibles.
+    # Ubigeo se resuelve ANTES del matching para que ciudades de los 15 mercados
+    # contribuyan aunque no estén escritas en el campo ciudad del CSV.
+    ubigeo = str(row.get(const.ColumnNames.UBIGEO, "")).strip()
+    ciudad_ubigeo = ""
+    if ubigeo and len(ubigeo) >= 2:
+        ciudad_ubigeo = const.UBIGEO_DEPT_TO_CITY.get(ubigeo[:2], "").lower()
+
     address_fields = " ".join([
         str(row.get(const.ColumnNames.CIUDAD, "")),
         str(row.get(const.ColumnNames.DIRECCION, "")),
         str(row.get(const.ColumnNames.DIRECCION_FISCAL, "")),
+        ciudad_ubigeo,
     ]).lower()
     if any(d in address_fields for d in cfg.ICP["distritos_high"]):
         score += weights["distrito_high"]
     elif any(d in address_fields for d in cfg.ICP["distritos_medium"]):
         score += weights["distrito_medium"]
 
-    # Contacto
+    # ── Régimen tributario (proxy de tamaño/capacidad de pago) ───────────────
+    # Régimen General > MYPE > RER > RUS.  Solo suma si hay dato oficial SUNAT.
+    regimen = str(row.get(const.ColumnNames.REGIMEN_TRIBUTARIO, "")).strip().upper()
+    if regimen:
+        size = 0
+        for key, val in const.REGIMEN_SIZE.items():
+            if key in regimen:
+                size = val
+                break
+        if size >= 4:
+            score += weights.get("regimen_general", 0)
+        elif size >= 3:
+            score += weights.get("regimen_mype", 0)
+        elif size >= 2:
+            score += weights.get("regimen_rer", 0)
+        # RUS no suma — microempresa, capacidad de pago insuficiente
+
+    # ── Contacto ──────────────────────────────────────────────────────────────
     if str(row.get(const.ColumnNames.CONTACTO_NOMBRE, row.get("contact_name", ""))).strip():
         score += weights.get("has_contact", 0)
 
