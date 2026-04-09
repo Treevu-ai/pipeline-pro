@@ -10,18 +10,25 @@ Endpoints:
   POST /jobs/pipeline           Lanza pipeline en background
   GET  /jobs/{job_id}           Estado del job
   GET  /jobs/{job_id}/result    Resultado del job
+  POST /deliver                 Pipeline + entrega CSV por Telegram
+  POST /webhook/telegram        Webhook del bot de Telegram
 
 Variables de entorno requeridas:
-  GROQ_API_KEY   — clave de API de Groq
+  GROQ_API_KEY          — clave de API de Groq
+  TELEGRAM_BOT_TOKEN    — token del bot de Telegram (@BotFather)
 """
 from __future__ import annotations
 
 import asyncio
+import csv
+import io
+import os
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Literal, Optional
 
-from fastapi import FastAPI, HTTPException
+import httpx
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -386,3 +393,272 @@ def get_job_result(job_id: str):
     if job["status"] == "failed":
         raise HTTPException(status_code=500, detail=job["error"])
     return job["result"]
+
+
+# ─── Telegram helpers ─────────────────────────────────────────────────────────
+
+_TG_TOKEN      = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+_TG_API        = "https://api.telegram.org/bot"
+_NOTION_TOKEN  = os.environ.get("NOTION_PIPELINE_TOKEN", "")
+_NOTION_DB_ID  = "c8e55705-b3ab-4e79-a977-cd4f7c64dd51"
+
+# Estado de conversación por chat_id (persiste en memoria mientras Railway corre)
+_bot_states: dict[int, dict] = {}
+
+
+async def _tg_post(method: str, payload: dict) -> None:
+    if not _TG_TOKEN:
+        return
+    async with httpx.AsyncClient(timeout=15) as client:
+        await client.post(f"{_TG_API}{_TG_TOKEN}/{method}", json=payload)
+
+
+async def _tg_message(chat_id: int, text: str) -> None:
+    await _tg_post("sendMessage", {
+        "chat_id": chat_id,
+        "text": text,
+        "parse_mode": "Markdown",
+    })
+
+
+async def _tg_document(chat_id: int, filename: str, content: bytes, caption: str = "") -> None:
+    if not _TG_TOKEN:
+        return
+    async with httpx.AsyncClient(timeout=60) as client:
+        await client.post(
+            f"{_TG_API}{_TG_TOKEN}/sendDocument",
+            data={"chat_id": str(chat_id), "caption": caption, "parse_mode": "Markdown"},
+            files={"document": (filename, content, "text/csv; charset=utf-8")},
+        )
+
+
+def _leads_to_csv(leads: list[dict]) -> bytes:
+    if not leads:
+        return b""
+    buf = io.StringIO()
+    writer = csv.DictWriter(buf, fieldnames=list(leads[0].keys()), extrasaction="ignore")
+    writer.writeheader()
+    writer.writerows(leads)
+    return buf.getvalue().encode("utf-8-sig")  # BOM para Excel
+
+
+async def _notion_mark_delivered(target: str) -> None:
+    """Busca en Notion el lead con ese target y marca Estado = Entregado."""
+    if not _NOTION_TOKEN:
+        return
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            # Buscar entrada con target coincidente y estado Nuevo
+            search = await client.post(
+                f"https://api.notion.com/v1/databases/{_NOTION_DB_ID}/query",
+                headers={
+                    "Authorization": f"Bearer {_NOTION_TOKEN}",
+                    "Notion-Version": "2022-06-28",
+                    "Content-Type": "application/json",
+                },
+                json={"filter": {"property": "Estado", "select": {"equals": "Nuevo"}}},
+            )
+            pages = search.json().get("results", [])
+            # Buscar la página cuyo Target coincida
+            page_id = None
+            for page in pages:
+                props = page.get("properties", {})
+                tgt = props.get("Target", {}).get("rich_text", [])
+                tgt_val = tgt[0]["text"]["content"] if tgt else ""
+                if tgt_val.strip().lower() == target.strip().lower():
+                    page_id = page["id"]
+                    break
+            if not page_id:
+                return
+            # Actualizar Estado → Entregado
+            await client.patch(
+                f"https://api.notion.com/v1/pages/{page_id}",
+                headers={
+                    "Authorization": f"Bearer {_NOTION_TOKEN}",
+                    "Notion-Version": "2022-06-28",
+                    "Content-Type": "application/json",
+                },
+                json={"properties": {"Estado": {"select": {"name": "Entregado"}}}},
+            )
+    except Exception:
+        pass  # No bloquear la entrega si Notion falla
+
+
+async def _deliver_and_notify(query: str, chat_id: int, limit: int, channel: str, enrich_sunat: bool) -> None:
+    """Corre el pipeline y entrega el reporte al chat_id."""
+    try:
+        req = PipelineRequest(
+            query=query, limit=limit, channel=channel,
+            enrich_web=True, enrich_sunat=enrich_sunat,
+            qualify=True, enrich_contacts=False,
+        )
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(None, _run_pipeline, req)
+        leads  = result.get("leads", [])
+        total  = result.get("total", len(leads))
+
+        # Resumen: top 5 por score
+        qualified = sorted(
+            [l for l in leads if l.get("lead_score", 0) >= 60],
+            key=lambda x: x.get("lead_score", 0), reverse=True,
+        )
+        lines = [
+            f"✅ *Reporte listo: {query}*",
+            f"_{total} leads procesados · {len(qualified)} calificados (score ≥60)_\n",
+        ]
+        for i, lead in enumerate(qualified[:5], 1):
+            empresa = lead.get("empresa", "—")
+            score   = lead.get("lead_score", "—")
+            stage   = lead.get("crm_stage", "—")
+            action  = lead.get("next_action", "—")
+            lines.append(f"*{i}. {empresa}* — Score {score} | {stage}")
+            lines.append(f"   → {action}")
+        if not qualified:
+            lines.append("_No se encontraron leads con score ≥60. Revisa el CSV adjunto._")
+        lines.append("\n📎 CSV adjunto con todos los leads y borradores de mensaje.")
+
+        await _tg_message(chat_id, "\n".join(lines))
+
+        csv_bytes = _leads_to_csv(leads)
+        safe_name = query[:30].replace(" ", "_").replace("/", "-")
+        await _tg_document(chat_id, f"pipeline_x_{safe_name}.csv", csv_bytes,
+                           caption=f"📊 Leads: {query}")
+
+        # Marcar lead como Entregado en Notion
+        await _notion_mark_delivered(query)
+
+    except Exception as exc:
+        await _tg_message(chat_id, f"❌ Error procesando el reporte.\n`{str(exc)[:300]}`")
+
+
+# ─── Deliver endpoint ─────────────────────────────────────────────────────────
+
+class DeliverRequest(BaseModel):
+    query:        str     = Field(..., description='Target de prospección, ej: "Ferreterías en Trujillo"')
+    chat_id:      int     = Field(..., description="Telegram chat_id del destinatario")
+    channel:      Literal["email", "whatsapp", "both"] = Field("whatsapp")
+    limit:        int     = Field(20, ge=1, le=50)
+    enrich_sunat: bool    = Field(False)
+
+
+@app.post("/deliver", tags=["Pipeline"], status_code=202)
+async def deliver(req: DeliverRequest):
+    """
+    Lanza el pipeline completo en background y entrega el CSV al chat_id de Telegram.
+    No bloquea — devuelve job_id inmediatamente.
+    """
+    job_id = _new_job("deliver", req.model_dump())
+
+    async def _bg() -> None:
+        _job_running(job_id)
+        try:
+            await _deliver_and_notify(
+                req.query, req.chat_id, req.limit, req.channel, req.enrich_sunat
+            )
+            _job_done(job_id, {"query": req.query, "chat_id": req.chat_id})
+        except Exception as exc:
+            _job_failed(job_id, str(exc))
+
+    asyncio.create_task(_bg())
+    return {"job_id": job_id, "status": "pending"}
+
+
+# ─── Telegram webhook ─────────────────────────────────────────────────────────
+# Alex prompt — importado desde telegram_bot para no duplicarlo.
+# Importación lazy para evitar efectos en módulos que no usan el bot.
+def _get_alex_prompt() -> str:
+    try:
+        from telegram_bot import SYSTEM_PROMPT
+        return SYSTEM_PROMPT
+    except Exception:
+        return "Eres Alex, el asistente de ventas de Pipeline_X. Responde en español neutro."
+
+
+def _alex_reply(chat_id: int, user_text: str) -> str:
+    api_key = os.environ.get("GROQ_API_KEY") or os.environ.get("ANTHROPIC_API_KEY")
+    if not api_key:
+        return (
+            "Hola 👋 Soy *Pipeline_X*.\n\n"
+            "¿Quieres un reporte de prospectos calificados?\n"
+            "Escribe /start reporte para comenzar."
+        )
+    # Intentar con el LLM disponible
+    try:
+        import llm_client
+        state = _bot_states.setdefault(chat_id, {})
+        history: list[dict] = state.setdefault("history", [])
+        history.append({"role": "user", "content": user_text})
+        if len(history) > 20:
+            history[:] = history[-20:]
+        reply_dict = llm_client.call(_get_alex_prompt(), user_text)
+        reply = str(reply_dict) if isinstance(reply_dict, dict) else str(reply_dict)
+        history.append({"role": "assistant", "content": reply})
+        return reply
+    except Exception:
+        return (
+            "Hola 👋 Soy *Pipeline_X*.\n\n"
+            "Puedo generarte un reporte de prospectos calificados.\n"
+            "Escribe /start reporte para comenzar."
+        )
+
+
+@app.post("/webhook/telegram", include_in_schema=False)
+async def telegram_webhook(request: Request):
+    """
+    Recibe updates de Telegram (registrar con setWebhook apuntando a esta URL).
+    Flujos:
+      /start reporte  → solicita target → corre /deliver → entrega CSV
+      cualquier otro  → bot de ventas Alex (Groq)
+    """
+    update = await request.json()
+
+    message = update.get("message")
+    if not message:
+        return {"ok": True}
+
+    chat_id = message["chat"]["id"]
+    text    = (message.get("text") or "").strip()
+    if not text:
+        return {"ok": True}
+
+    state = _bot_states.get(chat_id, {})
+
+    # ── /start ────────────────────────────────────────────────────────────────
+    if text.startswith("/start"):
+        payload = text[6:].strip()
+        _bot_states[chat_id] = {}  # reset
+
+        if payload == "reporte":
+            _bot_states[chat_id] = {"flow": "report"}
+            await _tg_message(chat_id,
+                "Hola 👋 Soy *Pipeline_X*.\n\n"
+                "Vi que solicitaste un reporte desde nuestra web.\n\n"
+                "¿Cuál es el target exacto que quieres prospectar?\n"
+                "_Escríbelo así: Industria en Ciudad_\n\n"
+                "Ej: `Ferreterías en Trujillo`"
+            )
+        else:
+            loop = asyncio.get_event_loop()
+            reply = await loop.run_in_executor(None, _alex_reply, chat_id, "/start")
+            await _tg_message(chat_id, reply)
+        return {"ok": True}
+
+    # ── Flujo de reporte: esperando target ────────────────────────────────────
+    if state.get("flow") == "report":
+        target = text
+        _bot_states[chat_id] = {}
+        asyncio.create_task(
+            _deliver_and_notify(target, chat_id, limit=30, channel="whatsapp", enrich_sunat=True)
+        )
+        await _tg_message(chat_id,
+            f"✅ *Recibido:* `{target}`\n\n"
+            "Estoy escaneando Google Maps y cruzando datos SUNAT.\n"
+            "Te aviso cuando el reporte esté listo _(aprox 5–15 min)_."
+        )
+        return {"ok": True}
+
+    # ── Bot de ventas Alex ────────────────────────────────────────────────────
+    loop = asyncio.get_event_loop()
+    reply = await loop.run_in_executor(None, _alex_reply, chat_id, text)
+    await _tg_message(chat_id, reply)
+    return {"ok": True}
