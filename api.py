@@ -14,9 +14,11 @@ Endpoints:
   POST /webhook/telegram        Webhook del bot de Telegram
 
 Variables de entorno requeridas:
-  GROQ_API_KEY          — clave de API de Groq
-  TELEGRAM_BOT_TOKEN    — token del bot de Telegram (@BotFather)
-  NOTION_DB_ID          — ID de la BD Notion para marcar leads (opcional)
+  GROQ_API_KEY                — clave de API de Groq (o ANTHROPIC_API_KEY)
+  TELEGRAM_BOT_TOKEN          — token del bot externo Alex (@BotFather)
+  TELEGRAM_BOT_TOKEN_INTERNO  — token del bot interno de gestión (bot_interno.py)
+  ADMIN_CHAT_ID               — tu chat_id de Telegram (acceso al bot interno)
+  NOTION_DB_ID                — ID de la BD Notion para marcar leads (opcional)
 """
 from __future__ import annotations
 
@@ -24,8 +26,11 @@ import asyncio
 import csv
 import io
 import json
+import logging
 import os
+from contextlib import asynccontextmanager
 from pathlib import Path
+import threading
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Literal, Optional
@@ -38,6 +43,35 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import BaseModel, Field
 
 import config as cfg
+
+log = logging.getLogger("api")
+
+
+def _start_bot_interno() -> None:
+    """Arranca bot_interno en un hilo de fondo con su propio event loop.
+    Usa run_async() para evitar el registro de signal handlers (solo permitido
+    en el hilo principal), que es lo que hace run_polling() y causaba el fallo silencioso."""
+    if not (os.environ.get("TELEGRAM_BOT_TOKEN_INTERNO") and os.environ.get("ADMIN_CHAT_ID")):
+        return
+
+    def _run():
+        try:
+            import bot_interno
+            log.info("PipeAssist iniciando en hilo de fondo...")
+            bot_interno.main(embedded=True)  # stop_signals=() evita error de signal en hilo
+        except Exception as e:
+            log.error("PipeAssist falló: %s", e, exc_info=True)
+
+    threading.Thread(target=_run, daemon=True, name="pipeassist-bot").start()
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    _start_bot_interno()
+    yield
+
+
+
 
 _SWAGGER_CSS = """
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -146,6 +180,7 @@ app = FastAPI(
     description="API para calificación de leads de MIPYME con IA · [pipelinex.app](https://pipelinex.app)",
     version="1.0.0",
     docs_url=None,
+    lifespan=lifespan,
 )
 
 app.add_middleware(
@@ -596,32 +631,66 @@ def _get_alex_prompt() -> str:
 
 
 def _alex_reply(chat_id: int, user_text: str) -> str:
-    api_key = os.environ.get("GROQ_API_KEY") or os.environ.get("ANTHROPIC_API_KEY")
-    if not api_key:
-        return (
-            "Hola 👋 Soy *Pipeline_X*.\n\n"
-            "¿Quieres un reporte de prospectos calificados?\n"
-            "Escribe /start reporte para comenzar."
-        )
-    # Intentar con el LLM disponible
-    try:
-        import llm_client
-        state = _bot_states.setdefault(chat_id, {})
-        history: list[dict] = state.setdefault("history", [])
-        history.append({"role": "user", "content": user_text})
-        if len(history) > 20:
-            history[:] = history[-20:]
-        reply_dict = llm_client.call(_get_alex_prompt(), user_text)
-        reply = str(reply_dict) if isinstance(reply_dict, dict) else str(reply_dict)
-        history.append({"role": "assistant", "content": reply})
-        _save_bot_states()
-        return reply
-    except Exception:
-        return (
-            "Hola 👋 Soy *Pipeline_X*.\n\n"
-            "Puedo generarte un reporte de prospectos calificados.\n"
-            "Escribe /start reporte para comenzar."
-        )
+    """Genera respuesta conversacional de Alex (texto libre).
+    Prioridad: Anthropic → Groq. Ninguno disponible → mensaje estático."""
+    state = _bot_states.setdefault(chat_id, {})
+    history: list[dict] = state.setdefault("history", [])
+
+    history.append({"role": "user", "content": user_text})
+    if len(history) > 20:
+        history[:] = history[-20:]
+
+    system_prompt = _get_alex_prompt()
+
+    # ── Anthropic (Claude) ──────────────────────────────────────────────────
+    claude_key = os.environ.get("ANTHROPIC_API_KEY")
+    if claude_key:
+        try:
+            import anthropic
+            client = anthropic.Anthropic(api_key=claude_key)
+            resp = client.messages.create(
+                model=cfg.CLAUDE["model"],
+                max_tokens=400,
+                system=system_prompt,
+                messages=history,
+                temperature=1,  # Claude no acepta 0 en modo conversacional
+            )
+            reply = resp.content[0].text.strip() if resp.content else ""
+            if reply:
+                history.append({"role": "assistant", "content": reply})
+                _save_bot_states()
+                return reply
+        except Exception:
+            pass  # Intentar con Groq si falla
+
+    # ── Groq (fallback) ─────────────────────────────────────────────────────
+    groq_key = os.environ.get("GROQ_API_KEY")
+    if groq_key:
+        try:
+            from groq import Groq
+            client = Groq(api_key=groq_key)
+            messages = [{"role": "system", "content": system_prompt}] + history
+            resp = client.chat.completions.create(
+                model="llama-3.3-70b-versatile",
+                messages=messages,
+                temperature=0.7,
+                max_tokens=400,
+            )
+            reply = (resp.choices[0].message.content or "").strip()
+            if reply:
+                history.append({"role": "assistant", "content": reply})
+                _save_bot_states()
+                return reply
+        except Exception:
+            pass
+
+    # ── Sin LLM disponible ──────────────────────────────────────────────────
+    history.pop()  # Revertir el mensaje que se agregó
+    return (
+        "Hola 👋 Soy *Pipeline_X*.\n\n"
+        "Puedo generarte un reporte de prospectos calificados.\n"
+        "Escribe /start reporte para comenzar."
+    )
 
 
 @app.post("/webhook/telegram", include_in_schema=False)

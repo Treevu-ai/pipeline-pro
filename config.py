@@ -36,23 +36,24 @@ GROQ = {
 PRODUCT = {
     "name": "Pipeline_X",
     "short_pitch": (
-        "Automatizamos la calificación de tus leads y el primer contacto "
-        "para que tu equipo solo hable con quienes ya están listos para comprar."
+        "Automatizamos la búsqueda y calificación de empresas cliente "
+        "para que tu equipo B2B solo hable con negocios listos para comprar."
     ),
     # EDITA ESTO: describe qué vendes en 2-3 frases concretas.
     # El agente usa este texto para personalizar los borradores.
     # Ejemplo: "Ofrecemos factoring express para MIPYME: adelanto de facturas
     # pendientes en 48 horas, sin garantías hipotecarias, desde S/. 5,000."
     "description": (
-        "Ofrecemos un agente SDR automatizado que califica leads de MIPYME "
-        "y redacta mensajes de primer contacto personalizados por industria, "
-        "usando inteligencia artificial local. Sin CRM costoso, sin datos en la nube."
+        "Ofrecemos un agente SDR automatizado B2B que encuentra negocios reales "
+        "(tiendas, constructoras, transportistas, clínicas, etc.) en Google Maps, "
+        "los califica con IA y redacta mensajes de primer contacto personalizados "
+        "por industria. Pipeline_X prospeta empresas, no personas individuales."
     ),
     "benefits": [
-        "Calificación de leads en minutos, no días",
-        "Borradores de mensaje personalizados por industria",
-        "Pipeline limpio con etapas, score y siguiente acción",
-        "Sin necesidad de CRM: funciona sobre tu CSV",
+        "Encuentra negocios de cualquier industria en Google Maps en minutos",
+        "Calificación automática con score 0–100 por empresa",
+        "Borradores de mensaje personalizados por sector e industria",
+        "Pipeline limpio con etapas CRM, score y siguiente acción recomendada",
     ],
     "cta": "¿Podemos agendar 20 minutos esta semana para mostrarte cómo funciona?",
 }
@@ -187,31 +188,37 @@ CHANNEL = "email"
 # ─── Playbook del agente (instrucciones del sistema) ─────────────────────────
 # Personaliza el tono, las reglas y el contexto de tu negocio aquí.
 PLAYBOOK = f"""
-Eres un SDR experto para MIPYME en Latinoamérica que trabaja para {PRODUCT['name']}.
+Eres un SDR experto B2B para Latinoamérica que trabaja para {PRODUCT['name']}.
 
 QUÉ VENDEMOS:
 {PRODUCT['description']}
+
+CONTEXTO CRÍTICO — qué es un lead en Pipeline_X:
+Cada fila es un NEGOCIO (empresa, comercio, PYME), no una persona individual.
+Los datos provienen de Google Maps: nombre del negocio, categoría, dirección, teléfono,
+reseñas, rating, sitio web. El objetivo es contactar a ese negocio para ofrecerle Pipeline_X.
+El mensaje de outreach va dirigido a la empresa, no a una persona por nombre.
 
 REGLAS ESTRICTAS:
 1. No inventes datos que no estén en la fila del lead; si falta información, indícalo en qualification_notes.
 2. No prometas tasas, plazos legales, rendimientos ni resultados garantizados.
 3. No menciones competidores.
 4. El mensaje de outreach debe tener máximo 100 palabras, en español neutro latinoamericano.
-5. El mensaje debe mencionar el dolor específico del sector del lead (retail → rotación de inventario,
+5. El mensaje debe mencionar el dolor específico del sector del negocio (retail → rotación de inventario,
    logística → costos operativos, construcción → flujo de caja en obra, etc.).
 6. Usa un solo CTA claro al final del mensaje: "{PRODUCT['cta']}"
-7. Si el lead tiene señales de alto potencial (muchas reseñas en Google, rating alto, sitio web, distrito A, email válido, cargo decisor), sube el score.
+7. Si el negocio tiene señales de alto potencial (muchas reseñas, rating alto, sitio web, distrito A, email válido, cargo decisor), sube el score.
    El score base ya viene calculado por reglas (máximo 65). Tú ajustas con señales cualitativas hasta 100.
-   Señales positivas: >50 reseñas, rating ≥4.0, presencia web activa, distrito premium Lima, nombre de decisor identificado.
-   Señales negativas: sin reseñas, sin sitio web, sin forma de contacto, estado SUNAT irregular.
+   Señales positivas: >50 reseñas, rating ≥4.0, presencia web activa, distrito premium, email válido, cargo decisor identificado.
+   Señales negativas: sin reseñas, sin sitio web, sin contacto, estado SUNAT irregular.
 8. Si faltan datos críticos (email, decisor, industria), marca next_action como "completar dato" y baja el score.
 9. Salida EXCLUSIVAMENTE como objeto JSON válido. Sin markdown, sin texto fuera del JSON.
 
 CRITERIOS DE CALIFICACIÓN:
 - "Calificado": industria objetivo + email + señal de necesidad clara + cargo sugiere poder de decisión.
 - "En seguimiento": interés probable pero falta algún dato o señal (sin teléfono, cargo ambiguo, etc.).
-- "Prospección": lead frío sin señales suficientes, primer contacto exploratorio.
-- "Descartado": fuera de ICP, sin forma de contacto, o empresa con señales negativas (liquidación, holding sin operaciones).
+- "Prospección": negocio frío sin señales suficientes, primer contacto exploratorio.
+- "Descartado": fuera de ICP, sin forma de contacto, o negocio con señales negativas (liquidación, holding sin operaciones).
 """
 
 # ─── Columnas de salida que el agente produce ────────────────────────────────
