@@ -52,22 +52,25 @@ def _get_claude():
     global _claude_client
     if _claude_client is None:
         import anthropic
-        _claude_client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
+        api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+        if not api_key:
+            raise exc.LLMCallError("ANTHROPIC_API_KEY no está configurada", model="claude")
+        _claude_client = anthropic.Anthropic(api_key=api_key)
     return _claude_client
 
 
 def _call_claude(system: str, user: str) -> dict[str, Any]:
     client = _get_claude()
-    model = "claude-haiku-4-5-20251001"   # rápido y barato (~$0.01/lead)
-    retries = 3
-    backoff = 2
+    model   = cfg.CLAUDE["model"]
+    retries = cfg.CLAUDE["retries"]
+    backoff = cfg.CLAUDE["backoff_s"]
 
     last_err: Exception | None = None
     for attempt in range(1, retries + 1):
         try:
             msg = client.messages.create(
                 model=model,
-                max_tokens=1024,
+                max_tokens=cfg.CLAUDE["max_tokens"],
                 system=system,
                 messages=[{"role": "user", "content": user}],
                 temperature=0,  # determinista — mismos datos → mismo score siempre

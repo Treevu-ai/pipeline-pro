@@ -13,7 +13,17 @@ OLLAMA = {
     "backoff_s": 2,
 }
 
-# ─── Groq API (producción) ────────────────────────────────────────────────────
+# ─── Claude API (producción — prioridad sobre Groq) ──────────────────────────
+# Requiere variable de entorno: ANTHROPIC_API_KEY
+CLAUDE = {
+    "model": "claude-haiku-4-5-20251001",  # rápido y barato (~$0.01/lead)
+    "max_tokens": 1024,
+    "temperature": 0,   # 0 = determinista
+    "retries": 3,
+    "backoff_s": 2,
+}
+
+# ─── Groq API (fallback si ANTHROPIC_API_KEY no está disponible) ──────────────
 # Requiere variable de entorno: GROQ_API_KEY
 GROQ = {
     "model": "llama-3.3-70b-versatile",   # o "llama-3.1-8b-instant" para menor latencia

@@ -289,10 +289,9 @@ async def scrape(req: ScrapeRequest):
     Busca leads en Google Maps y opcionalmente enriquece con datos de sitios web y SUNAT.
     Operación síncrona — para queries grandes usa /jobs/pipeline.
     """
-    loop = asyncio.get_event_loop()
     try:
-        leads = await loop.run_in_executor(
-            None, _run_scrape, req.query, req.limit, req.enrich_web, req.enrich_sunat
+        leads = await asyncio.to_thread(
+            _run_scrape, req.query, req.limit, req.enrich_web, req.enrich_sunat
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -307,9 +306,8 @@ async def qualify(req: QualifyRequest):
     """
     if not req.leads:
         raise HTTPException(status_code=422, detail="La lista de leads está vacía")
-    loop = asyncio.get_event_loop()
     try:
-        result = await loop.run_in_executor(None, _run_qualify, req.leads, req.channel)
+        result = await asyncio.to_thread(_run_qualify, req.leads, req.channel)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     return {"total": len(result), "leads": result}
@@ -322,9 +320,8 @@ async def enrich(req: EnrichRequest):
     """
     if not req.leads:
         raise HTTPException(status_code=422, detail="La lista de leads está vacía")
-    loop = asyncio.get_event_loop()
     try:
-        result = await loop.run_in_executor(None, _run_enrich, req.leads)
+        result = await asyncio.to_thread(_run_enrich, req.leads)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     return {"total": len(result), "leads": result}
@@ -336,9 +333,8 @@ async def pipeline(req: PipelineRequest):
     Pipeline completo síncrono: scrape → califica → enriquece.
     Para limite > 20 leads se recomienda usar /jobs/pipeline.
     """
-    loop = asyncio.get_event_loop()
     try:
-        result = await loop.run_in_executor(None, _run_pipeline, req)
+        result = await asyncio.to_thread(_run_pipeline, req)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     return result
@@ -357,8 +353,7 @@ async def jobs_pipeline(req: PipelineRequest):
     async def _run():
         _job_running(job_id)
         try:
-            loop = asyncio.get_event_loop()
-            result = await loop.run_in_executor(None, _run_pipeline, req)
+            result = await asyncio.to_thread(_run_pipeline, req)
             _job_done(job_id, result)
         except Exception as e:
             _job_failed(job_id, str(e))
@@ -519,8 +514,7 @@ async def _deliver_and_notify(query: str, chat_id: int, limit: int, channel: str
             enrich_web=True, enrich_sunat=enrich_sunat,
             qualify=True, enrich_contacts=False,
         )
-        loop = asyncio.get_event_loop()
-        result = await loop.run_in_executor(None, _run_pipeline, req)
+        result = await asyncio.to_thread(_run_pipeline, req)
         leads  = result.get("leads", [])
         total  = result.get("total", len(leads))
 
@@ -666,8 +660,7 @@ async def telegram_webhook(request: Request):
                 "Ej: `Ferreterías en Trujillo`"
             )
         else:
-            loop = asyncio.get_event_loop()
-            reply = await loop.run_in_executor(None, _alex_reply, chat_id, "/start")
+            reply = await asyncio.to_thread(_alex_reply, chat_id, "/start")
             await _tg_message(chat_id, reply)
         _save_bot_states()
         return {"ok": True}
@@ -688,7 +681,6 @@ async def telegram_webhook(request: Request):
         return {"ok": True}
 
     # ── Bot de ventas Alex ────────────────────────────────────────────────────
-    loop = asyncio.get_event_loop()
-    reply = await loop.run_in_executor(None, _alex_reply, chat_id, text)
+    reply = await asyncio.to_thread(_alex_reply, chat_id, text)
     await _tg_message(chat_id, reply)
     return {"ok": True}
