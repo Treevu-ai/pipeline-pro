@@ -153,24 +153,27 @@ class QualificationError(AgentePymeError):
     pass
 
 
-class OllamaError(QualificationError):
+class LLMCallError(QualificationError):
     """
-    Excepción para errores al comunicarse con Ollama.
+    Excepción genérica para errores al llamar a cualquier LLM (Claude, Groq, Ollama).
 
-    Se lanza cuando hay problemas con la API de Ollama.
+    Se lanza cuando el proveedor LLM no responde tras todos los reintentos.
     """
 
     def __init__(self, message: str, model: str | None = None) -> None:
-        """
-        Inicializa la excepción.
-
-        Args:
-            message: Mensaje de error.
-            model: Modelo que causó el error (opcional).
-        """
         self.model = model
         details = f"model={model}" if model else ""
         super().__init__(message, details)
+
+
+class OllamaError(LLMCallError):
+    """
+    Excepción para errores al comunicarse con Ollama (local).
+
+    Mantiene compatibilidad con código que captura OllamaError explícitamente.
+    """
+
+    pass
 
 
 class LLMResponseError(QualificationError):

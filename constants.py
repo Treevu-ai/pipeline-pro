@@ -6,7 +6,12 @@ estandarizados utilizados en toda la aplicación para mantener consistencia.
 """
 from __future__ import annotations
 
-import utils
+import unicodedata
+
+
+def _norm(s: str) -> str:
+    """Normalización mínima para comparación de etapas CRM (sin depender de utils)."""
+    return unicodedata.normalize("NFD", s).encode("ascii", "ignore").decode().lower().strip()
 
 # ─── Nombres de columnas CSV ────────────────────────────────────────────────────
 
@@ -96,7 +101,7 @@ class CRMStages:
     PROCESSED = {QUALIFIED, FOLLOW_UP, DISCARDED}
 
     # Etapas iniciales (no procesadas) - normalizadas para comparación
-    INITIAL = {utils.normalize(s) for s in (PROSPECCION, "", "Pendiente")}
+    INITIAL = {_norm(s) for s in (PROSPECCION, "", "Pendiente")}
 
 
 # ─── Valores de calificación ───────────────────────────────────────────────────

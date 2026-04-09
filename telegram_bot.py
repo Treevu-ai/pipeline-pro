@@ -39,7 +39,14 @@ log = logging.getLogger("pipeline_x_bot")
 
 # ─── Groq client ─────────────────────────────────────────────────────────────
 
-_groq = Groq(api_key=os.environ["GROQ_API_KEY"])
+def _get_groq_client() -> Groq:
+    """Inicialización lazy del cliente Groq — no crashea al importar sin API key."""
+    api_key = os.environ.get("GROQ_API_KEY", "")
+    if not api_key:
+        raise RuntimeError("GROQ_API_KEY no está configurada en las variables de entorno.")
+    return Groq(api_key=api_key)
+
+_groq: Groq | None = None
 
 # ─── System prompt ───────────────────────────────────────────────────────────
 
@@ -233,6 +240,10 @@ MAX_HISTORY = 20
 
 
 def _get_reply(user_id: int, user_message: str) -> str:
+    global _groq
+    if _groq is None:
+        _groq = _get_groq_client()
+
     if user_id not in _conversations:
         _conversations[user_id] = []
 

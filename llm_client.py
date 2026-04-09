@@ -81,7 +81,7 @@ def _call_claude(system: str, user: str) -> dict[str, Any]:
             if attempt < retries:
                 time.sleep(backoff * attempt)
 
-    raise exc.OllamaError(
+    raise exc.LLMCallError(
         f"Claude no respondió después de {retries} intentos", model=model
     ) from last_err
 
@@ -128,7 +128,7 @@ def _call_groq(system: str, user: str) -> dict[str, Any]:
             if attempt < retries:
                 time.sleep(backoff * attempt)
 
-    raise exc.OllamaError(
+    raise exc.LLMCallError(
         f"Groq no respondió después de {retries} intentos", model=model
     ) from last_err
 

@@ -23,8 +23,6 @@ import re
 import sys
 import threading
 import time
-import urllib.error
-import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from dateutil.relativedelta import relativedelta
@@ -286,54 +284,6 @@ def _parse_json_loose(text: str) -> dict[str, Any]:
         return json.loads(m.group(0))
 
 
-def ollama_call(system: str, user: str) -> dict[str, Any]:
-    """
-    Llama a Ollama con reintentos y backoff exponencial.
-
-    Args:
-        system: Prompt del sistema.
-        user: Prompt del usuario.
-
-    Returns:
-        Respuesta de Ollama como diccionario.
-
-    Raises:
-        OllamaError: Si hay error al comunicarse con Ollama.
-    """
-    body = {
-        "model": cfg.OLLAMA["model"],
-        "messages": [
-            {"role": "system", "content": system},
-            {"role": "user", "content": user},
-        ],
-        "stream": False,
-        "format": "json",
-        "options": {"temperature": cfg.OLLAMA["temperature"]},
-    }
-    data = json.dumps(body).encode("utf-8")
-    req = urllib.request.Request(
-        cfg.OLLAMA["url"],
-        data=data,
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
-    last_err: Exception | None = None
-    for attempt in range(1, cfg.OLLAMA["retries"] + 1):
-        try:
-            with urllib.request.urlopen(req, timeout=cfg.OLLAMA["timeout_s"]) as resp:
-                payload = json.loads(resp.read().decode("utf-8"))
-            return _parse_json_loose(payload["message"]["content"])
-        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, KeyError) as e:
-            last_err = e
-            wait = cfg.OLLAMA["backoff_s"] * attempt
-            log.warning("Intento %d/%d falló: %s — reintentando en %ds", attempt, cfg.OLLAMA["retries"], e, wait)
-            time.sleep(wait)
-    raise exc.OllamaError(
-        f"Ollama no respondió después de {cfg.OLLAMA['retries']} intentos",
-        model=cfg.OLLAMA["model"]
-    ) from last_err
-
-
 # ─── Calificación de una fila ─────────────────────────────────────────────────
 
 def qualify_row(row: dict[str, Any], channel: str, base_score: int) -> dict[str, Any]:
@@ -383,7 +333,7 @@ Devuelve EXACTAMENTE estas claves en el JSON:
 
     try:
         raw = llm_client.call(cfg.PLAYBOOK, user_prompt)
-    except exc.OllamaError as e:
+    except exc.LLMCallError as e:
         raise exc.QualificationError(f"Error al llamar al LLM: {e}") from e
 
     result = {k: raw.get(k, "") for k in cfg.OUTPUT_KEYS if k != "qualify_error"}

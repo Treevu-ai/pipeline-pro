@@ -213,7 +213,7 @@ def main() -> None:
 
     # ── Paso 2: Calificación ──────────────────────────────────────────────────
     print(f"\n{'='*54}")
-    print(f"  PASO 2 / {'2' if args.enrich_contacts else '2'} — CALIFICACION CON LLM")
+    print(f"  PASO 2 / {'3' if args.enrich_contacts else '2'} — CALIFICACION CON LLM")
     print(f"  Entrada: {raw_csv.name}")
     print(f"  Salida : {qualified_csv.name}")
     print(f"{'='*54}\n")
