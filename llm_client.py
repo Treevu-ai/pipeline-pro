@@ -130,12 +130,20 @@ def _call_groq(system: str, user: str) -> dict[str, Any]:
             raise
         except Exception as e:
             last_err = e
-            if attempt < retries:
+            # Rate limit (429): esperar más tiempo antes de reintentar
+            err_str = str(e).lower()
+            if "429" in err_str or "rate limit" in err_str or "rate_limit" in err_str:
+                wait = backoff * (attempt * 3)  # espera extendida en 429
+                if attempt < retries:
+                    time.sleep(wait)
+            elif attempt < retries:
                 time.sleep(backoff * attempt)
 
-    raise exc.LLMCallError(
+    raise exc.RateLimitError(
+        f"Groq rate limit alcanzado después de {retries} intentos"
+    ) if last_err and ("429" in str(last_err) or "rate" in str(last_err).lower()) else exc.LLMCallError(
         f"Groq no respondió después de {retries} intentos", model=model
-    ) from last_err
+    )
 
 
 # ── Interfaz pública ──────────────────────────────────────────────────────────
@@ -153,5 +161,13 @@ def call(system: str, user: str) -> dict[str, Any]:
         Diccionario con la respuesta del LLM.
     """
     if os.environ.get("ANTHROPIC_API_KEY"):
-        return _call_claude(system, user)
+        try:
+            return _call_claude(system, user)
+        except exc.RateLimitError:
+            raise
+        except exc.LLMCallError:
+            # Claude falló — intentar Groq como último recurso
+            if os.environ.get("GROQ_API_KEY"):
+                return _call_groq(system, user)
+            raise
     return _call_groq(system, user)

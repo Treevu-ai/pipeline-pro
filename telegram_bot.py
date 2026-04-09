@@ -243,6 +243,27 @@ NEXT_KB: dict[str, callable] = {
     "cierre_preguntas": kb_planes,
 }
 
+# ─── Rate limiter ────────────────────────────────────────────────────────────
+
+import time as _time
+from collections import defaultdict, deque
+
+_RATE_WINDOW  = 60    # segundos
+_RATE_LIMIT   = 12    # mensajes máximos por ventana
+_rate_buckets: dict[int, deque] = defaultdict(deque)
+
+def _is_rate_limited(user_id: int) -> bool:
+    """Devuelve True si el usuario superó el límite. Ventana deslizante de 60 s."""
+    now = _time.monotonic()
+    bucket = _rate_buckets[user_id]
+    # Eliminar timestamps fuera de la ventana
+    while bucket and now - bucket[0] > _RATE_WINDOW:
+        bucket.popleft()
+    if len(bucket) >= _RATE_LIMIT:
+        return True
+    bucket.append(now)
+    return False
+
 # ─── Conversation store ───────────────────────────────────────────────────────
 
 _conversations: dict[int, list[dict]] = {}
@@ -281,6 +302,7 @@ def _get_reply(user_id: int, user_message: str) -> str:
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.effective_user.id
     _conversations[user_id] = []
+    _rate_buckets[user_id].clear()  # reset rate limit al iniciar
 
     reply = _get_reply(user_id, "/start")
     await update.message.reply_text(reply, reply_markup=kb_industrias())
@@ -308,6 +330,14 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     await query.answer()
 
     user_id = query.from_user.id
+
+    if _is_rate_limited(user_id):
+        await context.bot.send_message(
+            chat_id=query.message.chat_id,
+            text="Vas muy rápido 🙂 Espera un momento antes de continuar.",
+        )
+        return
+
     data = query.data
     label = LABELS.get(data, data)
 
@@ -352,6 +382,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     """Maneja mensajes de texto libre."""
     user_id = update.effective_user.id
     text = update.message.text
+
+    if _is_rate_limited(user_id):
+        await update.message.reply_text(
+            "Vas muy rápido 🙂 Espera un momento antes de continuar."
+        )
+        return
 
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
 
