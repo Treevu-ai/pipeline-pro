@@ -74,6 +74,7 @@ def _call_claude(system: str, user: str) -> dict[str, Any]:
                 system=system,
                 messages=[{"role": "user", "content": user}],
                 temperature=0,  # determinista — mismos datos → mismo score siempre
+                timeout=60,
             )
             content = msg.content[0].text if msg.content else ""
             return _parse_json_loose(content)
@@ -121,6 +122,7 @@ def _call_groq(system: str, user: str) -> dict[str, Any]:
                 ],
                 temperature=cfg.GROQ.get("temperature", 0.2),
                 response_format={"type": "json_object"},
+                timeout=60,
             )
             content = response.choices[0].message.content or ""
             return _fix_encoding(_parse_json_loose(content))

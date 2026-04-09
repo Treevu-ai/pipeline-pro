@@ -701,6 +701,13 @@ async def telegram_webhook(request: Request):
       /start reporte  → solicita target → corre /deliver → entrega CSV
       cualquier otro  → bot de ventas Alex (Groq)
     """
+    # Verificar token secreto si está configurado
+    secret = os.environ.get("TELEGRAM_WEBHOOK_SECRET")
+    if secret:
+        incoming = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
+        if incoming != secret:
+            raise HTTPException(status_code=403, detail="Forbidden")
+
     update = await request.json()
 
     message = update.get("message")

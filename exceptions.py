@@ -270,11 +270,12 @@ class CSVError(IOError):
         super().__init__(message, details)
 
 
-class FileNotFoundError(IOError):
+class AppFileNotFoundError(IOError):
     """
     Excepción para archivos no encontrados.
 
     Se lanza cuando un archivo requerido no existe.
+    (Renombrada de FileNotFoundError para evitar sombra del builtin de Python.)
     """
 
     def __init__(self, message: str, file_path: str | None = None) -> None:

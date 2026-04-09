@@ -28,6 +28,7 @@ import constants as const
 import exceptions as exc
 import models
 import utils
+from scraper import fetch_html
 
 log = logging.getLogger("contact_enricher")
 
@@ -387,7 +388,7 @@ def enrich_from_website(url: str, nombre_contacto: str = "") -> dict[str, Any]:
     url = utils.normalize_url(url)
 
     try:
-        html = utils._fetch_html(url)
+        html = fetch_html(url)
     except Exception:
         return {}
 
@@ -572,7 +573,7 @@ def read_csv(path: Path) -> list[dict[str, Any]]:
         CSVError: Si hay error al leer el CSV.
     """
     if not path.exists():
-        raise exc.FileNotFoundError(f"Archivo no encontrado: {path}", file_path=str(path))
+        raise exc.AppFileNotFoundError(f"Archivo no encontrado: {path}", file_path=str(path))
 
     try:
         with open(path, "r", encoding="utf-8-sig") as f:

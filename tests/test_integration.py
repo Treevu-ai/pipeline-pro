@@ -743,7 +743,7 @@ class TestEdgeCasesIntegration:
     def test_read_csv_not_found(self, tmp_path: Path) -> None:
         """read_csv con archivo inexistente debe levantar FileNotFoundError."""
         from contact_enricher import read_csv
-        with pytest.raises(exc.FileNotFoundError):
+        with pytest.raises(exc.AppFileNotFoundError):
             read_csv(tmp_path / "nonexistent.csv")
 
     def test_save_csv_empty_list_no_crash(self, output_dir: Path) -> None:
