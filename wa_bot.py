@@ -312,29 +312,39 @@ def parse_green_api_payload(payload: dict) -> tuple[str, str] | None:
     Extrae (phone, text) del payload que manda Green API al webhook.
     Devuelve None si el mensaje no es de texto o no es entrante.
 
-    Payload típico de Green API:
-    {
-      "typeWebhook": "incomingMessageReceived",
-      "senderData": {"chatId": "51987654321@c.us", ...},
-      "messageData": {"typeMessage": "textMessage",
-                      "textMessageData": {"textMessage": "Hola"}}
-    }
+    Tipos soportados:
+      - textMessage          → mensaje de texto simple
+      - extendedTextMessage  → mensaje con preview de link o respuesta citada
+      - quotedMessage        → respuesta a un mensaje anterior
     """
     if payload.get("typeWebhook") != "incomingMessageReceived":
         return None
 
-    msg_data = payload.get("messageData", {})
-    if msg_data.get("typeMessage") != "textMessage":
-        return None   # ignorar imágenes, audios, etc.
-
     chat_id = payload.get("senderData", {}).get("chatId", "")
-    phone   = chat_id.replace("@c.us", "").replace("@g.us", "")  # ignorar grupos
 
     if "@g.us" in chat_id:
         return None   # ignorar mensajes de grupos
 
-    text = msg_data.get("textMessageData", {}).get("textMessage", "").strip()
-    if not text:
+    phone    = chat_id.replace("@c.us", "")
+    msg_data = payload.get("messageData", {})
+    msg_type = msg_data.get("typeMessage", "")
+
+    # Texto simple
+    if msg_type == "textMessage":
+        text = msg_data.get("textMessageData", {}).get("textMessage", "").strip()
+
+    # Respuesta citada o mensaje con link preview
+    elif msg_type in ("extendedTextMessage", "quotedMessage"):
+        data = msg_data.get("extendedTextMessageData", {})
+        text = data.get("text", "").strip()
+        # fallback: algunos payloads lo ponen directamente
+        if not text:
+            text = msg_data.get("textMessageData", {}).get("textMessage", "").strip()
+
+    else:
+        return None   # audio, imagen, sticker, etc.
+
+    if not text or not phone:
         return None
 
     return phone, text
