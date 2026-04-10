@@ -91,9 +91,25 @@ def _start_bot_interno() -> None:
     threading.Thread(target=_run, daemon=True, name="pipeassist-bot").start()
 
 
+def _register_whatsapp_webhook() -> None:
+    """Registra el webhook de WhatsApp en Green API al arrancar la app."""
+    webhook_url = cfg.GREEN_API.get("webhook_url", "")
+    instance    = cfg.GREEN_API.get("id_instance", "")
+    if not webhook_url or not instance:
+        return   # Green API no configurada, omitir silenciosamente
+    try:
+        import wa_sender
+        ok = wa_sender.set_webhook(webhook_url)
+        if ok:
+            log.info("WhatsApp webhook registrado: %s", webhook_url)
+    except Exception as exc:
+        log.warning("No se pudo registrar webhook de WhatsApp: %s", exc)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     _start_bot_interno()
+    await asyncio.to_thread(_register_whatsapp_webhook)
     yield
 
 
@@ -1036,4 +1052,42 @@ async def telegram_webhook(request: Request):
     # ── Bot de ventas Alex ────────────────────────────────────────────────────
     reply = await asyncio.to_thread(_alex_reply, chat_id, text)
     await _tg_message(chat_id, reply)
+    return {"ok": True}
+
+
+# ─── WhatsApp webhook (Green API) ─────────────────────────────────────────────
+
+@app.post("/webhook/whatsapp", include_in_schema=False)
+async def whatsapp_webhook(request: Request):
+    """
+    Recibe mensajes entrantes de WhatsApp via Green API.
+
+    Configurar en Green API console (o via wa_sender.set_webhook):
+      POST /waInstance{id}/setSettings/{token}
+      {"webhookUrl": "https://TU_DOMINIO/webhook/whatsapp", "incomingWebhook": "yes"}
+    """
+    try:
+        payload = await request.json()
+    except Exception:
+        return {"ok": True}
+
+    import wa_bot
+    import wa_sender
+
+    parsed = wa_bot.parse_green_api_payload(payload)
+    if parsed is None:
+        return {"ok": True}   # ignorar eventos que no son mensajes de texto
+
+    phone, text = parsed
+    id_message  = (payload.get("idMessage") or
+                   payload.get("messageData", {}).get("idMessage", ""))
+
+    # Marcar como leído (ticks azules)
+    if id_message:
+        await asyncio.to_thread(wa_sender.mark_read, phone, id_message)
+
+    # Procesar y responder
+    reply = await asyncio.to_thread(wa_bot.handle_message, phone, text)
+    await asyncio.to_thread(wa_sender.send_text, phone, reply)
+
     return {"ok": True}

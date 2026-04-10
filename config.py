@@ -503,6 +503,24 @@ PLANS: dict[str, dict] = {
 # Límite de leads para el tier free en el endpoint /demo-request
 DEMO_REQUEST_LEADS_LIMIT: int = PLANS["free"]["leads_limit"]
 
+# ─── Green API (WhatsApp Business) ───────────────────────────────────────────
+# Conecta el WhatsApp Business existente sin necesitar Meta Business verificado.
+# Registro gratuito: console.green-api.com → Developer plan
+#
+# Variables de entorno requeridas:
+#   GREEN_API_URL       → https://api.green-api.com  (o la URL que te dé el console)
+#   GREEN_API_INSTANCE  → tu idInstance  (ej: 1101234567)
+#   GREEN_API_TOKEN     → tu apiTokenInstance
+GREEN_API = {
+    "api_url":     os.environ.get("GREEN_API_URL", "https://api.green-api.com"),
+    "id_instance": os.environ.get("GREEN_API_INSTANCE", ""),
+    "token":       os.environ.get("GREEN_API_TOKEN", ""),
+    # URL pública de tu API donde Green API enviará los mensajes entrantes.
+    # Se configura automáticamente al iniciar si está definida.
+    "webhook_url": os.environ.get("GREEN_API_WEBHOOK_URL", ""),
+}
+
+
 # ─── Validación de configuración ─────────────────────────────────────────────
 
 def validate_config() -> list[str]:
