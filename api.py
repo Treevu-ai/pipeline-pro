@@ -671,6 +671,63 @@ async def _deliver_and_notify(query: str, chat_id: int, limit: int, channel: str
         await _tg_message(chat_id, f"❌ Error procesando el reporte.\n`{str(exc)[:300]}`")
 
 
+async def _deliver_and_notify_wa(phone: str, target: str) -> None:
+    """Corre el pipeline y entrega el reporte al número de WhatsApp."""
+    import wa_sender
+    import wa_bot
+
+    try:
+        req = PipelineRequest(
+            query=target, limit=10, channel="whatsapp",
+            enrich_web=True, enrich_sunat=False,
+            qualify=True, enrich_contacts=False,
+        )
+        result = await asyncio.to_thread(_run_pipeline, req)
+        leads  = result.get("leads", [])
+        total  = result.get("total", len(leads))
+
+        qualified = sorted(
+            [l for l in leads if l.get("lead_score", 0) >= 60],
+            key=lambda x: x.get("lead_score", 0), reverse=True,
+        )
+        lines = [
+            f"✅ *Reporte listo: {target}*",
+            f"_{total} leads · {len(qualified)} calificados (score ≥60)_\n",
+        ]
+        for i, lead in enumerate(qualified[:5], 1):
+            empresa = lead.get("empresa", "—")
+            score   = lead.get("lead_score", "—")
+            action  = lead.get("next_action", "—")
+            lines.append(f"*{i}. {empresa}* — Score {score}")
+            lines.append(f"   → {action}")
+        if not qualified:
+            lines.append("_No se encontraron leads con score ≥60. Revisa el CSV adjunto._")
+        lines.append("\n📎 CSV adjunto con todos los leads y borradores de mensaje.")
+
+        await asyncio.to_thread(wa_sender.send_text, phone, "\n".join(lines))
+
+        csv_bytes = _leads_to_csv(leads)
+        safe_name = target[:30].replace(" ", "_").replace("/", "-")
+        await asyncio.to_thread(
+            wa_sender.send_document,
+            phone,
+            f"pipeline_x_{safe_name}.csv",
+            csv_bytes,
+            f"📊 Leads: {target}",
+        )
+
+        wa_bot._set_session(phone, {"state": "done", "target": target})
+        await _notion_mark_delivered(target)
+
+    except Exception as exc:
+        log.error("_deliver_and_notify_wa error: %s", exc)
+        await asyncio.to_thread(
+            wa_sender.send_text, phone,
+            f"❌ Hubo un error generando tu reporte.\nEscribe de nuevo tu target para reintentar."
+        )
+        wa_bot._set_session(phone, {"state": "idle"})
+
+
 async def _demo_deliver_and_capture(target: str, chat_id: int) -> None:
     """
     Flujo demo desde landing (deep link ?start=demo):
@@ -1090,7 +1147,10 @@ async def whatsapp_webhook(request: Request):
     messages = await asyncio.to_thread(wa_bot.handle_message, phone, text)
     for msg in messages:
         mtype = msg.get("type", "text")
-        if mtype == "buttons":
+        if mtype == "pipeline_request":
+            # Lanzar pipeline en background — responde inmediatamente con "procesando"
+            asyncio.create_task(_deliver_and_notify_wa(phone, msg["target"]))
+        elif mtype == "buttons":
             await asyncio.to_thread(
                 wa_sender.send_buttons,
                 phone,

@@ -224,6 +224,38 @@ def send_list(
         return send_text(phone, "\n".join(lines), timeout=timeout)
 
 
+def send_document(
+    phone: str,
+    filename: str,
+    content: bytes,
+    caption: str = "",
+    timeout: int = 30,
+) -> dict:
+    """
+    Envía un archivo (CSV, PDF, etc.) al número dado usando multipart upload.
+
+    Args:
+        phone:    Número del destinatario.
+        filename: Nombre del archivo con extensión (ej: "leads.csv").
+        content:  Bytes del archivo.
+        caption:  Texto opcional que acompaña al archivo.
+
+    Returns:
+        Dict con {"idMessage": "..."} si OK.
+    """
+    url = f"{_base_url()}/sendFileByUpload/{_token()}"
+    files   = {"file": (filename, content, "application/octet-stream")}
+    data    = {"chatId": _chat_id(phone), "caption": caption, "fileName": filename}
+    log.debug("WA document → %s: %s (%d bytes)", phone, filename, len(content))
+    try:
+        r = httpx.post(url, data=data, files=files, timeout=timeout)
+        r.raise_for_status()
+        return r.json()
+    except httpx.HTTPStatusError as exc:
+        log.error("send_document falló (%s): %s", exc.response.status_code, exc.response.text[:200])
+        raise
+
+
 def get_state(timeout: int = 5) -> str:
     """
     Devuelve el estado de la instancia: 'authorized', 'notAuthorized', etc.

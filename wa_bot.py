@@ -134,16 +134,23 @@ _R3_BODY = """\
 _R4_SOLICITUD = """\
 🚀 ¡Perfecto! Te genero *10 leads reales* de tu industria, gratis y ahora mismo.
 
-Para enviarte el reporte, necesito tu email:
+Solo dime qué tipo de empresas quieres prospectar:
 
-✉️ *¿Cuál es tu correo electrónico?*"""
+🎯 *Ejemplo:* "Ferreterías en Trujillo" · "Contadores en Lima" · "Clínicas en Arequipa"
+
+Industria + ciudad, y corro el reporte."""
+
+_R4_PROCESANDO = """\
+⏳ Buscando empresas en Google Maps y calificando con IA...
+
+Esto toma entre 1 y 3 minutos. Te aviso cuando esté listo. ☕"""
 
 _R4_CONFIRMACION = """\
-✅ ¡Listo! Registré tu solicitud.
+✅ ¡Listo! Tu solicitud fue registrada.
 
-Te contactamos en menos de 2 horas en horario hábil para enviarte los 10 leads de demo.
+Te enviamos el reporte en menos de 24h.
 
-👉 Mientras, explora el bot de Telegram: t.me/Pipeline_X_bot"""
+👉 También puedes explorarlo en: t.me/Pipeline_X_bot"""
 
 _R5_BODY = """\
 💬 *¿Prefieres hablar con alguien?*
@@ -186,6 +193,10 @@ def _r3_precios() -> list[dict]:
 
 def _r4_solicitud() -> list[dict]:
     return [_t(_R4_SOLICITUD)]
+
+
+def _r4_procesando() -> list[dict]:
+    return [_t(_R4_PROCESANDO)]
 
 
 def _r4_confirmacion() -> list[dict]:
@@ -361,19 +372,18 @@ def _handle_message_locked(phone: str, text: str) -> list[dict]:
 
     log.info("WA msg: phone=%s state=%s text=%r", phone, state, text[:80])
 
-    # ── Estado: esperando email ───────────────────────────────────────────────
-    if state == "collecting_email":
-        email = _extract_email(text)
-        if not email:
+    # ── Estado: esperando target ──────────────────────────────────────────────
+    if state == "collecting_target":
+        target = text.strip()
+        if len(target) < 5:
             return [_t(
-                "No detecté un email válido en tu mensaje.\n\n"
-                "Por favor escríbelo así: *tunombre@empresa.com*"
+                "Necesito un poco más de detalle 😊\n\n"
+                "Ejemplo: *\"Ferreterías en Trujillo\"* o *\"Contadores en Lima\"*"
             )]
 
-        _save_lead(phone, email)
-        _notify_admin_telegram(phone, email)
-        _set_session(phone, {"state": "done", "email": email})
-        return _r4_confirmacion()
+        _set_session(phone, {"state": "running_pipeline", "target": target})
+        # Devolver pipeline_request como señal para que api.py corra el pipeline
+        return [_t(_R4_PROCESANDO), {"type": "pipeline_request", "target": target}]
 
     # ── Ya terminó el flujo ───────────────────────────────────────────────────
     if state == "done":
@@ -404,7 +414,7 @@ def _handle_option(phone: str, option: str) -> list[dict]:
         return _r3_precios()
 
     if option == "3":
-        _set_session(phone, {"state": "collecting_email"})
+        _set_session(phone, {"state": "collecting_target"})
         return _r4_solicitud()
 
     if option == "4":
