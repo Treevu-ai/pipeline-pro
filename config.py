@@ -2,6 +2,7 @@
 config.py — Edita este archivo para adaptar el agente a tu producto y mercado.
 """
 from __future__ import annotations
+import os
 
 # ─── Conexión a Ollama (legacy — solo para uso local) ─────────────────────────
 OLLAMA = {
@@ -31,6 +32,11 @@ GROQ = {
     "retries": 3,
     "backoff_s": 2,
 }
+
+# ─── Google Places API ───────────────────────────────────────────────────────
+# Requiere variable de entorno: GOOGLE_PLACES_API_KEY
+# Habilitar en: console.cloud.google.com → APIs → "Places API (New)"
+GOOGLE_PLACES_API_KEY: str = os.environ.get("GOOGLE_PLACES_API_KEY", "")
 
 # ─── Tu producto ─────────────────────────────────────────────────────────────
 PRODUCT = {

@@ -253,6 +253,87 @@ def _capacidad_pago(tipo_contribuyente: str, regimen: str) -> str:
     return "Sin datos"
 
 
+# ─── Google Places API (New) ─────────────────────────────────────────────────
+
+_RUC_PATTERN = utils.re.compile(r"\b20\d{9}\b")
+
+
+async def _extract_ruc_from_website(url: str) -> str:
+    """Descarga el website del lead y extrae el RUC peruano si aparece."""
+    if not url:
+        return ""
+    try:
+        import httpx
+        url = utils.normalize_url(url)
+        async with httpx.AsyncClient(timeout=8, follow_redirects=True) as client:
+            resp = await client.get(url, headers={"User-Agent": const.HTTP_HEADERS["User-Agent"]})
+            html = resp.text
+        matches = _RUC_PATTERN.findall(html)
+        if matches:
+            from collections import Counter
+            return Counter(matches).most_common(1)[0][0]
+    except Exception:
+        pass
+    return ""
+
+
+async def _search_via_places_api(query: str, limit: int) -> list[dict[str, Any]]:
+    """
+    Busca negocios usando Google Places API (New).
+    Requiere GOOGLE_PLACES_API_KEY en el entorno.
+    Retorna lista vacía si no hay key o la llamada falla.
+    """
+    api_key = cfg.GOOGLE_PLACES_API_KEY
+    if not api_key:
+        return []
+
+    try:
+        import httpx
+        url = "https://places.googleapis.com/v1/places:searchText"
+        headers = {
+            "Content-Type": "application/json",
+            "X-Goog-Api-Key": api_key,
+            "X-Goog-FieldMask": (
+                "places.displayName,places.formattedAddress,"
+                "places.nationalPhoneNumber,places.rating,"
+                "places.userRatingCount,places.websiteUri,"
+                "places.primaryTypeDisplayName"
+            ),
+        }
+        body = {
+            "textQuery": query,
+            "languageCode": "es",
+            "maxResultCount": min(limit, 20),
+        }
+        async with httpx.AsyncClient(timeout=15) as client:
+            resp = await client.post(url, json=body, headers=headers)
+            resp.raise_for_status()
+            data = resp.json()
+
+        leads: list[dict[str, Any]] = []
+        for place in data.get("places", []):
+            leads.append({
+                const.ColumnNames.EMPRESA:            place.get("displayName", {}).get("text", ""),
+                const.ColumnNames.DIRECCION:          place.get("formattedAddress", ""),
+                const.ColumnNames.TELEFONO:           place.get("nationalPhoneNumber", ""),
+                const.ColumnNames.RATING:             str(place.get("rating", "")),
+                const.ColumnNames.NUM_RESENAS:        str(place.get("userRatingCount", "")),
+                const.ColumnNames.SITIO_WEB:          place.get("websiteUri", ""),
+                const.ColumnNames.CATEGORIA_ORIGINAL: (
+                    place.get("primaryTypeDisplayName", {}).get("text", "")
+                ),
+                const.ColumnNames.INDUSTRIA:          map_category(
+                    place.get("primaryTypeDisplayName", {}).get("text", "")
+                ),
+                const.ColumnNames.FUENTE:             "google_places_api",
+            })
+        log.info("Places API: %d resultados para '%s'", len(leads), query)
+        return leads
+    except Exception as e:
+        log.warning("Places API falló para '%s': %s — usando fallback Playwright", query, e)
+        return []
+
+
 # ─── Scraper de Google Maps (Playwright async) ────────────────────────────────
 
 async def _scrape_maps_async(query: str, limit: int, headful: bool = False) -> list[dict[str, Any]]:
@@ -452,17 +533,29 @@ async def _scrape_maps_async(query: str, limit: int, headful: bool = False) -> l
 
 def scrape_google_maps(query: str, limit: int, headful: bool = False) -> list[dict[str, Any]]:
     """
-    Scrapea Google Maps de forma síncrona.
+    Busca negocios en Google.
+
+    Usa Google Places API (New) si GOOGLE_PLACES_API_KEY está configurada;
+    si no, hace fallback a scraping Playwright de Google Maps.
 
     Args:
         query: Query de búsqueda.
         limit: Límite de resultados.
-        headful: Si abrir el navegador visible.
+        headful: Si abrir el navegador visible (solo aplica al fallback Playwright).
 
     Returns:
         Lista de leads encontrados.
     """
-    return asyncio.run(_scrape_maps_async(query, limit, headful))
+    async def _run() -> list[dict[str, Any]]:
+        if cfg.GOOGLE_PLACES_API_KEY:
+            log.info("Usando Google Places API para: %s", query)
+            leads = await _search_via_places_api(query, limit)
+            if leads:
+                return leads
+            log.info("Places API sin resultados — fallback Playwright")
+        return await _scrape_maps_async(query, limit, headful)
+
+    return asyncio.run(_run())
 
 
 # ─── Enriquecimiento de leads ─────────────────────────────────────────────────
