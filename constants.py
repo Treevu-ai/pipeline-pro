@@ -237,6 +237,31 @@ CATEGORY_MAP = {
 }
 
 
+# ─── Tiers de plan ────────────────────────────────────────────────────────────
+
+class PlanTier:
+    """Identificadores de tier de plan. Deben coincidir con las claves de config.PLANS."""
+
+    FREE            = "free"
+    SOLO            = "solo"
+    STARTER         = "starter"
+    PRO             = "pro"
+    RESELLER        = "reseller"
+    STARTER_ANNUAL  = "starter_annual"
+    FOUNDER         = "founder"
+
+    # Tiers que permiten enrichment SUNAT
+    SUNAT_ENABLED = {STARTER, PRO, RESELLER, STARTER_ANNUAL, FOUNDER}
+    # Tiers que permiten reporte HTML
+    HTML_REPORT_ENABLED = {STARTER, PRO, RESELLER, STARTER_ANNUAL, FOUNDER}
+    # Tiers con acceso directo a la API
+    API_ENABLED = {STARTER, PRO, RESELLER, STARTER_ANNUAL, FOUNDER}
+    # Tiers con white-label
+    WHITE_LABEL_ENABLED = {RESELLER}
+    # Tiers válidos para validación de header
+    ALL = {FREE, SOLO, STARTER, PRO, RESELLER, STARTER_ANNUAL, FOUNDER}
+
+
 # ─── Patrones de regex ─────────────────────────────────────────────────────────
 
 class RegexPatterns:
