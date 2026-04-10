@@ -1086,8 +1086,29 @@ async def whatsapp_webhook(request: Request):
     if id_message:
         await asyncio.to_thread(wa_sender.mark_read, phone, id_message)
 
-    # Procesar y responder
-    reply = await asyncio.to_thread(wa_bot.handle_message, phone, text)
-    await asyncio.to_thread(wa_sender.send_text, phone, reply)
+    # Procesar y responder (handle_message devuelve list[dict])
+    messages = await asyncio.to_thread(wa_bot.handle_message, phone, text)
+    for msg in messages:
+        mtype = msg.get("type", "text")
+        if mtype == "buttons":
+            await asyncio.to_thread(
+                wa_sender.send_buttons,
+                phone,
+                msg["body"],
+                msg["buttons"],
+                msg.get("header", ""),
+                msg.get("footer", ""),
+            )
+        elif mtype == "list":
+            await asyncio.to_thread(
+                wa_sender.send_list,
+                phone,
+                msg["body"],
+                msg["button_text"],
+                msg["sections"],
+                msg.get("footer", ""),
+            )
+        else:
+            await asyncio.to_thread(wa_sender.send_text, phone, msg["text"])
 
     return {"ok": True}

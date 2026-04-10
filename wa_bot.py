@@ -2,12 +2,17 @@
 wa_bot.py — Bot de 5 respuestas automáticas para WhatsApp (Pipeline_X).
 
 Flujo:
-  Cualquier mensaje  → [R1] Bienvenida + menú con 4 opciones
-  "1" / palabras clave → [R2] ¿Qué es Pipeline_X?
-  "2" / precio         → [R3] Planes y precios
-  "3" / demo           → [R4] Captura de email para demo gratuita
-  "4" / contacto       → [R5] Link a Telegram + correo de soporte
-  Email válido         → Guarda lead, notifica admin en Telegram
+  Cualquier mensaje  → [R1] Menú interactivo con lista de 4 opciones
+  Opción 1           → [R2] ¿Qué es Pipeline_X? + botones CTA
+  Opción 2           → [R3] Planes y precios + botones CTA
+  Opción 3           → [R4] Captura de email para demo gratuita
+  Opción 4           → [R5] Link a Telegram + correo de soporte
+  Email válido       → Guarda lead, notifica admin en Telegram
+
+Tipos de mensaje devueltos (list[dict]):
+  {"type": "text",    "text": str}
+  {"type": "buttons", "body": str, "buttons": list[{"id", "text"}], "header": str, "footer": str}
+  {"type": "list",    "body": str, "button_text": str, "sections": list[...], "footer": str}
 
 Persistencia de sesiones: output/.wa_sessions.json
 Leads capturados:        output/.demo_requests.json  (mismo store que API + Telegram)
@@ -46,23 +51,66 @@ _DEMO_STORE     = Path("output/.demo_requests.json")
 # collecting_email → eligió demo (opción 3), esperando email
 # done             → email capturado, conversación cerrada
 
-# ─── Textos de las 5 respuestas ──────────────────────────────────────────────
+# ─── Helpers para construir mensajes interactivos ─────────────────────────────
 
-R1_BIENVENIDA = """\
-👋 Hola, soy el asistente de *Pipeline_X*.
+def _t(text: str) -> dict:
+    """Mensaje de texto simple."""
+    return {"type": "text", "text": text}
 
-Encuentra empresas reales en Google Maps, califícalas con IA y genera mensajes de prospección listos para enviar.
 
-¿Qué quieres saber?
+def _b(body: str, buttons: list[tuple[str, str]], header: str = "", footer: str = "") -> dict:
+    """
+    Mensaje con hasta 3 botones.
+    buttons: lista de (id, display_text)
+    """
+    return {
+        "type":    "buttons",
+        "body":    body,
+        "buttons": [{"id": bid, "text": btxt} for bid, btxt in buttons],
+        "header":  header,
+        "footer":  footer,
+    }
 
-*1.* ¿Qué es Pipeline_X?
-*2.* Planes y precios
-*3.* Quiero una demo gratis 🚀
-*4.* Hablar con alguien
 
-Responde con el número de tu opción."""
+def _l(body: str, rows: list[tuple[str, str, str]], footer: str = "") -> dict:
+    """
+    Mensaje con lista de opciones seleccionables.
+    rows: lista de (id, title, description)
+    """
+    return {
+        "type":        "list",
+        "body":        body,
+        "button_text": "Ver opciones",
+        "sections":    [{
+            "title": "Elige una opción",
+            "rows":  [
+                {"id": rid, "title": rtitle, "description": rdesc}
+                for rid, rtitle, rdesc in rows
+            ],
+        }],
+        "footer": footer,
+    }
 
-R2_QUE_ES = """\
+
+# ─── Textos base ──────────────────────────────────────────────────────────────
+
+_FOOTER = "Pipeline_X — Prospección B2B para MIPYME"
+
+_MENU_BODY = (
+    "👋 Hola, soy el asistente de *Pipeline_X*.\n\n"
+    "Encuentra empresas reales en Google Maps, califícalas con IA "
+    "y genera mensajes de prospección listos para enviar.\n\n"
+    "¿Qué quieres saber?"
+)
+
+_MENU_ROWS: list[tuple[str, str, str]] = [
+    ("1", "¿Qué es Pipeline_X?",   "Cómo funciona la plataforma"),
+    ("2", "Planes y precios 💰",    "Desde $0 hasta plan Reseller"),
+    ("3", "Demo gratis 🚀",         "10 leads reales de tu industria"),
+    ("4", "Hablar con alguien 💬",  "Telegram, email o llamada"),
+]
+
+_R2_BODY = """\
 🤖 *Pipeline_X* es una plataforma de prospección B2B para MIPYME en Latinoamérica.
 
 En 3 pasos:
@@ -70,11 +118,9 @@ En 3 pasos:
 2️⃣ Pipeline_X las encuentra en Google Maps y las califica con IA (score 0–100)
 3️⃣ Recibes un CSV con leads + mensajes de outreach listos para copiar
 
-Sin Excel manual. Sin LinkedIn Ads. Sin contratar SDRs.
+Sin Excel manual. Sin LinkedIn Ads. Sin contratar SDRs."""
 
-¿Te interesa probarlo? Responde *3* para una demo gratis o *2* para ver precios."""
-
-R3_PRECIOS = """\
+_R3_BODY = """\
 💰 *Planes de Pipeline_X*
 
 • *Free* — $0 | 10 leads gratis, sin tarjeta
@@ -83,26 +129,23 @@ R3_PRECIOS = """\
 • *Pro* — $79/mes | 500 leads + acceso API
 • *Reseller* — $299/mes | 1.000 leads + white-label (agencias)
 
-🎁 *Precio fundador:* $29/mes para los primeros 20 clientes (mismo acceso que Starter).
+🎁 *Precio fundador:* $29/mes para los primeros 20 clientes (mismo acceso que Starter)."""
 
-¿Quieres ver cómo funciona antes de decidir? Responde *3* para una demo gratis con leads reales de tu industria."""
-
-R4_DEMO_SOLICITUD = """\
+_R4_SOLICITUD = """\
 🚀 ¡Perfecto! Te genero *10 leads reales* de tu industria, gratis y ahora mismo.
 
 Para enviarte el reporte, necesito tu email:
 
 ✉️ *¿Cuál es tu correo electrónico?*"""
 
-R4_DEMO_CONFIRMACION = """\
+_R4_CONFIRMACION = """\
 ✅ ¡Listo! Registré tu solicitud.
 
 Te contactamos en menos de 2 horas en horario hábil para enviarte los 10 leads de demo.
 
-Mientras, puedes explorar el bot de Telegram para más detalles:
-👉 t.me/Pipeline_X_bot"""
+👉 Mientras, explora el bot de Telegram: t.me/Pipeline_X_bot"""
 
-R5_CONTACTO = """\
+_R5_BODY = """\
 💬 *¿Prefieres hablar con alguien?*
 
 🤖 *Bot de Telegram:* t.me/Pipeline_X_bot
@@ -112,15 +155,63 @@ R5_CONTACTO = """\
 
 📲 Estás en el WhatsApp correcto — si prefieres que te llamemos, escribe tu número y te contactamos."""
 
-R_NO_ENTENDIDO = """\
-No entendí esa opción 🤔
 
-Responde con el número de lo que quieres:
+# ─── Funciones que devuelven list[dict] para cada respuesta ───────────────────
 
-*1.* ¿Qué es Pipeline_X?
-*2.* Planes y precios
-*3.* Demo gratis
-*4.* Hablar con alguien"""
+def _r1_menu() -> list[dict]:
+    return [_l(_MENU_BODY, _MENU_ROWS, footer=_FOOTER)]
+
+
+def _r2_que_es() -> list[dict]:
+    return [
+        _t(_R2_BODY),
+        _b(
+            "¿Te interesa probarlo?",
+            [("3", "Demo gratis 🚀"), ("2", "Ver precios 💰")],
+            footer=_FOOTER,
+        ),
+    ]
+
+
+def _r3_precios() -> list[dict]:
+    return [
+        _t(_R3_BODY),
+        _b(
+            "¿Quieres ver cómo funciona antes de decidir?",
+            [("3", "Demo gratis 🚀"), ("4", "Hablar con alguien 💬")],
+            footer=_FOOTER,
+        ),
+    ]
+
+
+def _r4_solicitud() -> list[dict]:
+    return [_t(_R4_SOLICITUD)]
+
+
+def _r4_confirmacion() -> list[dict]:
+    return [_t(_R4_CONFIRMACION)]
+
+
+def _r5_contacto() -> list[dict]:
+    return [_t(_R5_BODY)]
+
+
+def _r_no_entendido() -> list[dict]:
+    return [
+        _t("No entendí esa opción 🤔"),
+        _l(_MENU_BODY, _MENU_ROWS, footer=_FOOTER),
+    ]
+
+
+def _r_ya_registrado() -> list[dict]:
+    return [
+        _b(
+            "Tu solicitud ya está registrada ✅\n\n¿Necesitas algo más?",
+            [("2", "Ver precios 💰"), ("4", "Hablar con alguien 💬")],
+            footer=_FOOTER,
+        )
+    ]
+
 
 # ─── Detección de intención ───────────────────────────────────────────────────
 
@@ -241,9 +332,11 @@ def _notify_admin_telegram(phone: str, email: str) -> None:
 
 # ─── Motor principal ──────────────────────────────────────────────────────────
 
-def handle_message(phone: str, text: str) -> str:
+def handle_message(phone: str, text: str) -> list[dict]:
     """
-    Procesa un mensaje entrante de WhatsApp y devuelve el texto de respuesta.
+    Procesa un mensaje entrante de WhatsApp y devuelve la lista de mensajes
+    a enviar (cada uno es un dict con "type" y campos adicionales).
+
     Serializa mensajes del mismo número con un lock para evitar race conditions.
 
     Args:
@@ -251,13 +344,16 @@ def handle_message(phone: str, text: str) -> str:
         text:  Texto del mensaje recibido.
 
     Returns:
-        Texto que debe enviarse como respuesta.
+        Lista de dicts de mensajes. Tipos posibles:
+          {"type": "text",    "text": str}
+          {"type": "buttons", "body": str, "buttons": [...], "header": str, "footer": str}
+          {"type": "list",    "body": str, "button_text": str, "sections": [...], "footer": str}
     """
     with _get_lock(phone):
         return _handle_message_locked(phone, text)
 
 
-def _handle_message_locked(phone: str, text: str) -> str:
+def _handle_message_locked(phone: str, text: str) -> list[dict]:
     """Lógica real — llamar solo desde handle_message (ya con lock)."""
     session = _get_session(phone)
     state   = session.get("state", "idle")
@@ -269,26 +365,22 @@ def _handle_message_locked(phone: str, text: str) -> str:
     if state == "collecting_email":
         email = _extract_email(text)
         if not email:
-            return (
+            return [_t(
                 "No detecté un email válido en tu mensaje.\n\n"
                 "Por favor escríbelo así: *tunombre@empresa.com*"
-            )
+            )]
 
         _save_lead(phone, email)
         _notify_admin_telegram(phone, email)
         _set_session(phone, {"state": "done", "email": email})
-        return R4_DEMO_CONFIRMACION
+        return _r4_confirmacion()
 
     # ── Ya terminó el flujo ───────────────────────────────────────────────────
     if state == "done":
-        # Permitir reinicio si escribe algo nuevo
         option = _detect_option(text)
         if option:
             return _handle_option(phone, option)
-        return (
-            "Tu solicitud ya está registrada ✅\n\n"
-            "¿Necesitas algo más? Responde *1*, *2*, *3* o *4*."
-        )
+        return _r_ya_registrado()
 
     # ── Primer mensaje o menú ─────────────────────────────────────────────────
     option = _detect_option(text)
@@ -296,31 +388,31 @@ def _handle_message_locked(phone: str, text: str) -> str:
     if option:
         return _handle_option(phone, option)
 
-    # No se detectó opción → mostrar bienvenida/menú
+    # No se detectó opción → mostrar bienvenida/menú interactivo
     _set_session(phone, {"state": "menu_shown"})
-    return R1_BIENVENIDA
+    return _r1_menu()
 
 
-def _handle_option(phone: str, option: str) -> str:
+def _handle_option(phone: str, option: str) -> list[dict]:
     """Maneja la opción elegida y actualiza la sesión."""
     if option == "1":
         _set_session(phone, {"state": "menu_shown"})
-        return R2_QUE_ES
+        return _r2_que_es()
 
     if option == "2":
         _set_session(phone, {"state": "menu_shown"})
-        return R3_PRECIOS
+        return _r3_precios()
 
     if option == "3":
         _set_session(phone, {"state": "collecting_email"})
-        return R4_DEMO_SOLICITUD
+        return _r4_solicitud()
 
     if option == "4":
         _set_session(phone, {"state": "menu_shown"})
-        return R5_CONTACTO
+        return _r5_contacto()
 
     _set_session(phone, {"state": "menu_shown"})
-    return R_NO_ENTENDIDO
+    return _r_no_entendido()
 
 
 # ─── Utilidad: extraer teléfono del payload de Green API ─────────────────────
@@ -334,6 +426,8 @@ def parse_green_api_payload(payload: dict) -> tuple[str, str] | None:
       - textMessage          → mensaje de texto simple
       - extendedTextMessage  → mensaje con preview de link o respuesta citada
       - quotedMessage        → respuesta a un mensaje anterior
+      - buttonsResponseMessage → respuesta a un mensaje con botones
+      - listResponseMessage    → selección en lista interactiva
     """
     if payload.get("typeWebhook") != "incomingMessageReceived":
         return None
@@ -355,9 +449,23 @@ def parse_green_api_payload(payload: dict) -> tuple[str, str] | None:
     elif msg_type in ("extendedTextMessage", "quotedMessage"):
         data = msg_data.get("extendedTextMessageData", {})
         text = data.get("text", "").strip()
-        # fallback: algunos payloads lo ponen directamente
         if not text:
             text = msg_data.get("textMessageData", {}).get("textMessage", "").strip()
+
+    # Respuesta a botones interactivos → usar el buttonId como texto
+    elif msg_type == "buttonsResponseMessage":
+        data = msg_data.get("buttonsResponseMessage", {})
+        # selectedButtonId coincide con los IDs "1"-"4" que definimos
+        text = data.get("selectedButtonId", "").strip()
+        if not text:
+            text = data.get("selectedButtonText", "").strip()
+
+    # Selección en lista interactiva → usar el rowId como texto
+    elif msg_type == "listResponseMessage":
+        data = msg_data.get("listResponseMessage", {})
+        text = data.get("singleSelectReply", {}).get("selectedRowId", "").strip()
+        if not text:
+            text = data.get("title", "").strip()
 
     else:
         return None   # audio, imagen, sticker, etc.
