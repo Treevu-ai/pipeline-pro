@@ -719,6 +719,17 @@ async def _deliver_and_notify_wa(phone: str, target: str) -> None:
         wa_bot._set_session(phone, {"state": "done", "target": target})
         await _notion_mark_delivered(target)
 
+        # Botones post-demo
+        for msg in wa_bot._r_post_demo():
+            if msg.get("type") == "buttons":
+                await asyncio.to_thread(
+                    wa_sender.send_buttons,
+                    phone, msg["body"], msg["buttons"],
+                    msg.get("header", ""), msg.get("footer", ""),
+                )
+            else:
+                await asyncio.to_thread(wa_sender.send_text, phone, msg["text"])
+
     except Exception as exc:
         log.error("_deliver_and_notify_wa error: %s", exc)
         await asyncio.to_thread(

@@ -171,111 +171,53 @@ REGLAS ABSOLUTAS
 
 # ─── Botones inline ───────────────────────────────────────────────────────────
 
-def kb_industrias() -> InlineKeyboardMarkup:
+def kb_start() -> InlineKeyboardMarkup:
+    """Entrada principal — 3 opciones, acción de demo al frente."""
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("🛒 Retail / Comercio", callback_data="ind_retail"),
-         InlineKeyboardButton("🚛 Logística", callback_data="ind_logistica")],
-        [InlineKeyboardButton("🏗️ Construcción", callback_data="ind_construccion"),
-         InlineKeyboardButton("💼 Servicios B2B", callback_data="ind_servicios")],
-        [InlineKeyboardButton("🏥 Salud", callback_data="ind_salud"),
-         InlineKeyboardButton("📦 Otro", callback_data="ind_otro")],
-    ])
-
-def kb_volumen() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("1–10 leads/mes", callback_data="vol_bajo"),
-         InlineKeyboardButton("10–50 leads/mes", callback_data="vol_medio")],
-        [InlineKeyboardButton("50+ leads/mes", callback_data="vol_alto")],
-    ])
-
-def kb_proceso() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("📋 Manual / Excel", callback_data="proc_manual"),
-         InlineKeyboardButton("📣 LinkedIn / Ads", callback_data="proc_ads")],
-        [InlineKeyboardButton("🤝 Referidos", callback_data="proc_referidos"),
-         InlineKeyboardButton("❓ Sin proceso definido", callback_data="proc_ninguno")],
+        [InlineKeyboardButton("🚀 Probar gratis — 10 leads reales", callback_data="start_demo")],
+        [InlineKeyboardButton("💰 Planes y precios",  callback_data="start_planes"),
+         InlineKeyboardButton("❓ Cómo funciona",     callback_data="start_info")],
     ])
 
 def kb_planes() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("Solo — $19/mes (30 leads)", callback_data="plan_solo")],
-        [InlineKeyboardButton("⭐ Starter — $39/mes (200 leads)", callback_data="plan_starter")],
-        [InlineKeyboardButton("Pro — $79/mes (500 leads)", callback_data="plan_pro")],
-        [InlineKeyboardButton("Reseller — $299/mes (agencias)", callback_data="plan_reseller")],
-        [InlineKeyboardButton("💬 Tengo dudas", callback_data="plan_dudas")],
-    ])
-
-def kb_cierre() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("✅ Quiero acceso ahora", callback_data="cierre_acceso")],
-        [InlineKeyboardButton("👀 Ver demo en vivo", callback_data="cierre_demo")],
-        [InlineKeyboardButton("💬 Tengo más preguntas", callback_data="cierre_preguntas")],
+        [InlineKeyboardButton("Free — $0  (10 leads)",            callback_data="plan_free")],
+        [InlineKeyboardButton("Solo — $19/mes  (30 leads)",       callback_data="plan_solo")],
+        [InlineKeyboardButton("⭐ Starter — $39/mes  (200 leads)", callback_data="plan_starter")],
+        [InlineKeyboardButton("Pro — $79/mes  (500 leads + API)", callback_data="plan_pro")],
+        [InlineKeyboardButton("Reseller — $299/mes  (agencias)",  callback_data="plan_reseller")],
+        [InlineKeyboardButton("🚀 Probar gratis primero",         callback_data="start_demo")],
     ])
 
 def kb_post_demo() -> InlineKeyboardMarkup:
-    """Teclado que aparece después de entregar los 10 leads de demo."""
+    """Aparece justo después de entregar el CSV de demo."""
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("🚀 Quiero los 200 leads completos", callback_data="demo_upgrade")],
-        [InlineKeyboardButton("💬 Tengo preguntas", callback_data="demo_preguntas")],
-        [InlineKeyboardButton("👎 No me fue útil", callback_data="demo_no_util")],
+        [InlineKeyboardButton("🚀 Quiero los 200 leads  (Starter $39/mes)", callback_data="demo_upgrade")],
+        [InlineKeyboardButton("💬 Tengo preguntas",  callback_data="demo_preguntas"),
+         InlineKeyboardButton("👎 No fue útil",      callback_data="demo_no_util")],
+    ])
+
+def kb_upgrade_done() -> InlineKeyboardMarkup:
+    """Después de capturar email para upgrade."""
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("💰 Ver todos los planes", callback_data="start_planes")],
     ])
 
 
 # ─── Etiquetas legibles de callbacks ─────────────────────────────────────────
 
 LABELS: dict[str, str] = {
-    "ind_retail":       "Retail / Comercio",
-    "ind_logistica":    "Logística",
-    "ind_construccion": "Construcción",
-    "ind_servicios":    "Servicios B2B",
-    "ind_salud":        "Salud",
-    "ind_otro":         "Otra industria",
-    "vol_bajo":         "1–10 leads al mes",
-    "vol_medio":        "10–50 leads al mes",
-    "vol_alto":         "Más de 50 leads al mes",
-    "proc_manual":      "Manual / Excel",
-    "proc_ads":         "LinkedIn / Publicidad",
-    "proc_referidos":   "Referidos",
-    "proc_ninguno":     "Sin proceso definido",
-    "plan_solo":        "Solo $19/mes",
-    "plan_starter":     "Starter $39/mes",
-    "plan_pro":         "Pro $79/mes",
-    "plan_reseller":    "Reseller $299/mes",
-    "plan_dudas":       "Tengo dudas sobre los planes",
-    "cierre_acceso":    "Quiero acceso ahora",
-    "cierre_demo":      "Quiero ver una demo en vivo",
-    "cierre_preguntas": "Tengo más preguntas",
-    "demo_upgrade":     "Quiero los 200 leads completos",
-    "demo_preguntas":   "Tengo preguntas sobre la demo",
-    "demo_no_util":     "No me fue útil",
-}
-
-# Qué teclado mostrar después de cada grupo de callback
-NEXT_KB: dict[str, callable] = {
-    "ind_retail":       kb_volumen,
-    "ind_logistica":    kb_volumen,
-    "ind_construccion": kb_volumen,
-    "ind_servicios":    kb_volumen,
-    "ind_salud":        kb_volumen,
-    "ind_otro":         kb_volumen,
-    "vol_bajo":         kb_proceso,
-    "vol_medio":        kb_proceso,
-    "vol_alto":         kb_proceso,
-    "proc_manual":      None,
-    "proc_ads":         None,
-    "proc_referidos":   None,
-    "proc_ninguno":     None,
-    "plan_solo":        kb_cierre,
-    "plan_starter":     kb_cierre,
-    "plan_pro":         kb_cierre,
-    "plan_reseller":    kb_cierre,
-    "plan_dudas":       None,
-    "cierre_acceso":    None,
-    "cierre_demo":      None,
-    "cierre_preguntas": kb_planes,
-    "demo_upgrade":     None,
-    "demo_preguntas":   None,
-    "demo_no_util":     None,
+    "start_demo":    "Quiero probar gratis",
+    "start_planes":  "Planes y precios",
+    "start_info":    "Cómo funciona Pipeline_X",
+    "plan_free":     "Free $0",
+    "plan_solo":     "Solo $19/mes",
+    "plan_starter":  "Starter $39/mes",
+    "plan_pro":      "Pro $79/mes",
+    "plan_reseller": "Reseller $299/mes",
+    "demo_upgrade":  "Quiero los 200 leads completos (Starter)",
+    "demo_preguntas":"Tengo preguntas sobre la demo",
+    "demo_no_util":  "No me fue útil",
 }
 
 # ─── Rate limiter ─────────────────────────────────────────────────────────────
@@ -473,28 +415,38 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     _rate_buckets[user_id].clear()
     _demo_states.pop(user_id, None)
 
-    # Deep link: t.me/<bot>?start=demo
+    # Deep link desde landing: t.me/<bot>?start=demo
     args = context.args or []
     if args and args[0] == "demo":
-        already_used = await asyncio.to_thread(_has_used_demo, user_id)
-        if already_used:
-            await update.message.reply_text(
-                "Ya usaste tu demo gratuita. 🎯\n\n"
-                "Para seguir prospectando elige tu plan:",
-                reply_markup=kb_planes(),
-            )
-            return
-        _demo_states[user_id] = {"state": "waiting_target"}
-        await update.message.reply_text(
-            "Hola 👋 Voy a generarte *10 leads reales* ahora mismo, sin tarjeta.\n\n"
-            "¿Qué tipo de empresa estás prospectando?\n"
-            "_Ej: Ferreterías en Trujillo · Clínicas en Bogotá · Logística en CDMX_",
-            parse_mode="Markdown",
-        )
+        await _start_demo_flow(update.message.reply_text, user_id)
         return
 
-    reply = _get_reply(user_id, "/start")
-    await update.message.reply_text(reply, reply_markup=kb_industrias())
+    await update.message.reply_text(
+        "Hola 👋 Soy *Pipeline_X*.\n\n"
+        "Encuentra empresas reales en Google Maps, califícalas con IA "
+        "y recibe mensajes de outreach listos — en minutos.\n\n"
+        "¿Por dónde empezamos?",
+        parse_mode="Markdown",
+        reply_markup=kb_start(),
+    )
+
+
+async def _start_demo_flow(reply_fn, user_id: int) -> None:
+    """Inicia el flujo de demo — reutilizable desde /start y callbacks."""
+    already_used = await asyncio.to_thread(_has_used_demo, user_id)
+    if already_used:
+        await reply_fn(
+            "Ya usaste tu demo gratuita 🎯\n\nElige tu plan para seguir prospectando:",
+            reply_markup=kb_planes(),
+        )
+        return
+    _demo_states[user_id] = {"state": "waiting_target"}
+    await reply_fn(
+        "Voy a generarte *10 leads reales* ahora mismo, sin tarjeta.\n\n"
+        "¿Qué tipo de empresa estás prospectando?\n"
+        "_Ej: Ferreterías en Trujillo · Clínicas en Bogotá · Logística en CDMX_",
+        parse_mode="Markdown",
+    )
 
 
 async def cmd_reset(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -579,12 +531,9 @@ async def _deliver_demo(chat_id: int, user_id: int, target: str, context: Contex
     await context.bot.send_message(
         chat_id=chat_id,
         text=(
-            "Esto es el *10% de lo que Pipeline_X entrega en Starter.*\n\n"
-            "Con el plan completo ($39/mes):\n"
-            "- 200 leads/mes en vez de 10\n"
-            "- Enriquecimiento SUNAT (capacidad de pago real)\n"
-            "- Reporte HTML con métricas\n\n"
-            "¿Qué querés hacer?"
+            "Esto es el *10% de lo que obtienes con Starter.*\n\n"
+            "— 200 leads/mes · SUNAT · reporte HTML\n"
+            "— Todo por $39/mes"
         ),
         parse_mode="Markdown",
         reply_markup=kb_post_demo(),
@@ -595,94 +544,75 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     query = update.callback_query
     await query.answer()
 
-    user_id  = query.from_user.id
-    chat_id  = query.message.chat_id
-    data     = query.data
-    label    = LABELS.get(data, data)
+    user_id = query.from_user.id
+    chat_id = query.message.chat_id
+    data    = query.data
 
     try:
         await query.edit_message_reply_markup(reply_markup=None)
     except Exception:
         pass
 
-    # ── Callbacks del flujo demo ──────────────────────────────────────────────
+    send = lambda text, **kw: context.bot.send_message(chat_id=chat_id, text=text, **kw)
+
+    # ── Entrada principal ─────────────────────────────────────────────────────
+    if data == "start_demo":
+        await _start_demo_flow(
+            lambda text, **kw: send(text, **kw),
+            user_id,
+        )
+        return
+
+    if data == "start_planes":
+        await send("Planes de Pipeline_X:", reply_markup=kb_planes())
+        return
+
+    if data == "start_info":
+        if _is_rate_limited(user_id):
+            await send("Vas muy rápido 🙂 Espera un momento.")
+            return
+        await context.bot.send_chat_action(chat_id=chat_id, action="typing")
+        reply = _get_reply(user_id, LABELS["start_info"])
+        await send(reply, reply_markup=kb_start())
+        return
+
+    # ── Post-demo ─────────────────────────────────────────────────────────────
     if data == "demo_upgrade":
         _demo_states[user_id] = {**_demo_states.get(user_id, {}), "state": "collecting_email"}
-        await context.bot.send_message(
-            chat_id=chat_id,
-            text="Perfecto. ¿Cuál es tu email? Te activo el acceso hoy.",
-        )
+        await send("Perfecto. ¿Cuál es tu email? Te activo el acceso hoy.")
         return
 
     if data == "demo_preguntas":
         _demo_states.pop(user_id, None)
-        await context.bot.send_message(
-            chat_id=chat_id,
-            text="Con gusto. ¿Qué quieres saber sobre Pipeline_X?",
-        )
+        await send("Con gusto. ¿Qué quieres saber sobre Pipeline_X?")
         return
 
     if data == "demo_no_util":
         _demo_states.pop(user_id, None)
-        await context.bot.send_message(
-            chat_id=chat_id,
-            text=(
-                "Gracias por decírmelo — me ayuda a mejorar.\n\n"
-                "¿Qué esperabas ver que no estaba? "
-                "Con ese dato puedo mostrarte algo más relevante para tu caso."
-            ),
+        await send(
+            "Gracias por decírmelo.\n\n"
+            "¿Qué esperabas ver que no estaba? Con eso puedo mostrarte algo más útil."
         )
         return
 
-    if data == "cierre_demo":
-        # El usuario quiere demo desde el flujo de ventas → verificar cuota antes
-        already_used = await asyncio.to_thread(_has_used_demo, user_id)
-        if already_used:
-            await context.bot.send_message(
-                chat_id=chat_id,
-                text="Ya usaste tu demo gratuita. 🎯 Elige tu plan para seguir prospectando:",
-                reply_markup=kb_planes(),
-            )
+    # ── Planes ────────────────────────────────────────────────────────────────
+    if data.startswith("plan_"):
+        if _is_rate_limited(user_id):
+            await send("Vas muy rápido 🙂 Espera un momento.")
             return
-        _demo_states[user_id] = {"state": "waiting_target"}
-        await context.bot.send_message(
-            chat_id=chat_id,
-            text=(
-                "Perfecto. ¿Qué tipo de empresa estás prospectando?\n"
-                "_Ej: Ferreterías en Trujillo · Clínicas en Bogotá_"
-            ),
-            parse_mode="Markdown",
-        )
+        await context.bot.send_chat_action(chat_id=chat_id, action="typing")
+        label = LABELS.get(data, data)
+        reply = _get_reply(user_id, f"Quiero saber más sobre el plan {label}")
+        await send(reply, reply_markup=kb_post_demo() if "free" not in data else kb_start())
         return
 
-    # ── Callbacks normales del flujo de ventas ────────────────────────────────
+    # ── Fallback: cualquier otro texto libre va a Alex ────────────────────────
     if _is_rate_limited(user_id):
-        await context.bot.send_message(
-            chat_id=chat_id,
-            text="Vas muy rápido 🙂 Espera un momento antes de continuar.",
-        )
+        await send("Vas muy rápido 🙂 Espera un momento.")
         return
-
     await context.bot.send_chat_action(chat_id=chat_id, action="typing")
-    reply = _get_reply(user_id, label)
-
-    next_kb_fn = NEXT_KB.get(data)
-    reply_markup = next_kb_fn() if next_kb_fn else None
-
-    await context.bot.send_message(
-        chat_id=chat_id,
-        text=reply,
-        reply_markup=reply_markup,
-    )
-
-    # Mostrar planes después del dolor
-    if data in ("proc_manual", "proc_ads", "proc_referidos", "proc_ninguno"):
-        followup = _get_reply(user_id, "Muéstrame los planes disponibles")
-        await context.bot.send_message(
-            chat_id=chat_id,
-            text=followup,
-            reply_markup=kb_planes(),
-        )
+    reply = _get_reply(user_id, LABELS.get(data, data))
+    await send(reply)
 
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

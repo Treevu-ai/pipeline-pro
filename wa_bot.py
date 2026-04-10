@@ -94,153 +94,123 @@ def _l(body: str, rows: list[tuple[str, str, str]], footer: str = "") -> dict:
 
 # ─── Textos base ──────────────────────────────────────────────────────────────
 
-_FOOTER = "Pipeline_X — Prospección B2B para MIPYME"
+_FOOTER = "Pipeline_X · pipelinex.app"
 
-_MENU_BODY = (
-    "👋 Hola, soy el asistente de *Pipeline_X*.\n\n"
+# ─── Textos ───────────────────────────────────────────────────────────────────
+
+_BIENVENIDA = (
+    "👋 Hola, soy *Pipeline_X*.\n\n"
     "Encuentra empresas reales en Google Maps, califícalas con IA "
-    "y genera mensajes de prospección listos para enviar.\n\n"
-    "¿Qué quieres saber?"
+    "y recibe mensajes de outreach listos."
 )
 
-_MENU_ROWS: list[tuple[str, str, str]] = [
-    ("1", "¿Qué es Pipeline_X?",   "Cómo funciona la plataforma"),
-    ("2", "Planes y precios 💰",    "Desde $0 hasta plan Reseller"),
-    ("3", "Demo gratis 🚀",         "10 leads reales de tu industria"),
-    ("4", "Hablar con alguien 💬",  "Telegram, email o llamada"),
-]
+_INFO_BODY = (
+    "En 3 pasos:\n"
+    "1️⃣ Escribes qué buscas — *\"Ferreterías en Lima\"*\n"
+    "2️⃣ Buscamos en Google Maps y calificamos con IA (score 0–100)\n"
+    "3️⃣ Recibes CSV con leads + mensajes listos\n\n"
+    "Sin Excel. Sin LinkedIn Ads. Sin SDRs."
+)
 
-_R2_BODY = """\
-🤖 *Pipeline_X* es una plataforma de prospección B2B para MIPYME en Latinoamérica.
+_PRECIOS_BODY = (
+    "💰 *Planes Pipeline_X*\n\n"
+    "• Free — $0 · 10 leads, sin tarjeta\n"
+    "• Solo — $19/mes · 30 leads\n"
+    "• *Starter — $39/mes · 200 leads* ⭐\n"
+    "• Pro — $79/mes · 500 leads + API\n"
+    "• Reseller — $299/mes · 1.000 leads + white-label\n\n"
+    "🎁 Precio fundador $29/mes — primeros 20 clientes"
+)
 
-En 3 pasos:
-1️⃣ Escribes qué tipo de empresa buscas ("Ferreterías en Lima")
-2️⃣ Pipeline_X las encuentra en Google Maps y las califica con IA (score 0–100)
-3️⃣ Recibes un CSV con leads + mensajes de outreach listos para copiar
+_PEDIR_TARGET = (
+    "¿Qué tipo de empresas quieres prospectar?\n\n"
+    "Escribe industria + ciudad:\n"
+    "_\"Ferreterías en Trujillo\"_ · _\"Clínicas en Lima\"_"
+)
 
-Sin Excel manual. Sin LinkedIn Ads. Sin contratar SDRs."""
+_PROCESANDO = (
+    "⏳ Buscando en Google Maps y calificando con IA...\n"
+    "Listo en 1–3 min. ☕"
+)
 
-_R3_BODY = """\
-💰 *Planes de Pipeline_X*
+_YA_REGISTRADO = "Tu reporte ya está en camino ✅"
 
-• *Free* — $0 | 10 leads gratis, sin tarjeta
-• *Solo* — $19/mes | 30 leads (freelancers)
-• *Starter* — $39/mes | 200 leads ⭐ más popular
-• *Pro* — $79/mes | 500 leads + acceso API
-• *Reseller* — $299/mes | 1.000 leads + white-label (agencias)
+_NO_ENTENDIDO = "No entendí eso 🤔 ¿En qué puedo ayudarte?"
 
-🎁 *Precio fundador:* $29/mes para los primeros 20 clientes (mismo acceso que Starter)."""
+# ─── Constructores de respuesta ───────────────────────────────────────────────
 
-_R4_SOLICITUD = """\
-🚀 ¡Perfecto! Te genero *10 leads reales* de tu industria, gratis y ahora mismo.
+def _r_menu() -> list[dict]:
+    return [_b(
+        _BIENVENIDA,
+        [("demo", "🚀 Demo gratis"), ("precios", "💰 Precios"), ("info", "❓ Cómo funciona")],
+        footer=_FOOTER,
+    )]
 
-Solo dime qué tipo de empresas quieres prospectar:
+def _r_info() -> list[dict]:
+    return [_b(
+        _INFO_BODY,
+        [("demo", "🚀 Probar gratis"), ("precios", "💰 Ver precios")],
+        footer=_FOOTER,
+    )]
 
-🎯 *Ejemplo:* "Ferreterías en Trujillo" · "Contadores en Lima" · "Clínicas en Arequipa"
+def _r_precios() -> list[dict]:
+    return [_b(
+        _PRECIOS_BODY,
+        [("demo", "🚀 Probar gratis"), ("contacto", "💬 Hablar con alguien")],
+        footer=_FOOTER,
+    )]
 
-Industria + ciudad, y corro el reporte."""
+def _r_pedir_target() -> list[dict]:
+    return [_t(_PEDIR_TARGET)]
 
-_R4_PROCESANDO = """\
-⏳ Buscando empresas en Google Maps y calificando con IA...
+def _r_procesando() -> list[dict]:
+    return [_t(_PROCESANDO)]
 
-Esto toma entre 1 y 3 minutos. Te aviso cuando esté listo. ☕"""
+def _r_post_demo() -> list[dict]:
+    return [_b(
+        "Esto es el 10% de lo que obtienes con Starter.\n— 200 leads · SUNAT · $39/mes",
+        [("upgrade", "🚀 Quiero plan completo"), ("preguntas", "💬 Tengo preguntas")],
+        footer=_FOOTER,
+    )]
 
-_R4_CONFIRMACION = """\
-✅ ¡Listo! Tu solicitud fue registrada.
-
-Te enviamos el reporte en menos de 24h.
-
-👉 También puedes explorarlo en: t.me/Pipeline_X_bot"""
-
-_R5_BODY = """\
-💬 *¿Prefieres hablar con alguien?*
-
-🤖 *Bot de Telegram:* t.me/Pipeline_X_bot
-   (respuesta inmediata, disponible 24/7)
-
-📧 *Email:* contacto@pipelinex.io
-
-📲 Estás en el WhatsApp correcto — si prefieres que te llamemos, escribe tu número y te contactamos."""
-
-
-# ─── Funciones que devuelven list[dict] para cada respuesta ───────────────────
-
-def _r1_menu() -> list[dict]:
-    return [_l(_MENU_BODY, _MENU_ROWS, footer=_FOOTER)]
-
-
-def _r2_que_es() -> list[dict]:
-    return [
-        _t(_R2_BODY),
-        _b(
-            "¿Te interesa probarlo?",
-            [("3", "Demo gratis 🚀"), ("2", "Ver precios 💰")],
-            footer=_FOOTER,
-        ),
-    ]
-
-
-def _r3_precios() -> list[dict]:
-    return [
-        _t(_R3_BODY),
-        _b(
-            "¿Quieres ver cómo funciona antes de decidir?",
-            [("3", "Demo gratis 🚀"), ("4", "Hablar con alguien 💬")],
-            footer=_FOOTER,
-        ),
-    ]
-
-
-def _r4_solicitud() -> list[dict]:
-    return [_t(_R4_SOLICITUD)]
-
-
-def _r4_procesando() -> list[dict]:
-    return [_t(_R4_PROCESANDO)]
-
-
-def _r4_confirmacion() -> list[dict]:
-    return [_t(_R4_CONFIRMACION)]
-
-
-def _r5_contacto() -> list[dict]:
-    return [_t(_R5_BODY)]
-
-
-def _r_no_entendido() -> list[dict]:
-    return [
-        _t("No entendí esa opción 🤔"),
-        _l(_MENU_BODY, _MENU_ROWS, footer=_FOOTER),
-    ]
-
+def _r_contacto() -> list[dict]:
+    return [_t(
+        "📧 contacto@pipelinex.io\n"
+        "🤖 Telegram: t.me/Pipeline_X_bot (respuesta inmediata)"
+    )]
 
 def _r_ya_registrado() -> list[dict]:
-    return [
-        _b(
-            "Tu solicitud ya está registrada ✅\n\n¿Necesitas algo más?",
-            [("2", "Ver precios 💰"), ("4", "Hablar con alguien 💬")],
-            footer=_FOOTER,
-        )
-    ]
+    return [_b(
+        _YA_REGISTRADO,
+        [("demo", "🔄 Nuevo reporte"), ("precios", "💰 Ver planes")],
+        footer=_FOOTER,
+    )]
+
+def _r_no_entendido() -> list[dict]:
+    return [_b(
+        _NO_ENTENDIDO,
+        [("demo", "🚀 Demo gratis"), ("precios", "💰 Precios"), ("info", "❓ Info")],
+        footer=_FOOTER,
+    )]
 
 
 # ─── Detección de intención ───────────────────────────────────────────────────
 
-_EMAIL_RE = re.compile(r"\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b")
-
 _KEYWORDS: dict[str, list[str]] = {
-    "1": ["1", "que es", "qué es", "info", "información", "informacion", "como funciona", "cómo funciona"],
-    "2": ["2", "precio", "precios", "costo", "costos", "plan", "planes", "cuanto", "cuánto", "vale", "tarifa"],
-    "3": ["3", "demo", "prueba", "gratis", "probar", "leads", "ver"],
-    "4": ["4", "hablar", "contacto", "humano", "persona", "soporte", "ayuda", "whatsapp", "llamar"],
+    "demo":      ["demo", "gratis", "probar", "prueba", "leads", "reporte", "ver", "🚀", "1", "nuevo reporte", "nuevo"],
+    "precios":   ["precio", "precios", "costo", "plan", "planes", "cuanto", "cuánto", "tarifa", "💰", "2"],
+    "info":      ["info", "que es", "qué es", "como funciona", "cómo funciona", "información", "❓", "3"],
+    "contacto":  ["contacto", "hablar", "humano", "soporte", "ayuda", "llamar", "💬", "4"],
+    "upgrade":   ["upgrade", "plan completo", "quiero plan", "starter", "acceso", "comprar", "🚀 quiero"],
+    "preguntas": ["pregunta", "preguntas", "duda", "dudas", "💬 tengo"],
 }
 
-def _detect_option(text: str) -> str | None:
-    """Detecta la opción elegida por el usuario (1-4) o None."""
+def _detect_intent(text: str) -> str | None:
+    """Detecta la intención del mensaje o None si no hay match."""
     t = text.strip().lower()
-    for option, keywords in _KEYWORDS.items():
+    for intent, keywords in _KEYWORDS.items():
         if any(kw in t for kw in keywords):
-            return option
+            return intent
     return None
 
 
@@ -372,54 +342,59 @@ def _handle_message_locked(phone: str, text: str) -> list[dict]:
 
     log.info("WA msg: phone=%s state=%s text=%r", phone, state, text[:80])
 
-    # ── Estado: esperando target ──────────────────────────────────────────────
+    # ── Esperando target ──────────────────────────────────────────────────────
     if state == "collecting_target":
-        target = text.strip()
-        if len(target) < 5:
-            return [_t(
-                "Necesito un poco más de detalle 😊\n\n"
-                "Ejemplo: *\"Ferreterías en Trujillo\"* o *\"Contadores en Lima\"*"
-            )]
+        if len(text) < 5:
+            return [_t("Necesito más detalle 😊\nEj: *\"Ferreterías en Trujillo\"*")]
+        _set_session(phone, {"state": "running_pipeline", "target": text})
+        return [*_r_procesando(), {"type": "pipeline_request", "target": text}]
 
-        _set_session(phone, {"state": "running_pipeline", "target": target})
-        # Devolver pipeline_request como señal para que api.py corra el pipeline
-        return [_t(_R4_PROCESANDO), {"type": "pipeline_request", "target": target}]
+    # ── Pipeline corriendo — no interrumpir ───────────────────────────────────
+    if state == "running_pipeline":
+        return [_t("⏳ Tu reporte está en proceso, ya casi está listo...")]
 
-    # ── Ya terminó el flujo ───────────────────────────────────────────────────
+    # ── Ya entregado — ofrecer nuevo reporte o info ───────────────────────────
     if state == "done":
-        option = _detect_option(text)
-        if option:
-            return _handle_option(phone, option)
+        intent = _detect_intent(text)
+        if intent:
+            return _handle_intent(phone, intent)
         return _r_ya_registrado()
 
-    # ── Primer mensaje o menú ─────────────────────────────────────────────────
-    option = _detect_option(text)
+    # ── Cualquier otro estado — detectar intención ────────────────────────────
+    intent = _detect_intent(text)
+    if intent:
+        return _handle_intent(phone, intent)
 
-    if option:
-        return _handle_option(phone, option)
-
-    # No se detectó opción → mostrar bienvenida/menú interactivo
+    # Sin intención detectada → mostrar menú
     _set_session(phone, {"state": "menu_shown"})
-    return _r1_menu()
+    return _r_menu()
 
 
-def _handle_option(phone: str, option: str) -> list[dict]:
-    """Maneja la opción elegida y actualiza la sesión."""
-    if option == "1":
-        _set_session(phone, {"state": "menu_shown"})
-        return _r2_que_es()
-
-    if option == "2":
-        _set_session(phone, {"state": "menu_shown"})
-        return _r3_precios()
-
-    if option == "3":
+def _handle_intent(phone: str, intent: str) -> list[dict]:
+    """Despacha la intención detectada."""
+    if intent == "demo":
         _set_session(phone, {"state": "collecting_target"})
-        return _r4_solicitud()
+        return _r_pedir_target()
 
-    if option == "4":
+    if intent == "precios":
         _set_session(phone, {"state": "menu_shown"})
-        return _r5_contacto()
+        return _r_precios()
+
+    if intent == "info":
+        _set_session(phone, {"state": "menu_shown"})
+        return _r_info()
+
+    if intent == "contacto":
+        _set_session(phone, {"state": "menu_shown"})
+        return _r_contacto()
+
+    if intent == "upgrade":
+        _set_session(phone, {"state": "menu_shown"})
+        return [_t("Para activar tu acceso escríbenos a *contacto@pipelinex.io* con asunto 'Acceso Starter'.")]
+
+    if intent == "preguntas":
+        _set_session(phone, {"state": "menu_shown"})
+        return [_t("Con gusto. ¿Qué quieres saber sobre Pipeline_X?")]
 
     _set_session(phone, {"state": "menu_shown"})
     return _r_no_entendido()
