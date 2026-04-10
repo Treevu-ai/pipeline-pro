@@ -654,7 +654,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             chat_id=chat_id,
             text=(
                 f"Listo. Te contactamos a *{email}* para activar tu acceso.\n\n"
-                "Normalmente lo hacemos en menos de 2 horas en horario hábil."
+                "Normalmente lo hacemos dentro de las 24 horas en horario hábil."
             ),
             parse_mode="Markdown",
         )

@@ -1113,7 +1113,7 @@ async def telegram_webhook(request: Request):
 
         await _tg_message(chat_id,
             f"Listo. Te contactamos a *{email}* para activar tu acceso.\n\n"
-            "Normalmente lo hacemos en menos de 2 horas en horario hábil."
+            "Normalmente lo hacemos dentro de las 24 horas en horario hábil."
         )
         return {"ok": True}
 
