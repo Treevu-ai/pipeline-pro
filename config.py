@@ -367,6 +367,7 @@ PLANS: dict[str, dict] = {
         "price_monthly": 0,
         "price_annual": 0,
         "leads_limit": 10,
+        "searches_per_month": 1,
         "description": "Prueba sin tarjeta. 10 leads, sin compromiso.",
         "features": {
             "enrich_sunat": False,       # Sin acceso SUNAT
@@ -385,6 +386,7 @@ PLANS: dict[str, dict] = {
         "price_monthly": 19,
         "price_annual": 190,            # ~2 meses gratis
         "leads_limit": 30,
+        "searches_per_month": 3,
         "description": "Para freelancers y fundadores solos.",
         "features": {
             "enrich_sunat": False,       # Sin SUNAT — fricción para no canibalizar Starter
@@ -403,6 +405,7 @@ PLANS: dict[str, dict] = {
         "price_monthly": 39,
         "price_annual": 390,            # 2 meses gratis vs mensual ($468/año)
         "leads_limit": 200,
+        "searches_per_month": 15,
         "description": "El tier principal. MYPE con equipo pequeño.",
         "features": {
             "enrich_sunat": True,
@@ -421,6 +424,7 @@ PLANS: dict[str, dict] = {
         "price_monthly": 79,
         "price_annual": 790,            # ~2 meses gratis
         "leads_limit": 500,
+        "searches_per_month": 40,
         "description": "Equipos de ventas con mayor volumen.",
         "features": {
             "enrich_sunat": True,
@@ -441,6 +445,7 @@ PLANS: dict[str, dict] = {
         "price_monthly": 299,
         "price_annual": 2990,           # ~2 meses gratis
         "leads_limit": 1000,
+        "searches_per_month": None,     # Ilimitadas
         "description": (
             "Para agencias y consultores que revenden reportes a sus clientes. "
             "Incluye white-label, multi-cuenta y kit de reventa."
@@ -465,6 +470,7 @@ PLANS: dict[str, dict] = {
         "price_monthly": None,
         "price_annual": 390,
         "leads_limit": 200,
+        "searches_per_month": 15,
         "description": "Starter pagado por año. Equivale a $32.50/mes (2 meses gratis).",
         "features": {
             "enrich_sunat": True,
@@ -485,6 +491,7 @@ PLANS: dict[str, dict] = {
         "price_monthly": 29,
         "price_annual": 290,
         "leads_limit": 200,
+        "searches_per_month": 15,
         "description": "Precio exclusivo para los primeros 20 clientes. Mismo acceso que Starter.",
         "features": {
             "enrich_sunat": True,
