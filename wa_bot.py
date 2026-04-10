@@ -18,11 +18,22 @@ import json
 import logging
 import os
 import re
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 log = logging.getLogger("wa_bot")
+
+# ─── Lock por número — evita race condition con mensajes simultáneos ──────────
+_phone_locks: dict[str, threading.Lock] = {}
+_locks_mutex = threading.Lock()
+
+def _get_lock(phone: str) -> threading.Lock:
+    with _locks_mutex:
+        if phone not in _phone_locks:
+            _phone_locks[phone] = threading.Lock()
+        return _phone_locks[phone]
 
 # ─── Stores ──────────────────────────────────────────────────────────────────
 
@@ -233,6 +244,7 @@ def _notify_admin_telegram(phone: str, email: str) -> None:
 def handle_message(phone: str, text: str) -> str:
     """
     Procesa un mensaje entrante de WhatsApp y devuelve el texto de respuesta.
+    Serializa mensajes del mismo número con un lock para evitar race conditions.
 
     Args:
         phone: Número del remitente sin '+' ni '@c.us' (ej: "51987654321").
@@ -241,11 +253,17 @@ def handle_message(phone: str, text: str) -> str:
     Returns:
         Texto que debe enviarse como respuesta.
     """
+    with _get_lock(phone):
+        return _handle_message_locked(phone, text)
+
+
+def _handle_message_locked(phone: str, text: str) -> str:
+    """Lógica real — llamar solo desde handle_message (ya con lock)."""
     session = _get_session(phone)
     state   = session.get("state", "idle")
     text    = (text or "").strip()
 
-    log.info("WA mensaje: phone=%s state=%s text=%r", phone, state, text[:80])
+    log.info("WA msg: phone=%s state=%s text=%r", phone, state, text[:80])
 
     # ── Estado: esperando email ───────────────────────────────────────────────
     if state == "collecting_email":
