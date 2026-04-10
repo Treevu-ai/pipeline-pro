@@ -23,11 +23,13 @@ from __future__ import annotations
 import asyncio
 import csv
 import io
+import json
 import logging
 import os
 import sys
 import time as _time
 from collections import defaultdict, deque
+from pathlib import Path
 
 from groq import Groq
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
@@ -309,6 +311,40 @@ _demo_states: dict[int, dict] = {}
 
 DEMO_LEADS_LIMIT = 10  # Tier free — debe coincidir con config.PLANS["free"]["leads_limit"]
 
+# ─── Demo usage tracking ──────────────────────────────────────────────────────
+# Persiste en disco para sobrevivir reinicios del bot.
+_DEMO_RUNS_STORE = Path("output/.demo_runs.json")
+
+
+def _has_used_demo(user_id: int) -> bool:
+    """Devuelve True si el user_id ya consumió su demo gratuita."""
+    try:
+        if _DEMO_RUNS_STORE.exists():
+            runs = json.loads(_DEMO_RUNS_STORE.read_text(encoding="utf-8"))
+            return any(r.get("user_id") == user_id for r in runs)
+    except Exception:
+        pass
+    return False
+
+
+def _record_demo_run(user_id: int, target: str) -> None:
+    """Registra que el usuario consumió su demo gratuita."""
+    from datetime import datetime, timezone
+
+    try:
+        runs = json.loads(_DEMO_RUNS_STORE.read_text(encoding="utf-8")) if _DEMO_RUNS_STORE.exists() else []
+    except Exception:
+        runs = []
+
+    if not any(r.get("user_id") == user_id for r in runs):
+        runs.append({
+            "user_id":  user_id,
+            "target":   target,
+            "ts":       datetime.now(timezone.utc).isoformat(),
+        })
+        _DEMO_RUNS_STORE.parent.mkdir(parents=True, exist_ok=True)
+        _DEMO_RUNS_STORE.write_text(json.dumps(runs, ensure_ascii=False, indent=2), encoding="utf-8")
+
 
 def _run_pipeline_sync(target: str) -> list[dict]:
     """
@@ -352,8 +388,6 @@ def _leads_to_csv_bytes(leads: list[dict]) -> bytes:
 
 def _save_demo_lead(user_id: int, target: str, email: str) -> None:
     """Persiste el email capturado post-demo en el mismo store que /demo-request."""
-    import json
-    from pathlib import Path
     from datetime import datetime, timezone
 
     store = Path("output/.demo_requests.json")
@@ -367,18 +401,39 @@ def _save_demo_lead(user_id: int, target: str, email: str) -> None:
         return
 
     records.append({
-        "nombre":   "",
-        "empresa":  "",
-        "ruc":      "",
-        "email":    email,
+        "nombre":    "",
+        "empresa":   "",
+        "ruc":       "",
+        "email":     email,
         "industria": target,
-        "ciudad":   "",
-        "ip":       f"telegram:{user_id}",
-        "ts":       datetime.now(timezone.utc).isoformat(),
-        "status":   "demo_telegram",
+        "ciudad":    "",
+        "ip":        f"telegram:{user_id}",
+        "ts":        datetime.now(timezone.utc).isoformat(),
+        "status":    "demo_telegram",
     })
     store.parent.mkdir(parents=True, exist_ok=True)
     store.write_text(json.dumps(records, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+async def _notify_admin_demo_email(context: "ContextTypes.DEFAULT_TYPE", user_id: int, email: str, target: str) -> None:
+    """Notifica al admin cuando un usuario captura su email post-demo."""
+    admin_id_raw = os.environ.get("ADMIN_CHAT_ID", "")
+    if not admin_id_raw:
+        return
+    try:
+        admin_id = int(admin_id_raw)
+        await context.bot.send_message(
+            chat_id=admin_id,
+            text=(
+                f"🎯 *Nuevo lead demo Telegram*\n\n"
+                f"Email : `{email}`\n"
+                f"Target: {target}\n"
+                f"User  : `{user_id}`"
+            ),
+            parse_mode="Markdown",
+        )
+    except Exception as exc:
+        log.warning("No se pudo notificar al admin: %s", exc)
 
 
 # ─── LLM reply ───────────────────────────────────────────────────────────────
@@ -421,6 +476,14 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     # Deep link: t.me/<bot>?start=demo
     args = context.args or []
     if args and args[0] == "demo":
+        already_used = await asyncio.to_thread(_has_used_demo, user_id)
+        if already_used:
+            await update.message.reply_text(
+                "Ya usaste tu demo gratuita. 🎯\n\n"
+                "Para seguir prospectando elige tu plan:",
+                reply_markup=kb_planes(),
+            )
+            return
         _demo_states[user_id] = {"state": "waiting_target"}
         await update.message.reply_text(
             "Hola 👋 Voy a generarte *10 leads reales* ahora mismo, sin tarjeta.\n\n"
@@ -510,6 +573,9 @@ async def _deliver_demo(chat_id: int, user_id: int, target: str, context: Contex
 
     _demo_states[user_id] = {"state": "delivered", "target": target, "total": total}
 
+    # Registrar que el usuario usó su demo gratuita
+    await asyncio.to_thread(_record_demo_run, user_id, target)
+
     await context.bot.send_message(
         chat_id=chat_id,
         text=(
@@ -569,7 +635,15 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         return
 
     if data == "cierre_demo":
-        # El usuario quiere demo desde el flujo de ventas → activar flujo demo
+        # El usuario quiere demo desde el flujo de ventas → verificar cuota antes
+        already_used = await asyncio.to_thread(_has_used_demo, user_id)
+        if already_used:
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text="Ya usaste tu demo gratuita. 🎯 Elige tu plan para seguir prospectando:",
+                reply_markup=kb_planes(),
+            )
+            return
         _demo_states[user_id] = {"state": "waiting_target"}
         await context.bot.send_message(
             chat_id=chat_id,
@@ -654,6 +728,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             ),
             parse_mode="Markdown",
         )
+
+        # Notificar al admin sobre el nuevo lead
+        await _notify_admin_demo_email(context, user_id, email, target)
         return
 
     # ── Bot de ventas Alex (flujo normal) ─────────────────────────────────────
