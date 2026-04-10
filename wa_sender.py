@@ -112,6 +112,118 @@ def set_webhook(webhook_url: str, timeout: int = 10) -> bool:
     return ok
 
 
+def send_buttons(
+    phone: str,
+    body: str,
+    buttons: list[dict],
+    header: str = "",
+    footer: str = "",
+    timeout: int = 10,
+) -> dict:
+    """
+    Envía un mensaje con hasta 3 botones interactivos.
+
+    Args:
+        phone:   Número del destinatario.
+        body:    Texto del cuerpo del mensaje.
+        buttons: Lista de dicts {"id": str, "text": str} (máx 3 items).
+        header:  Texto de cabecera (opcional).
+        footer:  Texto de pie (opcional).
+
+    Returns:
+        Dict con {"idMessage": "..."} si OK, o {} si el tipo no está soportado.
+    """
+    url = f"{_base_url()}/sendButtons/{_token()}"
+    payload: dict = {
+        "chatId":   _chat_id(phone),
+        "message":  body,
+        "buttons":  [
+            {"buttonId": b["id"], "buttonText": {"displayText": b["text"]}}
+            for b in buttons[:3]
+        ],
+    }
+    if header:
+        payload["headerType"] = "TEXT"
+        payload["header"]     = header
+    if footer:
+        payload["footer"] = footer
+    log.debug("WA buttons → %s: %r", phone, body[:80])
+    try:
+        r = httpx.post(url, json=payload, timeout=timeout)
+        r.raise_for_status()
+        return r.json()
+    except httpx.HTTPStatusError as exc:
+        # Green API retorna 400 si la instancia no soporta botones interactivos;
+        # en ese caso enviamos como texto plano con las opciones numeradas.
+        log.warning("send_buttons no soportado (%s) — fallback texto", exc.response.status_code)
+        fallback = body
+        if header:
+            fallback = f"*{header}*\n\n{fallback}"
+        options = "\n".join(f"*{b['id']}.* {b['text']}" for b in buttons[:3])
+        return send_text(phone, f"{fallback}\n\n{options}", timeout=timeout)
+
+
+def send_list(
+    phone: str,
+    body: str,
+    button_text: str,
+    sections: list[dict],
+    footer: str = "",
+    timeout: int = 10,
+) -> dict:
+    """
+    Envía un mensaje con lista de opciones seleccionables (máx 10 filas).
+
+    Args:
+        phone:       Número del destinatario.
+        body:        Texto del cuerpo del mensaje.
+        button_text: Etiqueta del botón que abre la lista.
+        sections:    Lista de secciones; cada una tiene "title" y "rows":
+                     [{"title": "...", "rows": [{"id": "1", "title": "...", "description": "..."}, ...]}]
+        footer:      Texto de pie (opcional).
+
+    Returns:
+        Dict con {"idMessage": "..."} si OK, o {} si no está soportado.
+    """
+    url = f"{_base_url()}/sendListMessage/{_token()}"
+    payload: dict = {
+        "chatId":     _chat_id(phone),
+        "message":    body,
+        "buttonText": button_text,
+        "sections":   [
+            {
+                "title": s.get("title", ""),
+                "rows":  [
+                    {
+                        "rowId":       row["id"],
+                        "title":       row["title"],
+                        "description": row.get("description", ""),
+                    }
+                    for row in s["rows"]
+                ],
+            }
+            for s in sections
+        ],
+    }
+    if footer:
+        payload["footer"] = footer
+    log.debug("WA list → %s: %r", phone, body[:80])
+    try:
+        r = httpx.post(url, json=payload, timeout=timeout)
+        r.raise_for_status()
+        return r.json()
+    except httpx.HTTPStatusError as exc:
+        log.warning("send_list no soportado (%s) — fallback texto", exc.response.status_code)
+        # Fallback: texto con opciones numeradas
+        lines = [body, ""]
+        for s in sections:
+            for row in s["rows"]:
+                lines.append(f"*{row['id']}.* {row['title']}")
+                if row.get("description"):
+                    lines.append(f"   {row['description']}")
+        return send_text(phone, "\n".join(lines), timeout=timeout)
+
+
 def get_state(timeout: int = 5) -> str:
     """
     Devuelve el estado de la instancia: 'authorized', 'notAuthorized', etc.
