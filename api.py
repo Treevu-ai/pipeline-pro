@@ -43,8 +43,34 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import BaseModel, Field
 
 import config as cfg
+import constants as const
 
 log = logging.getLogger("api")
+
+
+# ─── Plan helpers ─────────────────────────────────────────────────────────────
+
+def _resolve_tier(request: Request) -> str:
+    """Lee X-Plan-Tier header y lo valida. Default: 'free'."""
+    tier = request.headers.get("X-Plan-Tier", const.PlanTier.FREE).lower()
+    return tier if tier in const.PlanTier.ALL else const.PlanTier.FREE
+
+
+def _plan_limits(tier: str) -> dict:
+    """Devuelve el dict de plan para el tier dado."""
+    return cfg.PLANS.get(tier, cfg.PLANS[const.PlanTier.FREE])
+
+
+def _enforce_plan(tier: str, leads_requested: int, wants_sunat: bool) -> tuple[int, bool]:
+    """
+    Aplica los límites del plan sobre los parámetros de la petición.
+    Devuelve (leads_limit_efectivo, enrich_sunat_efectivo).
+    """
+    plan = _plan_limits(tier)
+    features = plan.get("features", {})
+    effective_limit  = min(leads_requested, plan["leads_limit"])
+    effective_sunat  = wants_sunat and features.get("enrich_sunat", False)
+    return effective_limit, effective_sunat
 
 
 def _start_bot_interno() -> None:
@@ -318,19 +344,49 @@ def health():
     return {"status": "ok", "product": cfg.PRODUCT["name"]}
 
 
+@app.get("/plans", tags=["Sistema"])
+def plans():
+    """
+    Devuelve todos los planes disponibles con precios, límites y features.
+    Usa este endpoint para renderizar la tabla de precios en la landing.
+    """
+    public = {}
+    for tier, plan in cfg.PLANS.items():
+        public[tier] = {
+            "name":          plan["name"],
+            "price_monthly": plan.get("price_monthly"),
+            "price_annual":  plan.get("price_annual"),
+            "leads_limit":   plan["leads_limit"],
+            "description":   plan["description"],
+            "features":      plan.get("features", {}),
+            "cta":           plan.get("cta", ""),
+            "highlight":     plan.get("highlight", False),
+        }
+        if "slots_total" in plan:
+            public[tier]["slots_total"] = plan["slots_total"]
+        if "base_tier" in plan:
+            public[tier]["base_tier"] = plan["base_tier"]
+    return public
+
+
 @app.post("/scrape", tags=["Leads"])
-async def scrape(req: ScrapeRequest):
+async def scrape(req: ScrapeRequest, request: Request):
     """
     Busca leads en Google Maps y opcionalmente enriquece con datos de sitios web y SUNAT.
     Operación síncrona — para queries grandes usa /jobs/pipeline.
+
+    El header `X-Plan-Tier` controla el límite de leads y acceso a SUNAT.
+    Sin header → tier free (10 leads, sin SUNAT).
     """
+    tier = _resolve_tier(request)
+    effective_limit, effective_sunat = _enforce_plan(tier, req.limit, req.enrich_sunat)
     try:
         leads = await asyncio.to_thread(
-            _run_scrape, req.query, req.limit, req.enrich_web, req.enrich_sunat
+            _run_scrape, req.query, effective_limit, req.enrich_web, effective_sunat
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-    return {"total": len(leads), "leads": leads}
+    return {"total": len(leads), "leads": leads, "plan_tier": tier, "applied_limit": effective_limit}
 
 
 @app.post("/qualify", tags=["Leads"])
@@ -363,27 +419,39 @@ async def enrich(req: EnrichRequest):
 
 
 @app.post("/pipeline", tags=["Pipeline"])
-async def pipeline(req: PipelineRequest):
+async def pipeline(req: PipelineRequest, request: Request):
     """
     Pipeline completo síncrono: scrape → califica → enriquece.
     Para limite > 20 leads se recomienda usar /jobs/pipeline.
+
+    El header `X-Plan-Tier` controla el límite de leads y acceso a SUNAT.
+    Sin header → tier free (10 leads, sin SUNAT).
     """
+    tier = _resolve_tier(request)
+    effective_limit, effective_sunat = _enforce_plan(tier, req.limit, req.enrich_sunat)
+    enforced = req.model_copy(update={"limit": effective_limit, "enrich_sunat": effective_sunat})
     try:
-        result = await asyncio.to_thread(_run_pipeline, req)
+        result = await asyncio.to_thread(_run_pipeline, enforced)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-    return result
+    return {**result, "plan_tier": tier, "applied_limit": effective_limit}
 
 
 # ─── Jobs ────────────────────────────────────────────────────────────────────
 
 @app.post("/jobs/pipeline", tags=["Jobs"], status_code=202)
-async def jobs_pipeline(req: PipelineRequest):
+async def jobs_pipeline(req: PipelineRequest, request: Request):
     """
     Lanza el pipeline completo en background y devuelve un job_id.
     Consulta el estado en GET /jobs/{job_id}.
+
+    El header `X-Plan-Tier` controla el límite de leads y acceso a SUNAT.
+    Sin header → tier free (10 leads, sin SUNAT).
     """
-    job_id = _new_job("pipeline", req.model_dump())
+    tier = _resolve_tier(request)
+    effective_limit, effective_sunat = _enforce_plan(tier, req.limit, req.enrich_sunat)
+    req = req.model_copy(update={"limit": effective_limit, "enrich_sunat": effective_sunat})
+    job_id = _new_job("pipeline", {**req.model_dump(), "plan_tier": tier})
 
     async def _run():
         _job_running(job_id)
@@ -587,6 +655,76 @@ async def _deliver_and_notify(query: str, chat_id: int, limit: int, channel: str
         await _tg_message(chat_id, f"❌ Error procesando el reporte.\n`{str(exc)[:300]}`")
 
 
+async def _demo_deliver_and_capture(target: str, chat_id: int) -> None:
+    """
+    Flujo demo desde landing (deep link ?start=demo):
+    1. Corre pipeline con límite free (10 leads, sin SUNAT)
+    2. Entrega resumen + CSV
+    3. Muestra oferta Starter y pide email para activar acceso
+    """
+    try:
+        req = PipelineRequest(
+            query=target,
+            limit=cfg.DEMO_REQUEST_LEADS_LIMIT,
+            channel="email",
+            enrich_web=True,
+            enrich_sunat=False,   # Sin SUNAT en tier free
+            qualify=True,
+            enrich_contacts=False,
+        )
+        result = await asyncio.to_thread(_run_pipeline, req)
+        leads  = result.get("leads", [])
+        total  = result.get("total", len(leads))
+
+        qualified = sorted(
+            [l for l in leads if l.get("lead_score", 0) >= 60],
+            key=lambda x: x.get("lead_score", 0), reverse=True,
+        )
+
+        lines = [
+            f"✅ *{total} leads de {target}*",
+            f"_{len(qualified)} calificados (score ≥60)_\n",
+        ]
+        for i, lead in enumerate(qualified[:3], 1):
+            empresa = lead.get("empresa", "—")
+            score   = lead.get("lead_score", "—")
+            action  = lead.get("next_action", "—")
+            lines.append(f"*{i}. {empresa}* — Score {score}")
+            lines.append(f"   → {action}")
+        if not qualified:
+            lines.append("_No se encontraron leads con score ≥60. Revisa el CSV adjunto._")
+        lines.append("\n📎 CSV adjunto con todos los leads y borradores de mensaje.")
+
+        await _tg_message(chat_id, "\n".join(lines))
+
+        csv_bytes = _leads_to_csv(leads)
+        safe_name = target[:30].replace(" ", "_").replace("/", "-")
+        await _tg_document(chat_id, f"pipeline_x_demo_{safe_name}.csv", csv_bytes,
+                           caption=f"📊 Demo gratuita — {target}")
+
+        # Actualizar estado: esperando email
+        _bot_states[chat_id] = {"flow": "demo_collecting_email", "target": target}
+        _save_bot_states()
+
+        await _tg_message(chat_id,
+            "Esto es el *10% de lo que Pipeline_X entrega en Starter.*\n\n"
+            "Con el plan completo ($39/mes):\n"
+            "- 200 leads/mes en vez de 10\n"
+            "- Enriquecimiento SUNAT (capacidad de pago real)\n"
+            "- Reporte HTML con métricas\n\n"
+            "¿Querés activar el acceso completo? *Escribí tu email* y te lo activo hoy."
+        )
+
+    except Exception as exc:
+        log.error("Demo deliver error chat=%d: %s", chat_id, exc)
+        _bot_states.pop(chat_id, None)
+        _save_bot_states()
+        await _tg_message(chat_id,
+            "Hubo un problema procesando tu búsqueda.\n"
+            "Intenta con otro sector o ciudad, o escríbenos a contacto@pipelinex.io"
+        )
+
+
 # ─── Demo Request endpoint ────────────────────────────────────────────────────
 
 _DEMO_STORE = Path("output/.demo_requests.json")
@@ -660,10 +798,16 @@ async def demo_request(req: DemoRequest, request: Request):
         asyncio.create_task(_tg_message(int(admin_id), msg))
 
     # Lanzar pipeline en background y entregar CSV al admin
+    # Usa el límite del tier free (DEMO_REQUEST_LEADS_LIMIT = 10 leads)
     if admin_id:
         query = f"{req.industria} en {req.ciudad}"
         asyncio.create_task(
-            _deliver_and_notify(query, int(admin_id), limit=20, channel="email", enrich_sunat=False)
+            _deliver_and_notify(
+                query, int(admin_id),
+                limit=cfg.DEMO_REQUEST_LEADS_LIMIT,
+                channel="email",
+                enrich_sunat=False,
+            )
         )
 
     return {"ok": True, "message": "Demo en proceso"}
@@ -817,13 +961,22 @@ async def telegram_webhook(request: Request):
                 "_Escríbelo así: Industria en Ciudad_\n\n"
                 "Ej: `Ferreterías en Trujillo`"
             )
+        elif payload == "demo":
+            # Deep link desde landing: t.me/<bot>?start=demo
+            # Entrega valor primero (10 leads gratis), pide datos después.
+            _bot_states[chat_id] = {"flow": "demo"}
+            await _tg_message(chat_id,
+                "Hola 👋 Voy a generarte *10 leads reales* ahora mismo, sin tarjeta.\n\n"
+                "¿Qué tipo de empresa estás prospectando?\n"
+                "_Ej: Ferreterías en Trujillo · Clínicas en Bogotá_"
+            )
         else:
             reply = await asyncio.to_thread(_alex_reply, chat_id, "/start")
             await _tg_message(chat_id, reply)
         _save_bot_states()
         return {"ok": True}
 
-    # ── Flujo de reporte: esperando target ────────────────────────────────────
+    # ── Flujo de reporte (admin): esperando target ────────────────────────────
     if state.get("flow") == "report":
         target = text
         _bot_states[chat_id] = {}
@@ -835,6 +988,48 @@ async def telegram_webhook(request: Request):
             f"✅ *Recibido:* `{target}`\n\n"
             "Estoy escaneando Google Maps y cruzando datos SUNAT.\n"
             "Te aviso cuando el reporte esté listo _(aprox 5–15 min)_."
+        )
+        return {"ok": True}
+
+    # ── Flujo demo (usuarios desde landing): esperando target ─────────────────
+    if state.get("flow") == "demo":
+        target = text
+        _bot_states[chat_id] = {**state, "flow": "demo_running", "target": target}
+        _save_bot_states()
+        await _tg_message(chat_id,
+            f"Buscando *{target}* en Google Maps y calificando con IA...\n"
+            "_Listo en aprox. 2–5 minutos._"
+        )
+        # Tier free: 10 leads, sin SUNAT
+        asyncio.create_task(
+            _demo_deliver_and_capture(target, chat_id)
+        )
+        return {"ok": True}
+
+    # ── Flujo demo: capturando email post-entrega ─────────────────────────────
+    if state.get("flow") == "demo_collecting_email":
+        email = text.strip()
+        target = state.get("target", "")
+        _bot_states[chat_id] = {}
+        _save_bot_states()
+
+        # Guardar en el mismo store que /demo-request
+        records = _load_demo_store()
+        if not any(r.get("email", "").lower() == email.lower() for r in records):
+            from datetime import timezone
+            records.append({
+                "nombre": "", "empresa": "", "ruc": "",
+                "email": email, "industria": target, "ciudad": "",
+                "ip": f"telegram:{chat_id}",
+                "ts": datetime.now(timezone.utc).isoformat(),
+                "status": "demo_telegram",
+            })
+            _save_demo_store(records)
+        log.info("Demo email capturado vía webhook: chat=%d email=%s target=%r", chat_id, email, target)
+
+        await _tg_message(chat_id,
+            f"Listo. Te contactamos a *{email}* para activar tu acceso.\n\n"
+            "Normalmente lo hacemos en menos de 2 horas en horario hábil."
         )
         return {"ok": True}
 
