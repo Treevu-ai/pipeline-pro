@@ -197,34 +197,37 @@ def enrich_sunat(ruc: str) -> dict[str, Any]:
     if len(ruc) != 11:
         return {}
 
+    _token = os.environ.get("APIS_PE_TOKEN", "")
+    _headers = {
+        "Authorization": f"Bearer {_token}",
+        "User-Agent": "AgentePyme/1.0",
+        "Referer": "https://apis.net.pe",
+    }
     try:
-        url = f"https://api.sunat.cloud/v1/contribuyente/contribuyentes/{ruc}/true"
-        req = utils.urllib.request.Request(url, headers={"User-Agent": "AgentePyme/1.0"})
-        with utils.urllib.request.urlopen(req, timeout=8) as resp:
+        url = f"https://api.apis.net.pe/v1/ruc?numero={ruc}"
+        req = utils.urllib.request.Request(url, headers=_headers)
+        with utils.urllib.request.urlopen(req, timeout=10) as resp:
             data = json.loads(resp.read().decode("utf-8"))
+        distrito  = data.get("distrito", "")
+        provincia = data.get("provincia", "")
+        dpto      = data.get("departamento", "")
+        direccion = " ".join(filter(None, [
+            data.get("viaTipo", ""), data.get("viaNombre", ""),
+            data.get("numero", ""), data.get("interior", ""),
+            distrito, provincia,
+        ])).strip()
         return {
-            "razon_social_oficial":  data.get("razonSocial", ""),
-            "estado_sunat":          data.get("estado", ""),
-            "condicion_sunat":       data.get("condicion", ""),
-            "direccion_fiscal":      data.get("direccion", ""),
-            "ubigeo":                data.get("ubigeo", ""),
-            "actividad_economica":   data.get("actividadEconomica", ""),
-            # Código CIIU — algunos endpoints lo devuelven como "ciiu" o "codigoCIIU"
-            "ciiu":                  (
-                data.get("ciiu") or data.get("codigoCIIU") or
-                # Fallback: extraer los primeros 4 dígitos de actividadEconomica si empieza con número
-                (data.get("actividadEconomica", "")[:4]
-                 if data.get("actividadEconomica", "")[:1].isdigit() else "")
-            ),
-            "regimen_tributario":    data.get("regimenTributario", ""),
-            "fecha_inscripcion":     (
-                data.get("fechaInscripcion") or data.get("fechaInicioActividades", "")
-            ),
-            "tipo_contribuyente":    data.get("tipoContribuyente", ""),
-            "capacidad_pago":        _capacidad_pago(
-                data.get("tipoContribuyente", ""),
-                data.get("regimenTributario", ""),
-            ),
+            "razon_social_oficial": data.get("nombre", ""),
+            "estado_sunat":         data.get("estado", ""),
+            "condicion_sunat":      data.get("condicion", ""),
+            "direccion_fiscal":     direccion or data.get("direccion", ""),
+            "ubigeo":               data.get("ubigeo", ""),
+            "actividad_economica":  "",   # apis.net.pe v1 no lo incluye
+            "ciiu":                 "",
+            "regimen_tributario":   "",
+            "fecha_inscripcion":    "",
+            "tipo_contribuyente":   data.get("tipoDocumento", ""),
+            "capacidad_pago":       _capacidad_pago("", ""),
         }
     except Exception as e:
         log.debug("SUNAT lookup falló para RUC %s: %s", ruc, e)
