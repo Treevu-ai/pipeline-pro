@@ -50,22 +50,22 @@ def send_text(phone: str, text: str, timeout: int = 10) -> dict:
     """
     Envía un mensaje de texto al número dado.
 
-    Args:
-        phone: Número del destinatario (cualquier formato).
-        text:  Texto del mensaje (máx 20.000 caracteres).
-
     Returns:
-        Dict con {"idMessage": "..."} si OK.
-
-    Raises:
-        httpx.HTTPStatusError: si la API devuelve error HTTP.
+        Dict con {"idMessage": "..."} si OK, {} si hubo error (logueado).
     """
     url  = f"{_base_url()}/sendMessage/{_token()}"
     body = {"chatId": _chat_id(phone), "message": text}
     log.debug("WA send → %s: %r", phone, text[:80])
-    r = httpx.post(url, json=body, timeout=timeout)
-    r.raise_for_status()
-    return r.json()
+    try:
+        r = httpx.post(url, json=body, timeout=timeout)
+        r.raise_for_status()
+        return r.json()
+    except httpx.HTTPStatusError as exc:
+        log.error("send_text error %s para %s: %s", exc.response.status_code, phone, exc.response.text[:200])
+        return {}
+    except Exception as exc:
+        log.error("send_text exception para %s: %s", phone, exc)
+        return {}
 
 
 def mark_read(phone: str, id_message: str, timeout: int = 5) -> None:
