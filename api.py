@@ -91,9 +91,49 @@ def _start_bot_interno() -> None:
     threading.Thread(target=_run, daemon=True, name="pipeassist-bot").start()
 
 
+async def _register_telegram_webhook() -> None:
+    """
+    Registra el webhook de Telegram en el startup.
+    Requiere TELEGRAM_BOT_TOKEN y (BASE_URL o RAILWAY_PUBLIC_DOMAIN).
+    """
+    token = os.environ.get("TELEGRAM_BOT_TOKEN")
+    if not token:
+        log.warning("TELEGRAM_BOT_TOKEN no configurado — webhook no registrado")
+        return
+
+    base = (
+        os.environ.get("BASE_URL")
+        or (f"https://{os.environ['RAILWAY_PUBLIC_DOMAIN']}" if os.environ.get("RAILWAY_PUBLIC_DOMAIN") else None)
+    )
+    if not base:
+        log.warning("BASE_URL y RAILWAY_PUBLIC_DOMAIN ausentes — webhook no registrado")
+        return
+
+    webhook_url = f"{base.rstrip('/')}/webhook/telegram"
+    payload: dict = {"url": webhook_url, "allowed_updates": ["message", "callback_query"]}
+    secret = os.environ.get("TELEGRAM_WEBHOOK_SECRET")
+    if secret:
+        payload["secret_token"] = secret
+
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.post(
+                f"https://api.telegram.org/bot{token}/setWebhook",
+                json=payload,
+            )
+            data = resp.json()
+        if data.get("ok"):
+            log.info("Telegram webhook registrado → %s", webhook_url)
+        else:
+            log.error("Telegram setWebhook falló: %s", data)
+    except Exception as exc:
+        log.error("Error registrando webhook de Telegram: %s", exc)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     _start_bot_interno()
+    await _register_telegram_webhook()
     yield
 
 
