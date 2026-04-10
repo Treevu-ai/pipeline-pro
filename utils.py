@@ -631,4 +631,13 @@ def validate_lead_data(data: dict) -> list[str]:
     if sitio_web and not is_valid_url(sitio_web):
         errors.append(f"URL inválida: {sitio_web}")
 
+    # Validar facturas_pendientes si está presente
+    facturas = data.get(const.ColumnNames.FACTURAS_PENDIENTES)
+    if facturas is not None:
+        try:
+            if int(float(str(facturas))) < 0:
+                errors.append(f"facturas_pendientes no puede ser negativo: {facturas}")
+        except (ValueError, TypeError):
+            errors.append(f"facturas_pendientes debe ser un número: {facturas}")
+
     return errors

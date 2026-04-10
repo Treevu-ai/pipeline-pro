@@ -50,6 +50,9 @@ class ColumnNames:
     FECHA_INSCRIPCION     = "fecha_inscripcion"
     TIPO_CONTRIBUYENTE    = "tipo_contribuyente"
 
+    # Campos de enriquecimiento SUNAT (financieros)
+    FACTURAS_PENDIENTES = "facturas_pendientes"
+
     # Campos de enriquecimiento de contactos
     EMAIL_WEB = "email_web"
     EMAIL_WEB_2 = "email_web_2"
@@ -65,6 +68,8 @@ class ColumnNames:
     DOMINIO_WEB = "dominio_web"
     EMAIL_ESTIMADO = "email_estimado"
     EMAIL_ESTIMADO_2 = "email_estimado_2"
+    EMAIL_PERSONAL_GUESS = "email_personal_guess"
+    EMAIL_PERSONAL_GUESS_2 = "email_personal_guess_2"
 
     # Campos de calificación
     CRM_STAGE = "crm_stage"
@@ -318,6 +323,7 @@ class ExitCodes:
     FILE_NOT_FOUND = 3
     NETWORK_ERROR = 4
     VALIDATION_ERROR = 5
+    IO_ERROR = 6
 
 
 # ─── CIIU → Industria (CIIU rev.4 — sección + división) ───────────────────────

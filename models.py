@@ -101,6 +101,7 @@ class Lead:
     scraped_at: Optional[str] = None
 
     # Campos de enriquecimiento SUNAT
+    facturas_pendientes: int = 0
     razon_social_oficial: str = ""
     estado_sunat: str = ""
     condicion_sunat: str = ""
