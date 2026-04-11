@@ -30,6 +30,8 @@ from typing import Any
 
 log = logging.getLogger("wa_bot")
 
+_EMAIL_RE = re.compile(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}")
+
 # ─── Lock por número — evita race condition con mensajes simultáneos ──────────
 _phone_locks: dict[str, threading.Lock] = {}
 _locks_mutex = threading.Lock()
@@ -100,26 +102,27 @@ _FOOTER = "Pipeline_X · pipelinex.app"
 
 _BIENVENIDA = (
     "👋 Hola, soy *Pipeline_X*.\n\n"
-    "Encuentra empresas reales en Google Maps, califícalas con IA "
-    "y recibe mensajes de outreach listos."
+    "Te ayudo a conseguir más clientes sin contratar a nadie.\n"
+    "Dime a qué tipo de negocio le quieres vender y en qué ciudad — "
+    "en minutos recibes aquí mismo una lista de prospectos listos para contactar."
 )
 
 _INFO_BODY = (
     "En 3 pasos:\n"
-    "1️⃣ Escribes qué buscas — *\"Ferreterías en Lima\"*\n"
+    "1️⃣ Escribes qué buscas — *\"Ferreterías en Trujillo\"*\n"
     "2️⃣ Buscamos en Google Maps y calificamos con IA (score 0–100)\n"
-    "3️⃣ Recibes CSV con leads + mensajes listos\n\n"
-    "Sin Excel. Sin LinkedIn Ads. Sin SDRs."
+    "3️⃣ Recibes aquí en WhatsApp un PDF con leads + mensajes listos para enviar\n\n"
+    "Sin instalar nada. Sin aprender ningún sistema. Solo abres el PDF y llamas."
 )
 
 _PRECIOS_BODY = (
     "💰 *Planes Pipeline_X*\n\n"
-    "• Free — $0 · 10 leads, sin tarjeta\n"
-    "• Solo — $19/mes · 30 leads\n"
-    "• *Starter — $39/mes · 200 leads* ⭐\n"
-    "• Pro — $79/mes · 500 leads + API\n"
-    "• Reseller — $299/mes · 1.000 leads + white-label\n\n"
-    "🎁 Precio fundador $29/mes — primeros 20 clientes"
+    "• Free — S/0 · 10 leads, sin tarjeta\n"
+    "• *Starter — S/149/mes · reportes ilimitados* ⭐\n"
+    "• Pro — S/299/mes · mayor volumen + API\n"
+    "• Reseller — S/1,099/mes · white-label para agencias\n\n"
+    "Menos que el costo de un vendedor por un día.\n"
+    "Sin contrato. Cancela cuando quieras."
 )
 
 _PEDIR_TARGET = (
@@ -168,14 +171,15 @@ def _r_procesando() -> list[dict]:
 
 def _r_post_demo() -> list[dict]:
     return [_b(
-        "Esto es el 10% de lo que obtienes con Starter.\n— 200 leads · SUNAT · $39/mes",
+        "Esto es solo una muestra.\nCon el plan Starter (S/149/mes) tienes reportes ilimitados, "
+        "validación SUNAT y mensajes personalizados por industria.",
         [("upgrade", "🚀 Quiero plan completo"), ("preguntas", "💬 Tengo preguntas")],
         footer=_FOOTER,
     )]
 
 def _r_contacto() -> list[dict]:
     return [_t(
-        "📧 contacto@pipelinex.io\n"
+        "📧 contacto@pipelinex.app\n"
         "🤖 Telegram: t.me/Pipeline_X_bot (respuesta inmediata)"
     )]
 
@@ -183,6 +187,18 @@ def _r_ya_registrado() -> list[dict]:
     return [_b(
         _YA_REGISTRADO,
         [("demo", "🔄 Nuevo reporte"), ("precios", "💰 Ver planes")],
+        footer=_FOOTER,
+    )]
+
+def _r_garantia() -> list[dict]:
+    return [_b(
+        "Entendido 👌\n\n"
+        "Nuestra garantía es simple:\n"
+        "Si tu primer reporte no incluye al menos *5 leads calificados* "
+        "(score ≥ 60), te generamos otro sin costo — sin preguntas.\n\n"
+        "Pero antes de pagar, puedes probarlo gratis ahora mismo.\n"
+        "Dinos qué tipo de empresas buscas y en qué ciudad 👇",
+        [("demo", "🚀 Probar gratis primero"), ("precios", "💰 Ver planes")],
         footer=_FOOTER,
     )]
 
@@ -203,6 +219,8 @@ _KEYWORDS: dict[str, list[str]] = {
     "contacto":  ["contacto", "hablar", "humano", "soporte", "ayuda", "llamar", "💬", "4"],
     "upgrade":   ["upgrade", "plan completo", "quiero plan", "starter", "acceso", "comprar", "🚀 quiero"],
     "preguntas": ["pregunta", "preguntas", "duda", "dudas", "💬 tengo"],
+    "garantia":  ["garantia", "garantía", "reembolso", "devolucion", "devolución", "devolver", "no funciono",
+                  "no funcionó", "no sirve", "mal reporte", "quiero mi dinero", "reembolsar"],
 }
 
 def _detect_intent(text: str) -> str | None:
@@ -395,6 +413,10 @@ def _handle_intent(phone: str, intent: str) -> list[dict]:
     if intent == "preguntas":
         _set_session(phone, {"state": "menu_shown"})
         return [_t("Con gusto. ¿Qué quieres saber sobre Pipeline_X?")]
+
+    if intent == "garantia":
+        _set_session(phone, {"state": "menu_shown"})
+        return _r_garantia()
 
     _set_session(phone, {"state": "menu_shown"})
     return _r_no_entendido()
