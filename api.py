@@ -949,6 +949,13 @@ async def _deliver_and_notify_wa(phone: str, target: str) -> None:
         except Exception:
             pass
 
+    async def _progress_msg(delay: float, text: str) -> None:
+        await asyncio.sleep(delay)
+        try:
+            await asyncio.to_thread(wa_sender.send_text, phone, text)
+        except Exception:
+            pass
+
     try:
         await asyncio.to_thread(
             wa_sender.send_text, phone,
@@ -967,9 +974,9 @@ async def _deliver_and_notify_wa(phone: str, target: str) -> None:
             qualify=True, enrich_contacts=False,
         )
 
-        # Mensaje intermedio a los 40s por si el pipeline tarda
+        # Mensajes de progreso intermedios (cancelados si el pipeline termina antes)
         t1 = asyncio.create_task(_progress_msg(
-            40, MSG["qualify_progress"]
+            30, MSG["qualify_progress"]
         ))
 
         result = await asyncio.to_thread(_run_pipeline, req)
