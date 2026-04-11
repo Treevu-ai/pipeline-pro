@@ -213,6 +213,8 @@ def _r_no_entendido() -> list[dict]:
 # ─── Detección de intención ───────────────────────────────────────────────────
 
 _KEYWORDS: dict[str, list[str]] = {
+    "saludo":    ["hola", "buenas", "buenos dias", "buenos días", "buenas tardes", "buenas noches",
+                  "hey", "hi", "hello", "buen dia", "buen día", "saludos"],
     "demo":      ["demo", "gratis", "probar", "prueba", "leads", "reporte", "ver", "🚀", "1", "nuevo reporte", "nuevo"],
     "precios":   ["precio", "precios", "costo", "plan", "planes", "cuanto", "cuánto", "tarifa", "💰", "2"],
     "info":      ["info", "que es", "qué es", "como funciona", "cómo funciona", "información", "❓", "3"],
@@ -383,13 +385,20 @@ def _handle_message_locked(phone: str, text: str) -> list[dict]:
     if intent:
         return _handle_intent(phone, intent)
 
-    # Sin intención detectada → mostrar menú
-    _set_session(phone, {"state": "menu_shown"})
-    return _r_menu()
+    # Sin intención detectada: primera vez → menú, después → no entendido
+    if state == "idle":
+        _set_session(phone, {"state": "menu_shown"})
+        return _r_menu()
+
+    return _r_no_entendido()
 
 
 def _handle_intent(phone: str, intent: str) -> list[dict]:
     """Despacha la intención detectada."""
+    if intent == "saludo":
+        _set_session(phone, {"state": "menu_shown"})
+        return _r_menu()
+
     if intent == "demo":
         _set_session(phone, {"state": "collecting_target"})
         return _r_pedir_target()
