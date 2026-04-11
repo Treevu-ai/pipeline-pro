@@ -1264,31 +1264,39 @@ async def whatsapp_webhook(request: Request):
         await asyncio.to_thread(wa_sender.mark_read, phone, id_message)
 
     # Procesar y responder (handle_message devuelve list[dict])
-    messages = await asyncio.to_thread(wa_bot.handle_message, phone, text)
+    try:
+        messages = await asyncio.to_thread(wa_bot.handle_message, phone, text)
+    except Exception as exc:
+        log.error("handle_message error phone=%s: %s", phone, exc)
+        return {"ok": True}
+
     for msg in messages:
         mtype = msg.get("type", "text")
-        if mtype == "pipeline_request":
-            # Lanzar pipeline en background — responde inmediatamente con "procesando"
-            asyncio.create_task(_deliver_and_notify_wa(phone, msg["target"]))
-        elif mtype == "buttons":
-            await asyncio.to_thread(
-                wa_sender.send_buttons,
-                phone,
-                msg["body"],
-                msg["buttons"],
-                msg.get("header", ""),
-                msg.get("footer", ""),
-            )
-        elif mtype == "list":
-            await asyncio.to_thread(
-                wa_sender.send_list,
-                phone,
-                msg["body"],
-                msg["button_text"],
-                msg["sections"],
-                msg.get("footer", ""),
-            )
-        else:
-            await asyncio.to_thread(wa_sender.send_text, phone, msg["text"])
+        try:
+            if mtype == "pipeline_request":
+                # Lanzar pipeline en background — responde inmediatamente con "procesando"
+                asyncio.create_task(_deliver_and_notify_wa(phone, msg["target"]))
+            elif mtype == "buttons":
+                await asyncio.to_thread(
+                    wa_sender.send_buttons,
+                    phone,
+                    msg["body"],
+                    msg["buttons"],
+                    msg.get("header", ""),
+                    msg.get("footer", ""),
+                )
+            elif mtype == "list":
+                await asyncio.to_thread(
+                    wa_sender.send_list,
+                    phone,
+                    msg["body"],
+                    msg["button_text"],
+                    msg["sections"],
+                    msg.get("footer", ""),
+                )
+            else:
+                await asyncio.to_thread(wa_sender.send_text, phone, msg["text"])
+        except Exception as send_exc:
+            log.warning("send error phone=%s type=%s: %s", phone, mtype, send_exc)
 
     return {"ok": True}
