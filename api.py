@@ -658,8 +658,8 @@ async def _deliver_and_notify(query: str, chat_id: int, limit: int, channel: str
 
         # Resumen: top 5 por score
         qualified = sorted(
-            [l for l in leads if l.get("lead_score", 0) >= 60],
-            key=lambda x: x.get("lead_score", 0), reverse=True,
+            [l for l in leads if _int_score(l) >= 60],
+            key=_int_score, reverse=True,
         )
         lines = [
             f"✅ *Reporte listo: {query}*",
@@ -690,6 +690,14 @@ async def _deliver_and_notify(query: str, chat_id: int, limit: int, channel: str
         await _tg_message(chat_id, f"❌ Error procesando el reporte.\n`{str(exc)[:300]}`")
 
 
+def _int_score(l: dict) -> int:
+    """Convierte lead_score a int de forma segura (puede llegar como str)."""
+    try:
+        return int(l.get("lead_score", 0))
+    except (TypeError, ValueError):
+        return 0
+
+
 async def _deliver_and_notify_wa(phone: str, target: str) -> None:
     """Corre el pipeline y entrega el reporte al número de WhatsApp."""
     import traceback
@@ -707,8 +715,8 @@ async def _deliver_and_notify_wa(phone: str, target: str) -> None:
         total  = result.get("total", len(leads))
 
         qualified = sorted(
-            [l for l in leads if l.get("lead_score", 0) >= 60],
-            key=lambda x: x.get("lead_score", 0), reverse=True,
+            [l for l in leads if _int_score(l) >= 60],
+            key=_int_score, reverse=True,
         )
 
         # ── Resumen de texto ────────────────────────────────────────────────────
@@ -807,8 +815,8 @@ async def _demo_deliver_and_capture(target: str, chat_id: int) -> None:
         total  = result.get("total", len(leads))
 
         qualified = sorted(
-            [l for l in leads if l.get("lead_score", 0) >= 60],
-            key=lambda x: x.get("lead_score", 0), reverse=True,
+            [l for l in leads if _int_score(l) >= 60],
+            key=_int_score, reverse=True,
         )
 
         lines = [
