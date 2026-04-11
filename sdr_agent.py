@@ -361,18 +361,20 @@ Devuelve EXACTAMENTE estas claves en el JSON:
         result["lead_score"] = base_score
         log.warning("lead_score inválido del LLM; usando pre-score: %d", base_score)
 
-    # Clamping: el LLM no puede alejarse más de DRIFT_DOWN/DRIFT_UP del pre-score.
-    # Evita que el LLM ignore el scorecard de reglas completamente.
-    raw_llm = result["lead_score"]
-    result["lead_score"] = max(
-        base_score - cfg.QUALIFICATION["score_drift_down"],
-        min(base_score + cfg.QUALIFICATION["score_drift_up"], raw_llm),
-    )
+    # Clamping: el LLM no puede alejarse más de DRIFT_DOWN/DRIFT_UP del pre-score,
+    # pero el score final siempre respeta floor/ceiling absolutos.
+    # Esto evita que un lead con base baja sea injustamente capeado
+    # cuando el LLM detecta señales cualitativas fuertes.
+    raw_llm  = result["lead_score"]
+    _floor   = cfg.QUALIFICATION.get("score_floor", 10)
+    _ceiling = cfg.QUALIFICATION.get("score_ceiling", 95)
+    _low     = max(_floor,   base_score - cfg.QUALIFICATION["score_drift_down"])
+    _high    = min(_ceiling, base_score + cfg.QUALIFICATION["score_drift_up"])
+    result["lead_score"] = max(_low, min(_high, raw_llm))
     if raw_llm != result["lead_score"]:
         log.warning(
-            "lead_score clamped: LLM=%d → final=%d (base=%d, drift ±%d/+%d)",
-            raw_llm, result["lead_score"], base_score,
-            cfg.QUALIFICATION["score_drift_down"], cfg.QUALIFICATION["score_drift_up"],
+            "lead_score clamped: LLM=%d → final=%d (base=%d, rango=[%d,%d])",
+            raw_llm, result["lead_score"], base_score, _low, _high,
         )
 
     # Traducir intent_timeline a texto legible
@@ -396,6 +398,155 @@ Devuelve EXACTAMENTE estas claves en el JSON:
     )
 
     return result
+
+
+def qualify_batch(rows: list[dict], channel: str) -> list[dict]:
+    """
+    Califica TODOS los leads en una sola llamada al LLM.
+    Mucho más rápido que qualify_row × N (1 call vs N calls).
+    Retorna lista de resultados en el mismo orden que rows.
+    Si el batch falla, hace fallback a qualify_row individual.
+    """
+    if not rows:
+        return []
+
+    channel_note = {
+        "email":     "draft_subject: asunto. draft_message: cuerpo email ≤100 palabras.",
+        "whatsapp":  "draft_subject: string vacío. draft_message: WhatsApp ≤80 palabras, tono directo.",
+        "both":      "draft_subject: asunto email. draft_message: sirve para email y WhatsApp.",
+    }.get(channel, "")
+
+    # Construimos un mini-resumen por lead para reducir tokens
+    leads_summary = []
+    for i, r in enumerate(rows):
+        leads_summary.append({
+            "idx": i,
+            "empresa": r.get("empresa", ""),
+            "industria": r.get("industria", ""),
+            "ciudad": r.get("ciudad", ""),
+            "telefono": r.get("telefono", ""),
+            "email": r.get("email", ""),
+            "sitio_web": r.get("sitio_web", ""),
+            "rating": r.get("rating", ""),
+            "num_resenas": r.get("num_resenas", ""),
+            "base_score": pre_score(r),
+        })
+
+    user_prompt = f"""Califica estos {len(rows)} leads para Pipeline_X (software de ventas B2B para MiPYMEs en Perú).
+{channel_note}
+
+Leads (JSON array):
+{json.dumps(leads_summary, ensure_ascii=False)}
+
+Devuelve un JSON array con exactamente {len(rows)} objetos, en el mismo orden (idx 0..{len(rows)-1}).
+Cada objeto debe tener EXACTAMENTE estas claves:
+- idx: number (igual al del input)
+- crm_stage: "Prospección"|"Calificado"|"En seguimiento"|"Descartado"
+- lead_score: number 0-100 (ajusta desde base_score, máximo ±25 puntos)
+- fit_product: "si"|"no"|"dudoso"
+- intent_timeline: "<30d"|"30-90d"|">90d"|"desconocido"
+- decision_maker: "si"|"no"|"desconocido"
+- blocker: string (obstáculo breve o "")
+- next_action: string (acción concreta)
+- positive_signals: array de strings, máx 3
+- negative_signals: array de strings, máx 3
+- qualification_notes: string (2-3 frases)
+- draft_subject: string
+- draft_message: string
+
+Responde SOLO el JSON array, sin texto adicional."""
+
+    try:
+        raw = llm_client.call(cfg.PLAYBOOK, user_prompt)
+        # llm_client.call devuelve dict; en batch esperamos lista en raw["_raw_list"] o similar
+        # Pero call() parsea JSON → si el LLM devuelve array, raw será el primer elemento.
+        # Necesitamos el texto raw. Usamos _call_groq directamente.
+        import llm_client as _lc
+        import groq as _groq_lib
+        import os
+
+        _groq = _groq_lib.Groq(api_key=os.environ.get("GROQ_API_KEY", ""))
+        resp = _groq.chat.completions.create(
+            model=cfg.GROQ.get("model", "llama-3.1-8b-instant"),
+            messages=[
+                {"role": "system", "content": cfg.PLAYBOOK},
+                {"role": "user",   "content": user_prompt},
+            ],
+            temperature=0,
+            timeout=90,
+        )
+        text = resp.choices[0].message.content.strip()
+        # Extraer JSON array del texto
+        m = re.search(r"\[.*\]", text, re.DOTALL)
+        if not m:
+            raise ValueError("LLM no devolvió JSON array")
+        batch_results = json.loads(m.group(0))
+
+        # Mapear idx → resultado, aplicar post-procesado mínimo
+        idx_map = {item["idx"]: item for item in batch_results}
+        out = []
+        for i, row in enumerate(rows):
+            item = idx_map.get(i, {})
+            base = pre_score(row)
+            # Coerción score
+            try:
+                score = int(float(str(item.get("lead_score", base))))
+            except (ValueError, TypeError):
+                score = base
+            _fl = cfg.QUALIFICATION.get("score_floor", 10)
+            _cl = cfg.QUALIFICATION.get("score_ceiling", 95)
+            score = max(
+                max(_fl, base - cfg.QUALIFICATION["score_drift_down"]),
+                min(min(_cl, base + cfg.QUALIFICATION["score_drift_up"]), score),
+            )
+            item["lead_score"] = score
+            # Normalizar signals
+            for sig in ("positive_signals", "negative_signals"):
+                v = item.get(sig, [])
+                item[sig] = " | ".join(str(s).strip() for s in v[:3] if s) if isinstance(v, list) else str(v)
+            # Truncar draft_message
+            max_w = cfg.QUALIFICATION["word_limits"].get(channel, 100)
+            draft = str(item.get("draft_message", ""))
+            wds = draft.split()
+            if len(wds) > max_w:
+                item["draft_message"] = " ".join(wds[:max_w]) + "…"
+            # timeline legible
+            _tmap = {"<30d": "Inmediato (< 30 días)", "30-90d": "Corto plazo (1–3 meses)",
+                     ">90d": "Largo plazo (> 3 meses)", "desconocido": "Sin definir"}
+            item["intent_timeline"] = _tmap.get(str(item.get("intent_timeline", "")), str(item.get("intent_timeline", "Sin definir")))
+            item["prioridad"] = _calc_prioridad(score, str(item.get("decision_maker", "")),
+                                                str(item.get("intent_timeline", "")), str(item.get("crm_stage", "")))
+            item["qualify_error"] = ""
+            out.append({**row, **item})
+        log.info("qualify_batch: %d leads calificados en 1 sola llamada", len(out))
+        return out
+
+    except Exception as e:
+        _FALLBACK_CAP = 5   # máx. llamadas individuales al LLM en fallback
+        log.warning(
+            "qualify_batch falló (%s) — fallback individual (cap=%d de %d)",
+            e, min(_FALLBACK_CAP, len(rows)), len(rows),
+        )
+        results = []
+        for i, row in enumerate(rows):
+            base = pre_score(row)
+            if i < _FALLBACK_CAP:
+                try:
+                    r = qualify_row(row, channel, base)
+                    r["qualify_error"] = ""
+                except Exception as err:
+                    r = {k: "" for k in cfg.OUTPUT_KEYS if k != "qualify_error"}
+                    r["qualify_error"] = str(err)
+            else:
+                # Más allá del cap: pre-score como aproximación, sin LLM
+                r = {k: "" for k in cfg.OUTPUT_KEYS if k != "qualify_error"}
+                r["lead_score"]  = base
+                r["crm_stage"]   = "Prospección"
+                r["prioridad"]   = "Media" if base >= 40 else "Baja"
+                r["qualify_error"] = "batch_fallback_capped"
+                log.debug("qualify_batch cap: lead %d usa pre-score=%d", i, base)
+            results.append({**row, **r})
+        return results
 
 
 def _calc_prioridad(score: int, decision_maker: str, timeline: str, stage: str) -> str:

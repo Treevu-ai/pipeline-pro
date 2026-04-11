@@ -44,8 +44,7 @@ def _get_lock(phone: str) -> threading.Lock:
 
 # ─── Stores ──────────────────────────────────────────────────────────────────
 
-_SESSIONS_STORE = Path("output/.wa_sessions.json")
-_DEMO_STORE     = Path("output/.demo_requests.json")
+_DEMO_STORE = Path("output/.demo_requests.json")
 
 # ─── Estados de conversación ─────────────────────────────────────────────────
 # idle             → nunca ha escrito (o reiniciado)
@@ -117,12 +116,13 @@ _INFO_BODY = (
 
 _PRECIOS_BODY = (
     "💰 *Planes Pipeline_X*\n\n"
-    "• Free — S/0 · 10 leads, sin tarjeta\n"
-    "• *Starter — S/149/mes · reportes ilimitados* ⭐\n"
-    "• Pro — S/299/mes · mayor volumen + API\n"
+    "• Free — S/0 · 1 búsqueda/día, 10 leads demo\n"
+    "• Básico — S/59/mes · 10 reportes/mes, 20 leads full\n"
+    "• *Starter — S/149/mes · ilimitado, 30 leads* ⭐\n"
+    "• Pro — S/299/mes · 50 leads + API REST\n"
     "• Reseller — S/1,099/mes · white-label para agencias\n\n"
-    "Menos que el costo de un vendedor por un día.\n"
-    "Sin contrato. Cancela cuando quieras."
+    "Sin contrato. Cancela cuando quieras.\n"
+    "¿Quieres probar 3 días gratis con acceso completo?"
 )
 
 _PEDIR_TARGET = (
@@ -131,10 +131,12 @@ _PEDIR_TARGET = (
     "_\"Ferreterías en Trujillo\"_ · _\"Clínicas en Lima\"_"
 )
 
-_PROCESANDO = (
-    "⏳ Buscando en Google Maps y calificando con IA...\n"
-    "Listo en 1–3 min. ☕"
-)
+_PROCESANDO = "⏳ Buscando *\"{target}\"* en Google Maps... esto toma ~2 min ☕"
+
+# strings centralizados en messages.py — importar lazy para no crear ciclos
+def _MSG(key: str, **kwargs) -> str:
+    from messages import MSG
+    return MSG[key].format(**kwargs) if kwargs else MSG[key]
 
 _YA_REGISTRADO = "Tu reporte ya está en camino ✅"
 
@@ -166,16 +168,107 @@ def _r_precios() -> list[dict]:
 def _r_pedir_target() -> list[dict]:
     return [_t(_PEDIR_TARGET)]
 
-def _r_procesando() -> list[dict]:
-    return [_t(_PROCESANDO)]
+def _r_procesando(target: str = "") -> list[dict]:
+    return [_t(_PROCESANDO.format(target=target or "tu búsqueda"))]
 
 def _r_post_demo() -> list[dict]:
     return [_b(
-        "Esto es solo una muestra.\nCon el plan Starter (S/149/mes) tienes reportes ilimitados, "
-        "validación SUNAT y mensajes personalizados por industria.",
-        [("upgrade", "🚀 Quiero plan completo"), ("preguntas", "💬 Tengo preguntas")],
+        "Esto es solo una muestra 👆\n\n"
+        "Con el plan *Starter (S/149/mes)* tienes:\n"
+        "✅ Reportes ilimitados\n"
+        "✅ Todos los datos sin censura\n"
+        "✅ Validación SUNAT incluida\n\n"
+        "¿Quieres activar tu acceso o buscar otro rubro?",
+        [("upgrade", "🚀 Quiero el plan completo"), ("demo", "🔍 Nueva búsqueda")],
         footer=_FOOTER,
     )]
+
+
+def _r_upgrade(phone: str) -> list[dict]:
+    """
+    Respuesta al intent de upgrade.
+    Notifica al CEO via PipeAssist y muestra info de transferencia si está configurada.
+    La cuenta bancaria viene de la variable de entorno BANK_TRANSFER_INFO.
+    Formato sugerido: "BCP · Ahorro · 123-456789-0-12 · Nombre · CCI: 002..."
+    """
+    from messages import MSG
+    from datetime import datetime, timezone
+
+    bank_info = os.environ.get("BANK_TRANSFER_INFO", "").strip()
+
+    # Notificar al CEO inmediatamente
+    _notify_ceo_upgrade(phone)
+
+    if bank_info:
+        texto = MSG["upgrade_intro"].format(bank_info=bank_info)
+    else:
+        texto = MSG["upgrade_no_bank"]
+
+    return [_t(texto)]
+
+
+def _notify_ceo_upgrade(phone: str) -> None:
+    """Notifica al CEO vía PipeAssist cuando alguien toca 'Plan completo'."""
+    import httpx
+    from messages import MSG
+    from datetime import datetime, timezone
+
+    token_int = os.environ.get("TELEGRAM_BOT_TOKEN_INTERNO", "")
+    admin_ids  = [
+        aid.strip()
+        for aid in os.environ.get("ADMIN_TELEGRAM_IDS",
+                   os.environ.get("ADMIN_CHAT_ID", "")).split(",")
+        if aid.strip()
+    ]
+    if not token_int or not admin_ids:
+        return
+
+    msg = MSG["upgrade_ceo_alert"].format(
+        phone=phone,
+        time=datetime.now(timezone.utc).strftime("%H:%M UTC"),
+    )
+    for aid in admin_ids:
+        try:
+            httpx.post(
+                f"https://api.telegram.org/bot{token_int}/sendMessage",
+                json={"chat_id": aid, "text": msg, "parse_mode": "Markdown"},
+                timeout=6,
+            )
+        except Exception:
+            pass
+
+def _notify_feedback(phone: str, rating: str) -> None:
+    """Notifica al CEO via PipeAssist cuando llega un feedback."""
+    import httpx
+    token_int = os.environ.get("TELEGRAM_BOT_TOKEN_INTERNO", "")
+    admin_ids  = [
+        aid.strip()
+        for aid in os.environ.get("ADMIN_TELEGRAM_IDS",
+                   os.environ.get("ADMIN_CHAT_ID", "")).split(",")
+        if aid.strip()
+    ]
+    if not token_int or not admin_ids:
+        return
+    emoji_map = {
+        "feedback_good": "👍 Muy útil",
+        "feedback_ok":   "😐 Regular",
+        "feedback_bad":  "👎 Poco útil",
+    }
+    msg = (
+        f"💬 *Feedback recibido*\n\n"
+        f"📱 `{phone}`\n"
+        f"⭐ {emoji_map.get(rating, rating)}"
+    )
+    for aid in admin_ids:
+        try:
+            httpx.post(
+                f"https://api.telegram.org/bot{token_int}/sendMessage",
+                json={"chat_id": aid, "text": msg, "parse_mode": "Markdown"},
+                timeout=6,
+            )
+        except Exception:
+            pass
+
 
 def _r_contacto() -> list[dict]:
     return [_t(
@@ -202,6 +295,13 @@ def _r_garantia() -> list[dict]:
         footer=_FOOTER,
     )]
 
+def _r_feedback() -> list[dict]:
+    return [_b(
+        _MSG("feedback_ask"),
+        [("feedback_good", "👍 Muy útil"), ("feedback_ok", "😐 Regular"), ("feedback_bad", "👎 Poco útil")],
+        footer=_FOOTER,
+    )]
+
 def _r_no_entendido() -> list[dict]:
     return [_b(
         _NO_ENTENDIDO,
@@ -223,6 +323,9 @@ _KEYWORDS: dict[str, list[str]] = {
     "preguntas": ["pregunta", "preguntas", "duda", "dudas", "💬 tengo"],
     "garantia":  ["garantia", "garantía", "reembolso", "devolucion", "devolución", "devolver", "no funciono",
                   "no funcionó", "no sirve", "mal reporte", "quiero mi dinero", "reembolsar"],
+    "feedback_good": ["feedback_good", "muy útil", "muy util", "excelente", "genial", "perfecto"],
+    "feedback_ok":   ["feedback_ok",   "regular", "normal", "mas o menos", "más o menos", "ok"],
+    "feedback_bad":  ["feedback_bad",  "poco útil", "poco util", "malo", "mal", "no sirvió", "no sirvio"],
 }
 
 def _detect_intent(text: str) -> str | None:
@@ -241,50 +344,37 @@ def _extract_email(text: str) -> str | None:
 
 
 # ─── Sesiones ─────────────────────────────────────────────────────────────────
+# Persistencia delegada a db.py (PostgreSQL) con fallback a archivo JSON.
 
-def _load_sessions() -> dict[str, Any]:
-    try:
-        if _SESSIONS_STORE.exists():
-            return json.loads(_SESSIONS_STORE.read_text(encoding="utf-8"))
-    except Exception:
-        pass
-    return {}
-
-
-def _save_sessions(sessions: dict[str, Any]) -> None:
-    _SESSIONS_STORE.parent.mkdir(parents=True, exist_ok=True)
-    _SESSIONS_STORE.write_text(
-        json.dumps(sessions, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
-
-
-_SESSION_TTL = 30 * 60        # 30 min → resetea a idle
-_PIPELINE_TTL = 5 * 60        # 5 min → si sigue "running" se asume caído
+_SESSION_TTL  = 30 * 60   # 30 min → resetea a idle
+_PIPELINE_TTL =  5 * 60   # 5 min  → si sigue "running" se asume caído
 
 
 def _get_session(phone: str) -> dict:
     import time
-    session = _load_sessions().get(phone, {"state": "idle"})
+    import db
+    session = db.get_session(phone)
     now = time.time()
     ts  = session.get("_ts", now)
 
     # Pipeline atascado → resetear
     if session.get("state") == "running_pipeline" and (now - ts) > _PIPELINE_TTL:
         session = {"state": "idle"}
+        db.set_session(phone, session)
 
     # Sesión expirada → resetear
     elif session.get("state") not in ("idle",) and (now - ts) > _SESSION_TTL:
         session = {"state": "idle"}
+        db.set_session(phone, session)
 
     return session
 
 
 def _set_session(phone: str, session: dict) -> None:
     import time
-    sessions = _load_sessions()
+    import db
     session["_ts"] = time.time()
-    sessions[phone] = session
-    _save_sessions(sessions)
+    db.set_session(phone, session)
 
 
 # ─── Persistencia de leads ────────────────────────────────────────────────────
@@ -389,20 +479,135 @@ def _handle_message_locked(phone: str, text: str) -> list[dict]:
 
     # ── Esperando target ──────────────────────────────────────────────────────
     if state == "collecting_target":
-        if len(text) < 5:
+        if len(text) < 4:
             return [_t("Necesito más detalle 😊\nEj: *\"Ferreterías en Trujillo\"*")]
+        # Validar que el target tenga al menos 2 palabras (rubro + ciudad/zona)
+        words = [w for w in text.split() if len(w) > 2]
+        has_location = " en " in text.lower() or "," in text or len(words) >= 2
+        if not has_location:
+            return [_t(
+                "¿En qué zona o ciudad? 📍\n\n"
+                "Ejemplo: *\"Ferreterías en Miraflores\"* o *\"Clínicas Lima\"*\n\n"
+                "Con la ciudad los resultados son más precisos."
+            )]
+        # ── Rate limiting por plan ────────────────────────────────────────────
+        try:
+            import db as _db
+            import config as _cfg
+            sub = _db.get_subscriber(phone)
+            plan_name = (
+                sub.get("plan", "free")
+                if sub and sub.get("status") == "active" and (
+                    not sub.get("expires_at") or
+                    sub.get("expires_at") > datetime.now(timezone.utc).isoformat()
+                )
+                else "free"
+            )
+            plan_cfg = _cfg.PLANS.get(plan_name, _cfg.PLANS["free"])
+            limit_day   = plan_cfg.get("searches_per_day")
+            limit_month = plan_cfg.get("searches_per_month")
+            if limit_day is not None and _db.get_daily_search_count(phone) >= limit_day:
+                _set_session(phone, {"state": "upgrade_prompted"})
+                return [_t(_MSG("daily_limit_reached"))] + _r_upgrade(phone)
+            if limit_month is not None and _db.get_monthly_search_count(phone) >= limit_month:
+                _set_session(phone, {"state": "upgrade_prompted"})
+                return [_t(_MSG("monthly_limit_reached"))] + _r_upgrade(phone)
+        except Exception:
+            pass
+
         _set_session(phone, {"state": "running_pipeline", "target": text})
-        return [*_r_procesando(), {"type": "pipeline_request", "target": text}]
+        try:
+            import db as _db
+            _db.log_event(phone, _db.EventType.WA_SEARCH, {"target": text})
+        except Exception:
+            pass
+        return [*_r_procesando(text), {"type": "pipeline_request", "target": text}]
 
     # ── Pipeline corriendo — no interrumpir ───────────────────────────────────
     if state == "running_pipeline":
-        return [_t("⏳ Tu reporte está en proceso, ya casi está listo...")]
+        return [_t(_MSG("pipeline_running"))]
+
+    # ── Esperando comprobante de pago ─────────────────────────────────────────
+    if state == "upgrade_prompted":
+        # El usuario puede estar enviando texto de confirmación o imagen del comprobante.
+        # En cualquier caso: agradecemos, notificamos al CEO y volvemos a idle.
+        _set_session(phone, {"state": "menu_shown"})
+        _notify_ceo_upgrade(phone)   # segunda notificación con el mensaje que mandó
+        return [_t(
+            "Gracias, recibido ✅\n\n"
+            "Estamos verificando tu pago. En minutos te confirmamos "
+            "y activamos tu acceso al plan Starter.\n\n"
+            "Si tienes alguna duda escríbenos a *contacto@pipelinex.app*"
+        )]
+
+    # ── Esperando feedback del reporte ───────────────────────────────────────
+    if state == "feedback_prompted":
+        _set_session(phone, {"state": "done"})
+        fb_intent = intent if intent in ("feedback_good", "feedback_ok", "feedback_bad") else None
+        if fb_intent:
+            try:
+                import db as _db
+                _db.log_event(phone, "wa_feedback", {"rating": fb_intent})
+            except Exception:
+                pass
+            _notify_feedback(phone, fb_intent)
+            key_map = {
+                "feedback_good": "feedback_thanks_good",
+                "feedback_ok":   "feedback_thanks_ok",
+                "feedback_bad":  "feedback_thanks_bad",
+            }
+            return [_t(_MSG(key_map[fb_intent]))]
+        # Si manda otra cosa → tratar como intent normal
+        if intent:
+            return _handle_intent(phone, intent)
+        return _r_no_entendido()
 
     # ── Ya entregado — ofrecer nuevo reporte o info ───────────────────────────
     if state == "done":
         if intent:
             return _handle_intent(phone, intent)
-        return _r_ya_registrado()
+        # Cualquier texto libre lo tratamos como un nuevo target directamente
+        if len(text) >= 5:
+            words = [w for w in text.split() if len(w) > 2]
+            has_location = " en " in text.lower() or "," in text or len(words) >= 2
+            if has_location:
+                # Rate limiting por plan
+                try:
+                    import db as _db
+                    import config as _cfg
+                    sub = _db.get_subscriber(phone)
+                    plan_name = (
+                        sub.get("plan", "free")
+                        if sub and sub.get("status") == "active" and (
+                            not sub.get("expires_at") or
+                            sub.get("expires_at") > datetime.now(timezone.utc).isoformat()
+                        )
+                        else "free"
+                    )
+                    plan_cfg = _cfg.PLANS.get(plan_name, _cfg.PLANS["free"])
+                    limit_day   = plan_cfg.get("searches_per_day")
+                    limit_month = plan_cfg.get("searches_per_month")
+                    if limit_day is not None and _db.get_daily_search_count(phone) >= limit_day:
+                        _set_session(phone, {"state": "upgrade_prompted"})
+                        return [_t(_MSG("daily_limit_reached"))] + _r_upgrade(phone)
+                    if limit_month is not None and _db.get_monthly_search_count(phone) >= limit_month:
+                        _set_session(phone, {"state": "upgrade_prompted"})
+                        return [_t(_MSG("monthly_limit_reached"))] + _r_upgrade(phone)
+                except Exception:
+                    pass
+                _set_session(phone, {"state": "running_pipeline", "target": text})
+                try:
+                    import db as _db
+                    _db.log_event(phone, _db.EventType.WA_SEARCH, {"target": text})
+                except Exception:
+                    pass
+                return [*_r_procesando(text), {"type": "pipeline_request", "target": text}]
+        _set_session(phone, {"state": "collecting_target"})
+        return [_t(
+            "¿Qué tipo de empresas buscas ahora? 🔍\n\n"
+            "Escribe industria + ciudad:\n"
+            "_\"Restaurantes en San Isidro\"_ · _\"Clínicas en Trujillo\"_"
+        )]
 
     # ── Cualquier otro estado — detectar intención ────────────────────────────
     if intent:
@@ -439,8 +644,20 @@ def _handle_intent(phone: str, intent: str) -> list[dict]:
         return _r_contacto()
 
     if intent == "upgrade":
-        _set_session(phone, {"state": "menu_shown"})
-        return [_t("Para activar tu acceso escríbenos a *contacto@pipelinex.io* con asunto 'Acceso Starter'.")]
+        try:
+            import db as _db
+            _db.log_event(phone, _db.EventType.WA_UPGRADE_CLICK)
+            # Primera vez: activar trial de 3 días automáticamente
+            if not _db.has_trialed(phone) and not _db.is_active_subscriber(phone):
+                _db.upsert_subscriber(phone, plan="trial", days=3, notes="auto-trial")
+                _db.log_event(phone, _db.EventType.SUBSCRIBER_ACTIVATED, {"plan": "trial"})
+                _set_session(phone, {"state": "collecting_target"})
+                _notify_ceo_upgrade(phone)  # re-usar notificación al CEO
+                return [_t(_MSG("trial_started"))]
+        except Exception:
+            pass
+        _set_session(phone, {"state": "upgrade_prompted"})
+        return _r_upgrade(phone)
 
     if intent == "preguntas":
         _set_session(phone, {"state": "menu_shown"})

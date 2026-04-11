@@ -289,9 +289,11 @@ async def _search_via_apify(query: str, limit: int) -> list[dict[str, Any]]:
 
     try:
         import httpx, time
+        _APIFY_ACTOR_TIMEOUT_S  = 60    # Apify interno: abortar actor si tarda >60s
+        _APIFY_HTTP_TIMEOUT_S   = 120   # httpx: límite duro del lado cliente
         actor_id = "compass~crawler-google-places"
         run_url  = f"https://api.apify.com/v2/acts/{actor_id}/run-sync-get-dataset-items"
-        params   = {"token": api_key, "timeout": 60, "memory": 512}
+        params   = {"token": api_key, "timeout": _APIFY_ACTOR_TIMEOUT_S, "memory": 512}
         body = {
             "searchStringsArray": [query],
             "maxCrawledPlacesPerSearch": min(limit, 20),
@@ -301,8 +303,17 @@ async def _search_via_apify(query: str, limit: int) -> list[dict[str, Any]]:
             "includeOpeningHours": False,
             "includePeopleAlsoSearch": False,
         }
-        async with httpx.AsyncClient(timeout=90) as client:
-            resp = await client.post(run_url, params=params, json=body)
+        async with httpx.AsyncClient(
+            timeout=httpx.Timeout(_APIFY_HTTP_TIMEOUT_S, connect=10)
+        ) as client:
+            try:
+                resp = await client.post(run_url, params=params, json=body)
+            except httpx.TimeoutException:
+                log.error(
+                    "Apify timeout (%ds) para '%s' — intenta reducir el límite de leads",
+                    _APIFY_HTTP_TIMEOUT_S, query,
+                )
+                return []
             resp.raise_for_status()
             items = resp.json()
 
@@ -318,11 +329,72 @@ async def _search_via_apify(query: str, limit: int) -> list[dict[str, Any]]:
                 const.ColumnNames.CATEGORIA_ORIGINAL: place.get("categoryName", ""),
                 const.ColumnNames.INDUSTRIA:          map_category(place.get("categoryName", "")),
                 const.ColumnNames.FUENTE:             "apify_google_maps",
+                "maps_url":                           place.get("url", ""),
             })
         log.info("Apify: %d resultados para '%s'", len(leads), query)
         return leads
     except Exception as e:
         log.warning("Apify falló para '%s': %s", query, e)
+        return []
+
+
+async def _search_via_serpapi(query: str, limit: int) -> list[dict[str, Any]]:
+    """
+    Busca negocios en Google Maps usando SerpApi (engine=google_maps).
+    Requiere SERPAPI_API_KEY en el entorno.
+    SDK: pip install google-search-results
+    Precio: ~$0.015/búsqueda pay-as-you-go (hasta 20 resultados por página).
+    Docs: https://serpapi.com/google-maps-api
+    """
+    api_key = cfg.SERPAPI_API_KEY
+    if not api_key:
+        return []
+
+    try:
+        def _call() -> list[dict]:
+            from serpapi import GoogleSearch
+            leads_raw: list[dict] = []
+            start = 0
+            # SerpApi devuelve 20 resultados por página; paginamos hasta cubrir el límite
+            while len(leads_raw) < limit:
+                params = {
+                    "engine":  "google_maps",
+                    "q":       query,
+                    "hl":      "es",
+                    "start":   start,
+                    "api_key": api_key,
+                }
+                results = GoogleSearch(params).get_dict()
+                batch   = results.get("local_results") or []
+                if not batch:
+                    break
+                leads_raw.extend(batch)
+                if len(batch) < 20:   # última página
+                    break
+                start += 20
+            return leads_raw[:limit]
+
+        raw = await asyncio.to_thread(_call)
+
+        leads: list[dict[str, Any]] = []
+        for place in raw:
+            leads.append({
+                const.ColumnNames.EMPRESA:            place.get("title", ""),
+                const.ColumnNames.DIRECCION:          place.get("address", ""),
+                const.ColumnNames.TELEFONO:           place.get("phone", ""),
+                const.ColumnNames.RATING:             str(place.get("rating", "")),
+                const.ColumnNames.NUM_RESENAS:        str(place.get("reviews", "")),
+                const.ColumnNames.SITIO_WEB:          place.get("website", ""),
+                const.ColumnNames.CATEGORIA_ORIGINAL: place.get("type", ""),
+                const.ColumnNames.INDUSTRIA:          map_category(place.get("type", "")),
+                const.ColumnNames.FUENTE:             "serpapi",
+            })
+
+        log.info("SerpApi: %d resultados para '%s'", len(leads), query)
+        return leads
+
+    except Exception as e:
+        log.warning("SerpApi falló para '%s': %s", query, e)
         return []
 
 
@@ -469,6 +541,9 @@ async def _scrape_maps_async(query: str, limit: int, headful: bool = False) -> l
                     )
                     await page.wait_for_timeout(delay)
 
+                    # URL de Google Maps para este negocio
+                    empresa[const.ColumnNames.MAPS_URL] = page.url
+
                     # Nombre: panel de detalle (selectores específicos) o fallback a aria-label
                     try:
                         nombre_panel = (
@@ -596,21 +671,28 @@ def scrape_google_maps(query: str, limit: int, headful: bool = False) -> list[di
         Lista de leads encontrados.
     """
     async def _run() -> list[dict[str, Any]]:
-        # 1. Apify (prioridad — no requiere GCP)
+        # 1. Apify (prioridad)
         if cfg.APIFY_API_KEY:
             log.info("Usando Apify Google Maps para: %s", query)
             leads = await _search_via_apify(query, limit)
             if leads:
                 return leads
-            log.info("Apify sin resultados — fallback Places API")
-        # 2. Google Places API (New)
+            log.info("Apify sin resultados — fallback Outscraper")
+        # 2. SerpApi (fallback principal)
+        if cfg.SERPAPI_API_KEY:
+            log.info("Usando SerpApi para: %s", query)
+            leads = await _search_via_serpapi(query, limit)
+            if leads:
+                return leads
+            log.info("SerpApi sin resultados — fallback Places API")
+        # 3. Google Places API (fallback secundario)
         if cfg.GOOGLE_PLACES_API_KEY:
             log.info("Usando Google Places API para: %s", query)
             leads = await _search_via_places_api(query, limit)
             if leads:
                 return leads
             log.info("Places API sin resultados — fallback Playwright")
-        # 3. Playwright (último recurso)
+        # 4. Playwright (último recurso)
         return await _scrape_maps_async(query, limit, headful)
 
     return asyncio.run(_run())

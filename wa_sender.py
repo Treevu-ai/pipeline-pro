@@ -12,12 +12,39 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 
 import httpx
 
 import config as cfg
 
 log = logging.getLogger("wa_sender")
+
+
+# ─── Retry helper ─────────────────────────────────────────────────────────────
+
+def _post_with_retry(url: str, retries: int = 3, **kwargs) -> httpx.Response:
+    """
+    POST con backoff exponencial (1s → 2s → 4s).
+    Solo reintenta en errores de red y 5xx; los 4xx son errores del cliente
+    y no tiene sentido reintentar.
+    """
+    last_exc: Exception | None = None
+    for attempt in range(retries):
+        try:
+            r = httpx.post(url, **kwargs)
+            if r.status_code < 500:
+                return r       # 2xx, 3xx, 4xx → devolver sin reintentar
+            # 5xx — esperar y reintentar
+            log.warning("Green API 5xx (intento %d/%d): %s", attempt + 1, retries, r.status_code)
+        except (httpx.ConnectError, httpx.TimeoutException, httpx.RemoteProtocolError) as exc:
+            log.warning("Green API error de red (intento %d/%d): %s", attempt + 1, retries, exc)
+            last_exc = exc
+        if attempt < retries - 1:
+            time.sleep(2 ** attempt)   # 1s, 2s (no llega a 4s si retries=3)
+    if last_exc:
+        raise last_exc
+    raise httpx.HTTPStatusError("Green API 5xx tras reintentos", request=None, response=r)
 
 
 # ─── Helpers internos ─────────────────────────────────────────────────────────
@@ -57,7 +84,7 @@ def send_text(phone: str, text: str, timeout: int = 10) -> dict:
     body = {"chatId": _chat_id(phone), "message": text}
     log.debug("WA send → %s: %r", phone, text[:80])
     try:
-        r = httpx.post(url, json=body, timeout=timeout)
+        r = _post_with_retry(url, json=body, timeout=timeout)
         r.raise_for_status()
         return r.json()
     except httpx.HTTPStatusError as exc:
@@ -149,7 +176,7 @@ def send_buttons(
         payload["footer"] = footer
     log.debug("WA buttons → %s: %r", phone, body[:80])
     try:
-        r = httpx.post(url, json=payload, timeout=timeout)
+        r = _post_with_retry(url, json=payload, timeout=timeout)
         r.raise_for_status()
         return r.json()
     except httpx.HTTPStatusError as exc:
@@ -248,7 +275,7 @@ def send_document(
     data    = {"chatId": _chat_id(phone), "caption": caption, "fileName": filename}
     log.debug("WA document → %s: %s (%d bytes)", phone, filename, len(content))
     try:
-        r = httpx.post(url, data=data, files=files, timeout=timeout)
+        r = _post_with_retry(url, data=data, files=files, timeout=timeout)
         r.raise_for_status()
         return r.json()
     except httpx.HTTPStatusError as exc:
