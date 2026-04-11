@@ -12,10 +12,20 @@ Usage:
 """
 from __future__ import annotations
 
+import re
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 from fpdf import FPDF
+
+# ─── Fuente TTF con soporte Unicode (tildes, ñ, ¡¿, etc.) ────────────────────
+_WIN_FONTS = Path("C:/Windows/Fonts")
+_ARIAL_REGULAR = str(_WIN_FONTS / "arial.ttf")
+_ARIAL_BOLD    = str(_WIN_FONTS / "arialbd.ttf")
+_ARIAL_ITALIC  = str(_WIN_FONTS / "ariali.ttf")
+_ARIAL_BOLDITALIC = str(_WIN_FONTS / "arialbi.ttf")
+_FONT_FAMILY = "Arial"
 
 # ─── Paleta ───────────────────────────────────────────────────────────────────
 
@@ -32,6 +42,17 @@ _BLACK  = (15,  23,  42)
 _LBLUE  = (219, 234, 254)
 _DBLUE  = (30,  64, 175)
 _LGREEN = (220, 252, 231)
+
+
+def _is_landline(phone: str) -> bool:
+    """Detecta teléfonos fijos peruanos (no WhatsApp-able).
+    Móviles peruanos empiezan con 9. Fijos con 01-08 u otros prefijos."""
+    p = re.sub(r"[\s\-\(\)\+]", "", phone or "")
+    if p.startswith("51"):   # quitar código de país
+        p = p[2:]
+    if not p:
+        return False
+    return not p.startswith("9")
 
 
 def _score_color(score: int) -> tuple[int, int, int]:
@@ -53,9 +74,16 @@ def _censor_phone(phone: str) -> str:
 # ─── Clase PDF ────────────────────────────────────────────────────────────────
 
 class _PipelineXPDF(FPDF):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.add_font(_FONT_FAMILY, style="",  fname=_ARIAL_REGULAR)
+        self.add_font(_FONT_FAMILY, style="B", fname=_ARIAL_BOLD)
+        self.add_font(_FONT_FAMILY, style="I", fname=_ARIAL_ITALIC)
+        self.add_font(_FONT_FAMILY, style="BI", fname=_ARIAL_BOLDITALIC)
+
     def footer(self):
         self.set_y(-11)
-        self.set_font("Helvetica", "I", 7)
+        self.set_font(_FONT_FAMILY, "I", 7)
         self.set_text_color(*_GRAY)
         self.cell(
             0, 5,
@@ -71,22 +99,22 @@ def _header_bar(pdf: _PipelineXPDF, target: str, total: int, qualified: int) -> 
     pdf.rect(0, 0, 210, 30, "F")
 
     pdf.set_xy(10, 5)
-    pdf.set_font("Helvetica", "B", 14)
+    pdf.set_font(_FONT_FAMILY, "B", 14)
     pdf.set_text_color(*_PURPLE)
     pdf.cell(50, 7, "Pipeline_X", ln=0)
 
-    pdf.set_font("Helvetica", "", 8)
+    pdf.set_font(_FONT_FAMILY, "", 8)
     pdf.set_text_color(*_GRAY)
     pdf.cell(0, 7, "Agente SDR con IA para pequenos negocios", ln=1)
 
     pdf.set_x(10)
-    pdf.set_font("Helvetica", "B", 10)
+    pdf.set_font(_FONT_FAMILY, "B", 10)
     pdf.set_text_color(*_WHITE)
     label = f"Reporte: {target[:65]}"
     pdf.cell(0, 6, label, ln=1)
 
     pdf.set_x(10)
-    pdf.set_font("Helvetica", "", 8)
+    pdf.set_font(_FONT_FAMILY, "", 8)
     pdf.set_text_color(*_GREEN)
     fecha = datetime.now(timezone.utc).strftime("%d/%m/%Y")
     pdf.cell(
@@ -104,7 +132,7 @@ def _score_bar(pdf: _PipelineXPDF, x: float, y: float, score: int, w: float = 28
     pdf.set_fill_color(*color)
     pdf.rect(x, y, w * score / 100, h, "F")
     pdf.set_xy(x + w + 2, y - 0.3)
-    pdf.set_font("Helvetica", "B", 7)
+    pdf.set_font(_FONT_FAMILY, "B", 7)
     pdf.set_text_color(*color)
     pdf.cell(14, 4, f"{score}/100", ln=0)
 
@@ -114,9 +142,10 @@ def _lead_card_full(pdf: _PipelineXPDF, lead: dict, index: int) -> None:
     y0 = pdf.get_y()
 
     # Altura dinamica segun mensaje
-    msg = (lead.get("draft_message") or "")[:200]
-    why = (lead.get("qualification_notes") or lead.get("fit_product") or lead.get("next_action") or "")[:130]
-    card_h = 48
+    msg      = (lead.get("draft_message") or "")[:200]
+    why      = (lead.get("qualification_notes") or lead.get("fit_product") or lead.get("next_action") or "")[:130]
+    maps_url = (lead.get("maps_url") or "").strip()
+    card_h   = 48
 
     pdf.set_fill_color(*_LIGHT)
     pdf.rect(10, y0, 190, card_h, "F")
@@ -129,19 +158,19 @@ def _lead_card_full(pdf: _PipelineXPDF, lead: dict, index: int) -> None:
     pdf.set_fill_color(*color)
     pdf.rect(16, y0 + 3, 8, 8, "F")
     pdf.set_xy(16, y0 + 3)
-    pdf.set_font("Helvetica", "B", 7)
+    pdf.set_font(_FONT_FAMILY, "B", 7)
     pdf.set_text_color(*_WHITE)
     pdf.cell(8, 8, str(index), align="C", ln=0)
 
     # Empresa
     pdf.set_xy(27, y0 + 3)
-    pdf.set_font("Helvetica", "B", 11)
+    pdf.set_font(_FONT_FAMILY, "B", 11)
     pdf.set_text_color(*_BLACK)
     pdf.cell(115, 6, (lead.get("empresa") or "—")[:48], ln=0)
 
     # Score label + barra
     pdf.set_xy(155, y0 + 3)
-    pdf.set_font("Helvetica", "B", 7)
+    pdf.set_font(_FONT_FAMILY, "B", 7)
     pdf.set_text_color(*_GRAY)
     pdf.cell(10, 4, "Score", ln=0)
     _score_bar(pdf, 165, y0 + 4, lead.get("lead_score", 0), w=25)
@@ -151,24 +180,44 @@ def _lead_card_full(pdf: _PipelineXPDF, lead: dict, index: int) -> None:
     ciudad    = lead.get("ciudad") or ""
     tag       = "  |  ".join(filter(None, [industria[:30], ciudad[:20]]))
     pdf.set_xy(27, y0 + 10)
-    pdf.set_font("Helvetica", "I", 8)
+    pdf.set_font(_FONT_FAMILY, "I", 8)
     pdf.set_text_color(*_GRAY)
     pdf.cell(160, 4, tag, ln=1)
 
-    # Telefono
-    phone = lead.get("telefono") or lead.get("telefono_web") or "No disponible"
+    # Telefono + indicador fijo/movil
+    phone = (lead.get("telefono") or lead.get("telefono_web") or "").strip()
     pdf.set_xy(27, y0 + 15)
-    pdf.set_font("Helvetica", "", 8)
+    pdf.set_font(_FONT_FAMILY, "", 8)
     pdf.set_text_color(*_GRAY)
     pdf.cell(12, 4, "Tel:", ln=0)
-    pdf.set_font("Helvetica", "B", 9)
-    pdf.set_text_color(*_BLACK)
-    pdf.cell(60, 4, phone[:22], ln=1)
+    if phone:
+        if _is_landline(phone):
+            pdf.set_font(_FONT_FAMILY, "B", 9)
+            pdf.set_text_color(*_AMBER)
+            pdf.cell(60, 4, phone[:22], ln=0)
+            pdf.set_font(_FONT_FAMILY, "I", 7)
+            pdf.set_text_color(*_GRAY)
+            pdf.cell(0, 4, " Fijo — no disponible en WA", ln=1)
+        else:
+            pdf.set_font(_FONT_FAMILY, "B", 9)
+            pdf.set_text_color(*_BLACK)
+            pdf.cell(60, 4, phone[:22], ln=1)
+    else:
+        pdf.set_font(_FONT_FAMILY, "I", 8)
+        pdf.set_text_color(*_GRAY)
+        pdf.cell(60, 4, "No disponible", ln=1)
+
+    # Link Google Maps
+    if maps_url:
+        pdf.set_xy(27, y0 + 20)
+        pdf.set_font(_FONT_FAMILY, "I", 7.5)
+        pdf.set_text_color(*_DBLUE)
+        pdf.cell(0, 4, "Ver en Google Maps \u2192", link=maps_url, ln=1)
 
     # Por que califica
     if why:
-        pdf.set_xy(27, y0 + 21)
-        pdf.set_font("Helvetica", "", 7.5)
+        pdf.set_xy(27, y0 + 25)
+        pdf.set_font(_FONT_FAMILY, "", 7.5)
         pdf.set_text_color(*_GRAY)
         pdf.cell(18, 4, "Razon:", ln=0)
         pdf.set_text_color(*_BLACK)
@@ -176,15 +225,15 @@ def _lead_card_full(pdf: _PipelineXPDF, lead: dict, index: int) -> None:
 
     # Mensaje sugerido
     if msg:
-        msg_y = y0 + 31
+        msg_y = y0 + 35
         pdf.set_fill_color(*_LBLUE)
         pdf.rect(27, msg_y, 173, 14, "F")
         pdf.set_xy(29, msg_y + 1.5)
-        pdf.set_font("Helvetica", "B", 7)
+        pdf.set_font(_FONT_FAMILY, "B", 7)
         pdf.set_text_color(*_DBLUE)
         pdf.cell(0, 4, "Mensaje sugerido:", ln=1)
         pdf.set_x(29)
-        pdf.set_font("Helvetica", "I", 7.5)
+        pdf.set_font(_FONT_FAMILY, "I", 7.5)
         pdf.set_text_color(*_DBLUE)
         pdf.multi_cell(169, 3.8, f'"{msg}"', ln=1)
 
@@ -207,19 +256,19 @@ def _lead_card_locked(pdf: _PipelineXPDF, lead: dict, index: int) -> None:
     pdf.set_fill_color(*color)
     pdf.rect(16, y0 + 5, 7, 7, "F")
     pdf.set_xy(16, y0 + 5)
-    pdf.set_font("Helvetica", "B", 7)
+    pdf.set_font(_FONT_FAMILY, "B", 7)
     pdf.set_text_color(*_WHITE)
     pdf.cell(7, 7, str(index), align="C", ln=0)
 
     # Empresa
     pdf.set_xy(27, y0 + 4)
-    pdf.set_font("Helvetica", "B", 10)
+    pdf.set_font(_FONT_FAMILY, "B", 10)
     pdf.set_text_color(*_BLACK)
     pdf.cell(90, 5, (lead.get("empresa") or "—")[:42], ln=0)
 
     # Score barra
     pdf.set_xy(148, y0 + 4)
-    pdf.set_font("Helvetica", "B", 7)
+    pdf.set_font(_FONT_FAMILY, "B", 7)
     pdf.set_text_color(*_GRAY)
     pdf.cell(10, 4, "Score", ln=0)
     _score_bar(pdf, 158, y0 + 5, lead.get("lead_score", 0), w=22)
@@ -227,10 +276,10 @@ def _lead_card_locked(pdf: _PipelineXPDF, lead: dict, index: int) -> None:
     # Telefono censurado
     phone_raw = lead.get("telefono") or lead.get("telefono_web") or ""
     pdf.set_xy(27, y0 + 11)
-    pdf.set_font("Helvetica", "", 8)
+    pdf.set_font(_FONT_FAMILY, "", 8)
     pdf.set_text_color(*_GRAY)
     pdf.cell(12, 4, "Tel:", ln=0)
-    pdf.set_font("Helvetica", "B", 8)
+    pdf.set_font(_FONT_FAMILY, "B", 8)
     pdf.set_text_color(*_RED)
     pdf.cell(45, 4, _censor_phone(phone_raw), ln=0)
 
@@ -238,7 +287,7 @@ def _lead_card_locked(pdf: _PipelineXPDF, lead: dict, index: int) -> None:
     pdf.set_fill_color(*_RED)
     pdf.rect(120, y0 + 11, 78, 5, "F")
     pdf.set_xy(122, y0 + 11)
-    pdf.set_font("Helvetica", "B", 7)
+    pdf.set_font(_FONT_FAMILY, "B", 7)
     pdf.set_text_color(*_WHITE)
     pdf.cell(74, 5, "[BLOQUEADO] Activa tu plan para ver", align="C", ln=1)
 
@@ -254,10 +303,10 @@ def _page_cta(pdf: _PipelineXPDF) -> None:
     pdf.set_fill_color(*_DARK)
     pdf.rect(0, 0, 210, 22, "F")
     pdf.set_xy(10, 6)
-    pdf.set_font("Helvetica", "B", 13)
+    pdf.set_font(_FONT_FAMILY, "B", 13)
     pdf.set_text_color(*_PURPLE)
     pdf.cell(55, 8, "Pipeline_X", ln=0)
-    pdf.set_font("Helvetica", "", 9)
+    pdf.set_font(_FONT_FAMILY, "", 9)
     pdf.set_text_color(*_GRAY)
     pdf.cell(0, 8, "Empieza a contactarlos hoy", ln=1)
 
@@ -265,11 +314,11 @@ def _page_cta(pdf: _PipelineXPDF) -> None:
 
     # Titulo
     pdf.set_x(10)
-    pdf.set_font("Helvetica", "B", 17)
+    pdf.set_font(_FONT_FAMILY, "B", 17)
     pdf.set_text_color(*_BLACK)
     pdf.cell(0, 9, "Accede a todos tus leads", align="C", ln=1)
     pdf.set_x(10)
-    pdf.set_font("Helvetica", "", 10)
+    pdf.set_font(_FONT_FAMILY, "", 10)
     pdf.set_text_color(*_GRAY)
     pdf.cell(0, 7, "Sin contrato  |  Sin permanencia  |  Cancela cuando quieras", align="C", ln=1)
 
@@ -307,25 +356,25 @@ def _page_cta(pdf: _PipelineXPDF) -> None:
 
         if popular:
             pdf.set_xy(x, y_card)
-            pdf.set_font("Helvetica", "B", 6)
+            pdf.set_font(_FONT_FAMILY, "B", 6)
             pdf.set_text_color(*_WHITE)
             pdf.cell(col_w, 4, "MAS POPULAR", align="C", ln=0)
 
         # Nombre
         pdf.set_xy(x + 3, y_card + 6)
-        pdf.set_font("Helvetica", "B", 10)
+        pdf.set_font(_FONT_FAMILY, "B", 10)
         pdf.set_text_color(*_BLACK)
         pdf.cell(col_w - 6, 6, name, ln=1)
 
         # Precio
         pdf.set_x(x + 3)
-        pdf.set_font("Helvetica", "B", 13)
+        pdf.set_font(_FONT_FAMILY, "B", 13)
         pdf.set_text_color(*color)
         pdf.cell(col_w - 6, 8, price, ln=1)
 
         # Descripcion
         pdf.set_x(x + 3)
-        pdf.set_font("Helvetica", "", 7)
+        pdf.set_font(_FONT_FAMILY, "", 7)
         pdf.set_text_color(*_GRAY)
         pdf.multi_cell(col_w - 6, 4, desc, ln=1)
 
@@ -333,7 +382,7 @@ def _page_cta(pdf: _PipelineXPDF) -> None:
 
     # URL
     pdf.set_x(10)
-    pdf.set_font("Helvetica", "B", 15)
+    pdf.set_font(_FONT_FAMILY, "B", 15)
     pdf.set_text_color(*_PURPLE)
     pdf.cell(0, 10, "pipelinex.app/planes", align="C", ln=1)
 
@@ -347,12 +396,12 @@ def _page_cta(pdf: _PipelineXPDF) -> None:
     pdf.rect(30, g_y, 3, 20, "F")
 
     pdf.set_xy(36, g_y + 3)
-    pdf.set_font("Helvetica", "B", 9)
+    pdf.set_font(_FONT_FAMILY, "B", 9)
     pdf.set_text_color(*_GREEN)
     pdf.cell(0, 5, "Garantia de resultado", ln=1)
 
     pdf.set_x(36)
-    pdf.set_font("Helvetica", "", 8)
+    pdf.set_font(_FONT_FAMILY, "", 8)
     pdf.set_text_color(*_BLACK)
     pdf.multi_cell(
         138, 4,
@@ -365,7 +414,7 @@ def _page_cta(pdf: _PipelineXPDF) -> None:
 
     # Expiracion
     pdf.set_x(10)
-    pdf.set_font("Helvetica", "I", 8)
+    pdf.set_font(_FONT_FAMILY, "I", 8)
     pdf.set_text_color(*_GRAY)
     pdf.cell(0, 5, "Este reporte de demostracion expira en 48 horas.", align="C", ln=1)
 
@@ -402,7 +451,7 @@ def build_demo_pdf(target: str, leads: list[dict[str, Any]]) -> bytes:
 
     if top3:
         pdf.set_x(10)
-        pdf.set_font("Helvetica", "B", 10)
+        pdf.set_font(_FONT_FAMILY, "B", 10)
         pdf.set_text_color(*_PURPLE)
         pdf.cell(0, 7, f"Top {len(top3)} leads calificados - listos para contactar", ln=1)
         pdf.ln(1)
@@ -410,11 +459,11 @@ def build_demo_pdf(target: str, leads: list[dict[str, Any]]) -> bytes:
             _lead_card_full(pdf, lead, i)
     else:
         pdf.set_xy(10, 50)
-        pdf.set_font("Helvetica", "I", 10)
+        pdf.set_font(_FONT_FAMILY, "I", 10)
         pdf.set_text_color(*_GRAY)
         pdf.cell(0, 10, "No se encontraron leads con score >= 60 en esta busqueda.", ln=1)
         pdf.set_x(10)
-        pdf.set_font("Helvetica", "", 9)
+        pdf.set_font(_FONT_FAMILY, "", 9)
         pdf.cell(0, 7, "Prueba ampliar el rubro o la ciudad.", ln=1)
 
     # ── Pagina 2: Leads truncados ─────────────────────────────────────────────
@@ -424,12 +473,12 @@ def build_demo_pdf(target: str, leads: list[dict[str, Any]]) -> bytes:
         pdf.set_y(34)
 
         pdf.set_x(10)
-        pdf.set_font("Helvetica", "B", 10)
+        pdf.set_font(_FONT_FAMILY, "B", 10)
         pdf.set_text_color(*_PURPLE)
         pdf.cell(0, 7, f"Hay {len(rest)} prospectos mas en este reporte", ln=1)
 
         pdf.set_x(10)
-        pdf.set_font("Helvetica", "", 8)
+        pdf.set_font(_FONT_FAMILY, "", 8)
         pdf.set_text_color(*_GRAY)
         pdf.cell(
             0, 5,
@@ -443,7 +492,7 @@ def build_demo_pdf(target: str, leads: list[dict[str, Any]]) -> bytes:
 
         if len(rest) > 9:
             pdf.set_x(10)
-            pdf.set_font("Helvetica", "I", 8)
+            pdf.set_font(_FONT_FAMILY, "I", 8)
             pdf.set_text_color(*_GRAY)
             pdf.cell(0, 6, f"... y {len(rest) - 9} leads mas disponibles en tu plan.", ln=1)
 

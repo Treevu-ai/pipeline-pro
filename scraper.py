@@ -469,6 +469,9 @@ async def _scrape_maps_async(query: str, limit: int, headful: bool = False) -> l
                     )
                     await page.wait_for_timeout(delay)
 
+                    # URL de Google Maps para este negocio
+                    empresa[const.ColumnNames.MAPS_URL] = page.url
+
                     # Nombre: panel de detalle (selectores específicos) o fallback a aria-label
                     try:
                         nombre_panel = (

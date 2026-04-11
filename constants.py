@@ -35,6 +35,7 @@ class ColumnNames:
     CATEGORIA_ORIGINAL = "categoria_original"
     RATING = "rating"
     NUM_RESENAS = "num_resenas"
+    MAPS_URL = "maps_url"
     FUENTE = "fuente"
     SCRAPED_AT = "scraped_at"
 

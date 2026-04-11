@@ -131,10 +131,7 @@ _PEDIR_TARGET = (
     "_\"Ferreterías en Trujillo\"_ · _\"Clínicas en Lima\"_"
 )
 
-_PROCESANDO = (
-    "⏳ Buscando en Google Maps y calificando con IA...\n"
-    "Listo en 1–3 min. ☕"
-)
+_PROCESANDO = "⏳ Buscando *\"{target}\"* en Google Maps... esto toma ~2 min ☕"
 
 _YA_REGISTRADO = "Tu reporte ya está en camino ✅"
 
@@ -166,14 +163,15 @@ def _r_precios() -> list[dict]:
 def _r_pedir_target() -> list[dict]:
     return [_t(_PEDIR_TARGET)]
 
-def _r_procesando() -> list[dict]:
-    return [_t(_PROCESANDO)]
+def _r_procesando(target: str = "") -> list[dict]:
+    return [_t(_PROCESANDO.format(target=target or "tu búsqueda"))]
 
 def _r_post_demo() -> list[dict]:
     return [_b(
         "Esto es solo una muestra.\nCon el plan Starter (S/149/mes) tienes reportes ilimitados, "
-        "validación SUNAT y mensajes personalizados por industria.",
-        [("upgrade", "🚀 Quiero plan completo"), ("preguntas", "💬 Tengo preguntas")],
+        "validación SUNAT y mensajes personalizados por industria.\n\n"
+        "¿Quieres buscar otro rubro? Escribe el nombre del negocio y ciudad.",
+        [("demo", "🔍 Nueva búsqueda"), ("upgrade", "🚀 Plan completo"), ("preguntas", "💬 Preguntas")],
         footer=_FOOTER,
     )]
 
@@ -391,8 +389,21 @@ def _handle_message_locked(phone: str, text: str) -> list[dict]:
     if state == "collecting_target":
         if len(text) < 5:
             return [_t("Necesito más detalle 😊\nEj: *\"Ferreterías en Trujillo\"*")]
+        # Validar que incluya una ciudad/zona (debe tener al menos 2 palabras distintas)
+        words = [w for w in text.split() if len(w) > 2]
+        has_location = (
+            " en " in text.lower()
+            or "," in text
+            or len(words) >= 2
+        )
+        if not has_location:
+            return [_t(
+                "¿En qué zona o ciudad? 📍\n\n"
+                "Ejemplo: *\"Ferreterías en Miraflores\"* o *\"Clínicas Lima\"*\n\n"
+                "Con la ciudad los resultados son mucho más precisos."
+            )]
         _set_session(phone, {"state": "running_pipeline", "target": text})
-        return [*_r_procesando(), {"type": "pipeline_request", "target": text}]
+        return [*_r_procesando(text), {"type": "pipeline_request", "target": text}]
 
     # ── Pipeline corriendo — no interrumpir ───────────────────────────────────
     if state == "running_pipeline":
@@ -402,7 +413,19 @@ def _handle_message_locked(phone: str, text: str) -> list[dict]:
     if state == "done":
         if intent:
             return _handle_intent(phone, intent)
-        return _r_ya_registrado()
+        # Cualquier texto libre lo tratamos como un nuevo target directamente
+        if len(text) >= 5:
+            words = [w for w in text.split() if len(w) > 2]
+            has_location = " en " in text.lower() or "," in text or len(words) >= 2
+            if has_location:
+                _set_session(phone, {"state": "running_pipeline", "target": text})
+                return [*_r_procesando(text), {"type": "pipeline_request", "target": text}]
+        _set_session(phone, {"state": "collecting_target"})
+        return [_t(
+            "¿Qué tipo de empresas buscas ahora? 🔍\n\n"
+            "Escribe industria + ciudad:\n"
+            "_\"Restaurantes en San Isidro\"_ · _\"Clínicas en Trujillo\"_"
+        )]
 
     # ── Cualquier otro estado — detectar intención ────────────────────────────
     if intent:
