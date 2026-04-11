@@ -38,6 +38,11 @@ GROQ = {
 # Habilitar en: console.cloud.google.com → APIs → "Places API (New)"
 GOOGLE_PLACES_API_KEY: str = os.environ.get("GOOGLE_PLACES_API_KEY", "")
 
+# ─── Apify (Google Maps scraper sin GCP) ─────────────────────────────────────
+# Requiere variable de entorno: APIFY_API_KEY
+# Obtener en: apify.com → Settings → Integrations
+APIFY_API_KEY: str = os.environ.get("APIFY_API_KEY", "")
+
 # ─── Tu producto ─────────────────────────────────────────────────────────────
 PRODUCT = {
     "name": "Pipeline_X",

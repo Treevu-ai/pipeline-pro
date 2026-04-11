@@ -277,6 +277,55 @@ async def _extract_ruc_from_website(url: str) -> str:
     return ""
 
 
+async def _search_via_apify(query: str, limit: int) -> list[dict[str, Any]]:
+    """
+    Busca negocios usando Apify Google Maps Scraper.
+    Requiere APIFY_API_KEY en el entorno.
+    Retorna lista vacía si no hay key o la llamada falla.
+    """
+    api_key = cfg.APIFY_API_KEY
+    if not api_key:
+        return []
+
+    try:
+        import httpx, time
+        actor_id = "compass~crawler-google-places"
+        run_url  = f"https://api.apify.com/v2/acts/{actor_id}/run-sync-get-dataset-items"
+        params   = {"token": api_key, "timeout": 60, "memory": 512}
+        body = {
+            "searchStringsArray": [query],
+            "maxCrawledPlacesPerSearch": min(limit, 20),
+            "language": "es",
+            "countryCode": "pe",
+            "includeHistogram": False,
+            "includeOpeningHours": False,
+            "includePeopleAlsoSearch": False,
+        }
+        async with httpx.AsyncClient(timeout=90) as client:
+            resp = await client.post(run_url, params=params, json=body)
+            resp.raise_for_status()
+            items = resp.json()
+
+        leads: list[dict[str, Any]] = []
+        for place in items:
+            leads.append({
+                const.ColumnNames.EMPRESA:            place.get("title", ""),
+                const.ColumnNames.DIRECCION:          place.get("address", ""),
+                const.ColumnNames.TELEFONO:           place.get("phone", ""),
+                const.ColumnNames.RATING:             str(place.get("totalScore", "")),
+                const.ColumnNames.NUM_RESENAS:        str(place.get("reviewsCount", "")),
+                const.ColumnNames.SITIO_WEB:          place.get("website", ""),
+                const.ColumnNames.CATEGORIA_ORIGINAL: place.get("categoryName", ""),
+                const.ColumnNames.INDUSTRIA:          map_category(place.get("categoryName", "")),
+                const.ColumnNames.FUENTE:             "apify_google_maps",
+            })
+        log.info("Apify: %d resultados para '%s'", len(leads), query)
+        return leads
+    except Exception as e:
+        log.warning("Apify falló para '%s': %s", query, e)
+        return []
+
+
 async def _search_via_places_api(query: str, limit: int) -> list[dict[str, Any]]:
     """
     Busca negocios usando Google Places API (New).
@@ -547,12 +596,21 @@ def scrape_google_maps(query: str, limit: int, headful: bool = False) -> list[di
         Lista de leads encontrados.
     """
     async def _run() -> list[dict[str, Any]]:
+        # 1. Apify (prioridad — no requiere GCP)
+        if cfg.APIFY_API_KEY:
+            log.info("Usando Apify Google Maps para: %s", query)
+            leads = await _search_via_apify(query, limit)
+            if leads:
+                return leads
+            log.info("Apify sin resultados — fallback Places API")
+        # 2. Google Places API (New)
         if cfg.GOOGLE_PLACES_API_KEY:
             log.info("Usando Google Places API para: %s", query)
             leads = await _search_via_places_api(query, limit)
             if leads:
                 return leads
             log.info("Places API sin resultados — fallback Playwright")
+        # 3. Playwright (último recurso)
         return await _scrape_maps_async(query, limit, headful)
 
     return asyncio.run(_run())
