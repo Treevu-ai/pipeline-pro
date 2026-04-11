@@ -771,11 +771,17 @@ async def _deliver_and_notify_wa(phone: str, target: str) -> None:
                 await asyncio.to_thread(wa_sender.send_text, phone, msg["text"])
 
     except Exception as exc:
+        import exceptions as app_exc
         log.error("_deliver_and_notify_wa error: %s\n%s", exc, traceback.format_exc())
-        await asyncio.to_thread(
-            wa_sender.send_text, phone,
-            "❌ Hubo un error procesando tu búsqueda.\nEscribe de nuevo el rubro y ciudad para reintentar."
-        )
+        if isinstance(exc, (app_exc.GoogleMapsError, app_exc.ScrapingError)):
+            msg = (
+                "⚠️ No pudimos obtener resultados para esa búsqueda.\n"
+                "Intenta con un rubro y ciudad más específicos, por ejemplo:\n"
+                "_Ferretería Lima_ o _Restaurante Miraflores_"
+            )
+        else:
+            msg = "❌ Hubo un error procesando tu búsqueda.\nEscribe de nuevo el rubro y ciudad para reintentar."
+        await asyncio.to_thread(wa_sender.send_text, phone, msg)
         wa_bot._set_session(phone, {"state": "idle"})
 
 
