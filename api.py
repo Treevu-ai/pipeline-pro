@@ -1238,6 +1238,35 @@ async def telegram_webhook(request: Request):
     return {"ok": True}
 
 
+# ─── Anti-loop: deduplicación y rate-limit por número ────────────────────────
+import time as _time
+_seen_ids: set[str]       = set()          # idMessages ya procesados
+_phone_ts: dict[str, list] = {}            # phone → lista de timestamps recientes
+_MAX_MSG_PER_MIN = 6                       # máx mensajes por número por minuto
+
+
+def _is_duplicate(id_message: str) -> bool:
+    if not id_message:
+        return False
+    if id_message in _seen_ids:
+        return True
+    _seen_ids.add(id_message)
+    if len(_seen_ids) > 2000:              # evitar crecimiento infinito
+        _seen_ids.clear()
+    return False
+
+
+def _rate_limited(phone: str) -> bool:
+    now = _time.time()
+    ts  = _phone_ts.setdefault(phone, [])
+    ts[:] = [t for t in ts if now - t < 60]   # últimos 60 s
+    if len(ts) >= _MAX_MSG_PER_MIN:
+        log.warning("Rate-limit alcanzado para %s (%d msgs/min) — ignorando", phone, len(ts))
+        return True
+    ts.append(now)
+    return False
+
+
 # ─── WhatsApp webhook (Green API) ─────────────────────────────────────────────
 
 @app.post("/webhook/whatsapp", include_in_schema=False)
@@ -1264,6 +1293,15 @@ async def whatsapp_webhook(request: Request):
     phone, text = parsed
     id_message  = (payload.get("idMessage") or
                    payload.get("messageData", {}).get("idMessage", ""))
+
+    # Deduplicación — mismo idMessage ya procesado
+    if _is_duplicate(id_message):
+        log.debug("Webhook duplicado ignorado: %s", id_message)
+        return {"ok": True}
+
+    # Rate-limit — cortar loops de bots
+    if _rate_limited(phone):
+        return {"ok": True}
 
     # Marcar como leído (ticks azules)
     if id_message:
