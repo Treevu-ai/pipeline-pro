@@ -73,8 +73,8 @@ def _call_claude(system: str, user: str) -> dict[str, Any]:
                 max_tokens=cfg.CLAUDE["max_tokens"],
                 system=system,
                 messages=[{"role": "user", "content": user}],
-                temperature=0,  # determinista — mismos datos → mismo score siempre
-                timeout=60,
+                temperature=0.0,
+                timeout=60.0,
             )
             content = msg.content[0].text if msg.content else ""
             return _parse_json_loose(content)

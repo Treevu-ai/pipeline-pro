@@ -360,6 +360,31 @@ def health():
     return {"status": "ok", "product": cfg.PRODUCT["name"]}
 
 
+@app.get("/debug/claude", tags=["Sistema"], include_in_schema=False)
+async def debug_claude():
+    """Test mínimo de la API de Anthropic — diagnóstico."""
+    import anthropic as _anthropic
+    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    if not api_key:
+        return {"error": "ANTHROPIC_API_KEY no configurada"}
+    try:
+        client = _anthropic.Anthropic(api_key=api_key)
+        msg = client.messages.create(
+            model=cfg.CLAUDE["model"],
+            max_tokens=20,
+            messages=[{"role": "user", "content": "Di 'ok'"}],
+        )
+        return {"ok": True, "model": cfg.CLAUDE["model"], "response": msg.content[0].text}
+    except Exception as e:
+        body = getattr(e, "body", None) or getattr(e, "response", None)
+        return {
+            "ok": False,
+            "error_type": type(e).__name__,
+            "error_str": str(e),
+            "body": str(body)[:500] if body else None,
+        }
+
+
 @app.get("/plans", tags=["Sistema"])
 def plans():
     """
