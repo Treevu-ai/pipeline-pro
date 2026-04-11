@@ -81,12 +81,19 @@ def _start_bot_interno() -> None:
         return
 
     def _run():
+        import asyncio
+        # python-telegram-bot v21 requiere un event loop en el hilo.
+        # El hilo principal ya tiene uno (uvicorn), pero este hilo no.
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
         try:
             import bot_interno
             log.info("PipeAssist iniciando en hilo de fondo...")
-            bot_interno.main(embedded=True)  # stop_signals=() evita error de signal en hilo
+            bot_interno.main(embedded=True)
         except Exception as e:
             log.error("PipeAssist falló: %s", e, exc_info=True)
+        finally:
+            loop.close()
 
     threading.Thread(target=_run, daemon=True, name="pipeassist-bot").start()
 
@@ -106,10 +113,142 @@ def _register_whatsapp_webhook() -> None:
         log.warning("No se pudo registrar webhook de WhatsApp: %s", exc)
 
 
+async def _followup_loop() -> None:
+    """
+    Cada hora busca usuarios free que recibieron un reporte ~24h atrás
+    y les envía un mensaje de seguimiento para reactivarlos.
+    """
+    import wa_sender
+    from messages import MSG
+    await asyncio.sleep(120)   # esperar a que el bot esté completamente listo
+    while True:
+        try:
+            candidates = await asyncio.to_thread(_db.get_followup_candidates)
+            if candidates:
+                log.info("Followup 24h: %d candidatos", len(candidates))
+            for phone in candidates:
+                try:
+                    await asyncio.to_thread(
+                        wa_sender.send_text, phone, MSG["followup_24h"]
+                    )
+                    _db.log_event(phone, _db.EventType.WA_FOLLOWUP_SENT)
+                    log.info("Followup enviado: phone=%s", phone)
+                except Exception as send_exc:
+                    log.warning("Followup error phone=%s: %s", phone, send_exc)
+                await asyncio.sleep(2)   # pequeño delay entre envíos
+        except Exception as exc:
+            log.warning("followup_loop error: %s", exc)
+        await asyncio.sleep(3600)   # revisar cada hora
+
+
+async def _trial_expired_loop() -> None:
+    """
+    Cada 6 horas detecta trials expirados y envía mensaje proactivo
+    recordando la búsqueda gratis + opciones de upgrade.
+    """
+    import wa_sender
+    from messages import MSG
+    await asyncio.sleep(180)   # esperar arranque completo
+    while True:
+        try:
+            candidates = await asyncio.to_thread(_db.get_expired_trial_candidates)
+            if candidates:
+                log.info("Trial expirado: %d candidatos para notificar", len(candidates))
+            for phone in candidates:
+                try:
+                    await asyncio.to_thread(
+                        wa_sender.send_text, phone, MSG["trial_expired"]
+                    )
+                    _db.log_event(phone, _db.EventType.WA_TRIAL_EXPIRED)
+                    log.info("Trial expired msg enviado: phone=%s", phone)
+                except Exception as send_exc:
+                    log.warning("Trial expired error phone=%s: %s", phone, send_exc)
+                await asyncio.sleep(2)
+        except Exception as exc:
+            log.warning("trial_expired_loop error: %s", exc)
+        await asyncio.sleep(6 * 3600)   # revisar cada 6h
+
+
+def _next_lima_occurrence(hour: int) -> float:
+    """
+    Devuelve los segundos hasta la próxima vez que sean `hour`:00 en Lima (UTC-5).
+    Siempre devuelve un valor > 0 (mínimo 60s para evitar disparos dobles).
+    """
+    from datetime import datetime, timezone, timedelta
+    LIMA = timezone(timedelta(hours=-5))
+    now  = datetime.now(LIMA)
+    target = now.replace(hour=hour, minute=0, second=0, microsecond=0)
+    if target <= now:
+        target += timedelta(days=1)
+    secs = (target - now).total_seconds()
+    return max(secs, 60.0)
+
+
+async def _build_digest(period_label: str, hours: int, include_weekly: bool) -> str:
+    stats = await asyncio.to_thread(_db.get_stats, hours // 24 or 1)
+    lines = [f"📊 *{period_label} — Pipeline_X*\n"]
+
+    lines += [
+        f"🔍 Búsquedas: {stats.get('searches', 0)}",
+        f"📎 Reportes entregados: {stats.get('reports_delivered', 0)}",
+        f"💰 Clics upgrade: {stats.get('upgrade_clicks', 0)}",
+        f"✅ Activaciones: {stats.get('activations', 0)}",
+        f"💎 Suscriptores activos: {stats.get('active_subscribers', 0)}",
+        f"🔄 Búsqueda→Upgrade: {stats.get('conversion', {}).get('search_to_upgrade', '—')}",
+        f"💳 Upgrade→Pago: {stats.get('conversion', {}).get('upgrade_to_paid', '—')}",
+    ]
+
+    if include_weekly:
+        stats7 = await asyncio.to_thread(_db.get_stats, 7)
+        top = stats7.get("top_searches", [])
+        if top:
+            lines.append("\n*Top búsquedas (7d)*")
+            for item in top[:3]:
+                lines.append(f"  · {item['target']} ({item['count']}x)")
+
+    return "\n".join(lines)
+
+
+async def _digest_scheduler() -> None:
+    """
+    Envía resumen al CEO via PipeAssist:
+      - 8:00 AM Lima → buenos días + resumen últimas 24h + top búsquedas semana
+      - 8:00 PM Lima → buenas noches + resumen del día (últimas 12h)
+    """
+    await asyncio.sleep(30)  # esperar arranque completo
+    while True:
+        # Calcular cuánto falta para el próximo hito (8 AM o 8 PM Lima)
+        secs_morning = _next_lima_occurrence(8)
+        secs_evening = _next_lima_occurrence(20)
+        sleep_secs   = min(secs_morning, secs_evening)
+        is_morning   = secs_morning <= secs_evening
+
+        await asyncio.sleep(sleep_secs)
+
+        try:
+            if is_morning:
+                msg = await _build_digest("☀️ Buenos días", hours=24, include_weekly=True)
+            else:
+                msg = await _build_digest("🌙 Cierre del día", hours=12, include_weekly=False)
+            await _notify_pipeassist(msg)
+            log.info("Digest enviado (%s)", "mañana" if is_morning else "tarde")
+        except Exception as exc:
+            log.warning("digest_scheduler error: %s", exc)
+
+        await asyncio.sleep(60)  # evitar doble disparo dentro del mismo minuto
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    import logging_config
+    logging_config.setup()
+    # Inicializar PostgreSQL primero (sesiones, jobs, bot_states)
+    await asyncio.to_thread(_db.init)
     _start_bot_interno()
     await asyncio.to_thread(_register_whatsapp_webhook)
+    asyncio.create_task(_followup_loop())
+    asyncio.create_task(_trial_expired_loop())
+    asyncio.create_task(_digest_scheduler())
     yield
 
 
@@ -232,40 +371,25 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ─── Job store (in-memory) ────────────────────────────────────────────────────
+# ─── Job store (PostgreSQL vía db.py) ────────────────────────────────────────
 
-_jobs: dict[str, dict[str, Any]] = {}
+import db as _db
 
 
 def _new_job(kind: str, params: dict) -> str:
-    job_id = str(uuid.uuid4())
-    _jobs[job_id] = {
-        "id": job_id,
-        "kind": kind,
-        "status": "pending",
-        "params": params,
-        "created_at": datetime.now(timezone.utc).isoformat(),
-        "finished_at": None,
-        "error": None,
-        "result": None,
-    }
-    return job_id
+    return _db.new_job(kind, params)
 
 
 def _job_running(job_id: str) -> None:
-    _jobs[job_id]["status"] = "running"
+    _db.update_job(job_id, "running")
 
 
 def _job_done(job_id: str, result: Any) -> None:
-    _jobs[job_id]["status"] = "done"
-    _jobs[job_id]["result"] = result
-    _jobs[job_id]["finished_at"] = datetime.now(timezone.utc).isoformat()
+    _db.update_job(job_id, "done", result=result)
 
 
 def _job_failed(job_id: str, error: str) -> None:
-    _jobs[job_id]["status"] = "failed"
-    _jobs[job_id]["error"] = error
-    _jobs[job_id]["finished_at"] = datetime.now(timezone.utc).isoformat()
+    _db.update_job(job_id, "failed", error=error)
 
 
 # ─── Schemas ─────────────────────────────────────────────────────────────────
@@ -307,18 +431,8 @@ def _run_scrape(query: str, limit: int, enrich_web: bool, enrich_sunat: bool) ->
 
 
 def _run_qualify(leads: list[dict], channel: str) -> list[dict]:
-    from sdr_agent import qualify_row, pre_score
-    results = []
-    for lead in leads:
-        base_score = pre_score(lead)
-        try:
-            result = qualify_row(lead, channel, base_score)
-            result["qualify_error"] = ""
-        except Exception as e:
-            result = {k: "" for k in cfg.OUTPUT_KEYS if k != "qualify_error"}
-            result["qualify_error"] = str(e)
-        results.append({**lead, **result})
-    return results
+    from sdr_agent import qualify_batch
+    return qualify_batch(leads, channel)
 
 
 def _run_enrich(leads: list[dict]) -> list[dict]:
@@ -355,9 +469,62 @@ def root():
 
 
 @app.get("/health", tags=["Sistema"])
-def health():
-    """Estado del servicio."""
-    return {"status": "ok", "product": cfg.PRODUCT["name"]}
+async def health():
+    """Estado del servicio — incluye checks de Groq y PostgreSQL."""
+    import time as _time
+
+    checks: dict[str, str] = {}
+
+    # ── PostgreSQL ────────────────────────────────────────────────────────────
+    try:
+        def _ping_db() -> bool:
+            import db as _db_mod
+            if not _db_mod._USE_DB:
+                return False
+            with _db_mod._conn() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT 1")
+            return True
+        db_ok = await asyncio.to_thread(_ping_db)
+        checks["db"] = "ok" if db_ok else "fallback_file"
+    except Exception as exc:
+        checks["db"] = f"error: {str(exc)[:80]}"
+
+    # ── Groq ──────────────────────────────────────────────────────────────────
+    try:
+        def _ping_groq() -> bool:
+            import groq as _groq_lib
+            client = _groq_lib.Groq(api_key=os.environ.get("GROQ_API_KEY", ""))
+            r = client.chat.completions.create(
+                model=cfg.GROQ["model"],
+                messages=[{"role": "user", "content": "ok"}],
+                max_tokens=3,
+                timeout=8,
+            )
+            return bool(r.choices)
+        groq_ok = await asyncio.to_thread(_ping_groq)
+        checks["groq"] = "ok" if groq_ok else "no_response"
+    except Exception as exc:
+        checks["groq"] = f"error: {str(exc)[:80]}"
+
+    # ── Green API ─────────────────────────────────────────────────────────────
+    try:
+        import wa_sender
+        state = await asyncio.to_thread(wa_sender.get_state)
+        checks["green_api"] = state
+    except Exception:
+        checks["green_api"] = "unconfigured"
+
+    overall = "ok" if all(
+        v in ("ok", "authorized", "fallback_file", "unconfigured")
+        for v in checks.values()
+    ) else "degraded"
+
+    return {
+        "status":  overall,
+        "product": cfg.PRODUCT["name"],
+        "checks":  checks,
+    }
 
 
 @app.get("/debug/claude", tags=["Sistema"], include_in_schema=False)
@@ -509,23 +676,23 @@ async def jobs_pipeline(req: PipelineRequest, request: Request):
 @app.get("/jobs/{job_id}", tags=["Jobs"])
 def get_job(job_id: str):
     """Estado de un job: pending | running | done | failed."""
-    job = _jobs.get(job_id)
+    job = _db.get_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job no encontrado")
     return {
-        "id": job["id"],
-        "kind": job["kind"],
-        "status": job["status"],
-        "created_at": job["created_at"],
+        "id":          job["id"],
+        "kind":        job["kind"],
+        "status":      job["status"],
+        "created_at":  job["created_at"],
         "finished_at": job["finished_at"],
-        "error": job["error"],
+        "error":       job["error"],
     }
 
 
 @app.get("/jobs/{job_id}/result", tags=["Jobs"])
 def get_job_result(job_id: str):
     """Resultado de un job completado."""
-    job = _jobs.get(job_id)
+    job = _db.get_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job no encontrado")
     if job["status"] == "pending":
@@ -544,32 +711,58 @@ _TG_API        = "https://api.telegram.org/bot"
 _NOTION_TOKEN  = os.environ.get("NOTION_PIPELINE_TOKEN", "")
 _NOTION_DB_ID  = os.environ.get("NOTION_DB_ID", "c8e55705-b3ab-4e79-a977-cd4f7c64dd51")
 
-# Estado de conversación — persistido en archivo JSON para sobrevivir reinicios.
-_BOT_STATES_FILE = Path("output/.bot_states.json")
+# Estado de conversación — persistido en PostgreSQL vía db.py.
+
+def _get_bot_state(chat_id: int) -> dict:
+    return _db.get_bot_state(chat_id)
 
 
-def _load_bot_states() -> dict[int, dict]:
-    """Carga el estado del bot desde disco."""
-    try:
-        data = json.loads(_BOT_STATES_FILE.read_text(encoding="utf-8"))
-        return {int(k): v for k, v in data.items()}
-    except Exception:
-        return {}
+def _set_bot_state(chat_id: int, data: dict) -> None:
+    _db.set_bot_state(chat_id, data)
+
+
+def _del_bot_state(chat_id: int) -> None:
+    _db.delete_bot_state(chat_id)
 
 
 def _save_bot_states() -> None:
-    """Persiste el estado del bot a disco."""
-    try:
-        _BOT_STATES_FILE.parent.mkdir(parents=True, exist_ok=True)
-        _BOT_STATES_FILE.write_text(
-            json.dumps({str(k): v for k, v in _bot_states.items()}, ensure_ascii=False),
-            encoding="utf-8",
-        )
-    except Exception:
-        pass
+    """No-op — compatibilidad con código que aún llama a esta función."""
+    pass
 
 
-_bot_states: dict[int, dict] = _load_bot_states()
+def _get_admin_ids() -> list[str]:
+    """
+    Lee los IDs de admin desde ADMIN_TELEGRAM_IDS (comma-separated) o ADMIN_CHAT_ID.
+    Permite notificar a múltiples admins sin redeploy.
+    Ej: ADMIN_TELEGRAM_IDS="123456789,987654321"
+    """
+    multi = os.environ.get("ADMIN_TELEGRAM_IDS", "").strip()
+    if multi:
+        return [aid.strip() for aid in multi.split(",") if aid.strip()]
+    single = os.environ.get("ADMIN_CHAT_ID", "").strip()
+    return [single] if single else []
+
+
+async def _notify_pipeassist(msg: str) -> None:
+    """
+    Envía msg a todos los admins via PipeAssist (bot interno).
+    Lee ADMIN_TELEGRAM_IDS (multi) o ADMIN_CHAT_ID (fallback).
+    """
+    token_int = os.environ.get("TELEGRAM_BOT_TOKEN_INTERNO", "")
+    if not token_int:
+        return
+    admin_ids = _get_admin_ids()
+    if not admin_ids:
+        return
+    async with httpx.AsyncClient(timeout=8) as client:
+        for aid in admin_ids:
+            try:
+                await client.post(
+                    f"https://api.telegram.org/bot{token_int}/sendMessage",
+                    json={"chat_id": aid, "text": msg, "parse_mode": "Markdown"},
+                )
+            except Exception as exc:
+                log.warning("PipeAssist notify a %s falló: %s", aid, exc)
 
 
 async def _tg_post(method: str, payload: dict) -> None:
@@ -724,18 +917,63 @@ def _int_score(l: dict) -> int:
 
 
 async def _deliver_and_notify_wa(phone: str, target: str) -> None:
-    """Corre el pipeline y entrega el reporte al número de WhatsApp."""
+    """
+    Corre el pipeline y entrega el reporte al número de WhatsApp.
+
+    Tier enforcement:
+      - Suscriptor activo  → 30 leads, PDF completo (build_full_pdf), sin botones de upgrade
+      - Usuario free       → 10 leads, PDF demo (build_demo_pdf), botones de upgrade al final
+    """
     import traceback
     import wa_sender
     import wa_bot
+    import db as _db
+    from messages import MSG
+
+    subscriber  = await asyncio.to_thread(_db.get_subscriber, phone)
+    _active = (
+        subscriber and subscriber.get("status") == "active" and (
+            not subscriber.get("expires_at") or
+            subscriber.get("expires_at") > datetime.now(timezone.utc).isoformat()
+        )
+    )
+    plan_name   = subscriber.get("plan", "free") if _active else "free"
+    plan_cfg    = cfg.PLANS.get(plan_name, cfg.PLANS["free"])
+    is_paid     = plan_name != "free"
+    leads_limit = plan_cfg.get("leads_limit", 10)
+
+    async def _progress_msg(delay: float, text: str) -> None:
+        await asyncio.sleep(delay)
+        try:
+            await asyncio.to_thread(wa_sender.send_text, phone, text)
+        except Exception:
+            pass
 
     try:
+        await asyncio.to_thread(
+            wa_sender.send_text, phone,
+            MSG["search_start"].format(target=target),
+        )
+        asyncio.create_task(_notify_pipeassist(
+            f"🔍 *Nueva búsqueda*\n"
+            f"📱 `{phone}`\n"
+            f"🎯 `{target}`\n"
+            f"{'💎 Suscriptor' if is_paid else '🆓 Free'}"
+        ))
+
         req = PipelineRequest(
-            query=target, limit=10, channel="whatsapp",
+            query=target, limit=leads_limit, channel="whatsapp",
             enrich_web=True, enrich_sunat=False,
             qualify=True, enrich_contacts=False,
         )
+
+        # Mensaje intermedio a los 40s por si el pipeline tarda
+        t1 = asyncio.create_task(_progress_msg(
+            40, MSG["qualify_progress"]
+        ))
+
         result = await asyncio.to_thread(_run_pipeline, req)
+        t1.cancel()
         leads  = result.get("leads", [])
         total  = result.get("total", len(leads))
 
@@ -745,11 +983,13 @@ async def _deliver_and_notify_wa(phone: str, target: str) -> None:
         )
 
         # ── Resumen de texto ────────────────────────────────────────────────────
+        tier_label = "✨ *Plan activo*" if is_paid else "🆓 *Demo gratuita*"
         lines = [
-            f"✅ *Reporte listo: {target}*",
+            f"✅ *Reporte listo: {target}*  {tier_label}",
             f"_{total} leads · {len(qualified)} calificados (score ≥60)_\n",
         ]
-        for i, lead in enumerate(qualified[:5], 1):
+        preview_leads = qualified[:5] if is_paid else qualified[:3]
+        for i, lead in enumerate(preview_leads, 1):
             empresa = lead.get("empresa", "—")
             score   = lead.get("lead_score", "—")
             action  = lead.get("next_action", "—")
@@ -761,11 +1001,15 @@ async def _deliver_and_notify_wa(phone: str, target: str) -> None:
 
         await asyncio.to_thread(wa_sender.send_text, phone, "\n".join(lines))
 
-        # ── PDF (con fallback a CSV si falla) ────────────────────────────────
+        # ── PDF ──────────────────────────────────────────────────────────────
         safe_name = target[:30].replace(" ", "_").replace("/", "-")
         try:
-            from pdf_report import build_demo_pdf
-            pdf_bytes = await asyncio.to_thread(build_demo_pdf, target, leads)
+            if plan_cfg.get("full_pdf", False):
+                from pdf_report import build_full_pdf
+                pdf_bytes = await asyncio.to_thread(build_full_pdf, target, leads)
+            else:
+                from pdf_report import build_demo_pdf
+                pdf_bytes = await asyncio.to_thread(build_demo_pdf, target, leads)
             await asyncio.to_thread(
                 wa_sender.send_document,
                 phone,
@@ -775,46 +1019,77 @@ async def _deliver_and_notify_wa(phone: str, target: str) -> None:
             )
         except Exception as pdf_exc:
             log.error("PDF generation/send failed: %s\n%s", pdf_exc, traceback.format_exc())
-            # Fallback: CSV para que el usuario igual reciba los datos
-            csv_bytes = _leads_to_csv(leads)
-            try:
-                await asyncio.to_thread(
-                    wa_sender.send_document,
-                    phone,
-                    f"pipeline_x_{safe_name}.csv",
-                    csv_bytes,
-                    f"Tu reporte de leads — {target}",
-                )
-            except Exception as csv_exc:
-                log.error("CSV fallback también falló: %s", csv_exc)
+            await asyncio.to_thread(
+                wa_sender.send_text, phone, MSG["error_pdf"],
+            )
 
         # ── Estado y notificaciones ─────────────────────────────────────────
         wa_bot._set_session(phone, {"state": "done", "target": target})
         await _notion_mark_delivered(target)
+        n_qualified = len([l for l in leads if _int_score(l) >= 60])
+        _db.log_event(phone, _db.EventType.WA_REPORT_DELIVERED, {
+            "target": target, "leads": len(leads),
+            "qualified": n_qualified, "paid": is_paid,
+        })
 
-        # Botones post-demo
-        for msg in wa_bot._r_post_demo():
-            if msg.get("type") == "buttons":
-                await asyncio.to_thread(
-                    wa_sender.send_buttons,
-                    phone, msg["body"], msg["buttons"],
-                    msg.get("header", ""), msg.get("footer", ""),
-                )
-            else:
-                await asyncio.to_thread(wa_sender.send_text, phone, msg["text"])
+        # Notificación a admins via PipeAssist (bot interno)
+        admin_msg = (
+            f"{'💎' if is_paid else '📲'} *{'Reporte paid' if is_paid else 'Demo'} WA completada*\n\n"
+            f"📱 Tel: `{phone}`\n"
+            f"🔍 Búsqueda: `{target}`\n"
+            f"📊 Leads: {len(leads)} encontrados · {n_qualified} calificados\n"
+            f"📎 PDF {'completo' if is_paid else 'demo'} entregado"
+        )
+        await _notify_pipeassist(admin_msg)
+        log.info("Admins notificados via PipeAssist: %d leads para '%s' (paid=%s)",
+                 n_qualified, target, is_paid)
+
+        # ── Post-entrega: upgrade CTA solo para free ───────────────────────
+        if not is_paid:
+            for msg in wa_bot._r_post_demo():
+                if msg.get("type") == "buttons":
+                    await asyncio.to_thread(
+                        wa_sender.send_buttons,
+                        phone, msg["body"], msg["buttons"],
+                        msg.get("header", ""), msg.get("footer", ""),
+                    )
+                else:
+                    await asyncio.to_thread(wa_sender.send_text, phone, msg["text"])
+        else:
+            # Suscriptor: ofrecer nueva búsqueda directamente
+            await asyncio.to_thread(
+                wa_sender.send_text, phone,
+                MSG["subscriber_next_search"],
+            )
+
+        # ── Feedback (todos los usuarios, 90s después para no saturar) ───────
+        async def _send_feedback_delayed() -> None:
+            await asyncio.sleep(90)
+            try:
+                fb_msgs = wa_bot._r_feedback()
+                for fb in fb_msgs:
+                    if fb.get("type") == "buttons":
+                        await asyncio.to_thread(
+                            wa_sender.send_buttons,
+                            phone, fb["body"], fb["buttons"],
+                            fb.get("header", ""), fb.get("footer", ""),
+                        )
+                    else:
+                        await asyncio.to_thread(wa_sender.send_text, phone, fb["text"])
+                wa_bot._set_session(phone, {"state": "feedback_prompted", "target": target})
+            except Exception as fb_exc:
+                log.warning("feedback send error phone=%s: %s", phone, fb_exc)
+
+        asyncio.create_task(_send_feedback_delayed())
 
     except Exception as exc:
         import exceptions as app_exc
         log.error("_deliver_and_notify_wa error: %s\n%s", exc, traceback.format_exc())
         if isinstance(exc, (app_exc.GoogleMapsError, app_exc.ScrapingError)):
-            msg = (
-                "⚠️ No pudimos obtener resultados para esa búsqueda.\n"
-                "Intenta con un rubro y ciudad más específicos, por ejemplo:\n"
-                "_Ferretería Lima_ o _Restaurante Miraflores_"
-            )
+            err_msg = MSG["error_no_results"]
         else:
-            msg = "❌ Hubo un error procesando tu búsqueda.\nEscribe de nuevo el rubro y ciudad para reintentar."
-        await asyncio.to_thread(wa_sender.send_text, phone, msg)
+            err_msg = MSG["error_pipeline"]
+        await asyncio.to_thread(wa_sender.send_text, phone, err_msg)
         wa_bot._set_session(phone, {"state": "idle"})
 
 
@@ -866,8 +1141,7 @@ async def _demo_deliver_and_capture(target: str, chat_id: int) -> None:
                            caption=f"📊 Demo gratuita — {target}")
 
         # Actualizar estado: esperando email
-        _bot_states[chat_id] = {"flow": "demo_collecting_email", "target": target}
-        _save_bot_states()
+        _set_bot_state(chat_id, {"flow": "demo_collecting_email", "target": target})
 
         await _tg_menu(chat_id,
             "Esto es solo una muestra.\n\n"
@@ -881,8 +1155,7 @@ async def _demo_deliver_and_capture(target: str, chat_id: int) -> None:
 
     except Exception as exc:
         log.error("Demo deliver error chat=%d: %s", chat_id, exc)
-        _bot_states.pop(chat_id, None)
-        _save_bot_states()
+        _del_bot_state(chat_id)
         await _tg_message(chat_id,
             "Hubo un problema procesando tu búsqueda.\n"
             "Intenta con otro sector o ciudad, o escríbenos a contacto@pipelinex.io"
@@ -947,27 +1220,26 @@ async def demo_request(req: DemoRequest, request: Request):
     _save_demo_store(records)
     log.info("Demo solicitada: %s (%s) RUC=%s", req.empresa, req.email, req.ruc)
 
-    # Notificar al admin vía Telegram (usa bot externo Alex que ya está configurado)
-    admin_id = os.environ.get("ADMIN_CHAT_ID")
-    if admin_id:
-        msg = (
-            f"🆕 *Nueva demo solicitada*\n\n"
-            f"*Empresa:* {req.empresa}\n"
-            f"*RUC:* `{req.ruc}`\n"
-            f"*Contacto:* {req.nombre}\n"
-            f"*Email:* {req.email}\n"
-            f"*Industria:* {req.industria}\n"
-            f"*Ciudad:* {req.ciudad}"
-        )
-        asyncio.create_task(_tg_message(int(admin_id), msg))
+    # Notificar a todos los admins vía PipeAssist
+    notif_msg = (
+        f"🆕 *Nueva demo solicitada*\n\n"
+        f"*Empresa:* {req.empresa}\n"
+        f"*RUC:* `{req.ruc}`\n"
+        f"*Contacto:* {req.nombre}\n"
+        f"*Email:* {req.email}\n"
+        f"*Industria:* {req.industria}\n"
+        f"*Ciudad:* {req.ciudad}"
+    )
+    asyncio.create_task(_notify_pipeassist(notif_msg))
 
-    # Lanzar pipeline en background y entregar CSV al admin
+    # Lanzar pipeline en background y entregar CSV al primer admin
     # Usa el límite del tier free (DEMO_REQUEST_LEADS_LIMIT = 10 leads)
-    if admin_id:
+    admin_ids = _get_admin_ids()
+    if admin_ids:
         query = f"{req.industria} en {req.ciudad}"
         asyncio.create_task(
             _deliver_and_notify(
-                query, int(admin_id),
+                query, int(admin_ids[0]),
                 limit=cfg.DEMO_REQUEST_LEADS_LIMIT,
                 channel="email",
                 enrich_sunat=False,
@@ -1023,12 +1295,12 @@ def _get_alex_prompt() -> str:
 def _alex_reply(chat_id: int, user_text: str) -> str:
     """Genera respuesta conversacional de Alex (texto libre).
     Prioridad: Anthropic → Groq. Ninguno disponible → mensaje estático."""
-    state = _bot_states.setdefault(chat_id, {})
-    history: list[dict] = state.setdefault("history", [])
+    state   = _get_bot_state(chat_id)
+    history: list[dict] = list(state.get("history", []))
 
     history.append({"role": "user", "content": user_text})
     if len(history) > 20:
-        history[:] = history[-20:]
+        history = history[-20:]
 
     system_prompt = _get_alex_prompt()
 
@@ -1048,7 +1320,7 @@ def _alex_reply(chat_id: int, user_text: str) -> str:
             reply = resp.content[0].text.strip() if resp.content else ""
             if reply:
                 history.append({"role": "assistant", "content": reply})
-                _save_bot_states()
+                _set_bot_state(chat_id, {**state, "history": history})
                 return reply
         except Exception:
             pass  # Intentar con Groq si falla
@@ -1069,13 +1341,12 @@ def _alex_reply(chat_id: int, user_text: str) -> str:
             reply = (resp.choices[0].message.content or "").strip()
             if reply:
                 history.append({"role": "assistant", "content": reply})
-                _save_bot_states()
+                _set_bot_state(chat_id, {**state, "history": history})
                 return reply
         except Exception:
             pass
 
     # ── Sin LLM disponible ──────────────────────────────────────────────────
-    history.pop()  # Revertir el mensaje que se agregó
     return (
         "Hola 👋 Soy *Pipeline_X*.\n\n"
         "Puedo generarte un reporte de prospectos calificados.\n"
@@ -1092,8 +1363,7 @@ _TG_MAIN_MENU = [
 async def _handle_tg_callback(chat_id: int, data: str) -> None:
     """Despacha el callback_data de un botón inline."""
     if data == "demo":
-        _bot_states[chat_id] = {"flow": "demo"}
-        _save_bot_states()
+        _set_bot_state(chat_id, {"flow": "demo"})
         await _tg_message(chat_id,
             "🚀 Voy a generarte *10 leads reales* ahora mismo, sin tarjeta.\n\n"
             "¿Qué tipo de empresa estás prospectando?\n"
@@ -1172,15 +1442,15 @@ async def telegram_webhook(request: Request):
     if not text:
         return {"ok": True}
 
-    state = _bot_states.get(chat_id, {})
+    state = _get_bot_state(chat_id)
 
     # ── /start ────────────────────────────────────────────────────────────────
     if text.startswith("/start"):
         payload = text[6:].strip()
-        _bot_states[chat_id] = {}  # reset
+        _del_bot_state(chat_id)   # reset
 
         if payload == "reporte":
-            _bot_states[chat_id] = {"flow": "report"}
+            _set_bot_state(chat_id, {"flow": "report"})
             await _tg_message(chat_id,
                 "Hola 👋 Soy *Pipeline_X*.\n\n"
                 "Vi que solicitaste un reporte desde nuestra web.\n\n"
@@ -1190,7 +1460,7 @@ async def telegram_webhook(request: Request):
             )
         elif payload == "demo":
             # Deep link desde landing: t.me/<bot>?start=demo
-            _bot_states[chat_id] = {"flow": "demo"}
+            _set_bot_state(chat_id, {"flow": "demo"})
             await _tg_message(chat_id,
                 "Hola 👋 Voy a generarte *10 leads reales* ahora mismo, sin tarjeta.\n\n"
                 "¿Qué tipo de empresa estás prospectando?\n"
@@ -1205,14 +1475,12 @@ async def telegram_webhook(request: Request):
                 "¿Por dónde empezamos?",
                 _TG_MAIN_MENU,
             )
-        _save_bot_states()
         return {"ok": True}
 
     # ── Flujo de reporte (admin): esperando target ────────────────────────────
     if state.get("flow") == "report":
         target = text
-        _bot_states[chat_id] = {}
-        _save_bot_states()
+        _del_bot_state(chat_id)
         asyncio.create_task(
             _deliver_and_notify(target, chat_id, limit=30, channel="whatsapp", enrich_sunat=True)
         )
@@ -1226,8 +1494,7 @@ async def telegram_webhook(request: Request):
     # ── Flujo demo (usuarios desde landing): esperando target ─────────────────
     if state.get("flow") == "demo":
         target = text
-        _bot_states[chat_id] = {**state, "flow": "demo_running", "target": target}
-        _save_bot_states()
+        _set_bot_state(chat_id, {**state, "flow": "demo_running", "target": target})
         await _tg_message(chat_id,
             f"Buscando *{target}* en Google Maps y calificando con IA...\n"
             "_Listo en aprox. 2–5 minutos._"
@@ -1242,8 +1509,7 @@ async def telegram_webhook(request: Request):
     if state.get("flow") == "demo_collecting_email":
         email = text.strip()
         target = state.get("target", "")
-        _bot_states[chat_id] = {}
-        _save_bot_states()
+        _del_bot_state(chat_id)
 
         # Guardar en el mismo store que /demo-request
         records = _load_demo_store()
@@ -1377,3 +1643,248 @@ async def whatsapp_webhook(request: Request):
             log.warning("send error phone=%s type=%s: %s", phone, mtype, send_exc)
 
     return {"ok": True}
+
+
+# ─── Admin: dashboard web ────────────────────────────────────────────────────
+
+def _admin_html(stats: dict, subscribers: list[dict], key: str) -> str:
+    """Genera el HTML del dashboard de administración."""
+
+    def _stat_card(label: str, value, color: str = "#4ade80") -> str:
+        return f"""
+        <div class="card">
+          <div class="card-value" style="color:{color}">{value}</div>
+          <div class="card-label">{label}</div>
+        </div>"""
+
+    def _pct(val) -> str:
+        return val if val else "—"
+
+    conv  = stats.get("conversion", {})
+    cards = "".join([
+        _stat_card("Búsquedas",        stats.get("searches", 0)),
+        _stat_card("Reportes",          stats.get("reports_delivered", 0)),
+        _stat_card("Clics upgrade",     stats.get("upgrade_clicks", 0),    "#facc15"),
+        _stat_card("Activaciones",      stats.get("activations", 0),       "#facc15"),
+        _stat_card("Suscriptores activos", stats.get("active_subscribers", 0), "#a78bfa"),
+        _stat_card("Search→Upgrade",    _pct(conv.get("search_to_upgrade")), "#fb923c"),
+        _stat_card("Upgrade→Pago",      _pct(conv.get("upgrade_to_paid")),  "#fb923c"),
+        _stat_card("Search→Pago",       _pct(conv.get("search_to_paid")),   "#fb923c"),
+    ])
+
+    def _row(sub: dict) -> str:
+        status = sub.get("status", "")
+        color = "#4ade80" if status == "active" else "#f87171"
+        exp = (sub.get("expires_at") or "")[:10] or "—"
+        act = (sub.get("activated_at") or "")[:10] or "—"
+        return (
+            f"<tr>"
+            f"<td><code>{sub.get('phone','')}</code></td>"
+            f"<td>{sub.get('plan','').capitalize()}</td>"
+            f"<td style='color:{color}'>{status}</td>"
+            f"<td>{act}</td>"
+            f"<td>{exp}</td>"
+            f"<td style='color:#6b7280;font-size:11px'>{sub.get('notes','')[:40]}</td>"
+            f"</tr>"
+        )
+
+    rows = "".join(_row(s) for s in subscribers) if subscribers else (
+        "<tr><td colspan='6' style='color:#6b7280;text-align:center'>Sin suscriptores</td></tr>"
+    )
+
+    top_html = ""
+    top = stats.get("top_searches", [])
+    if top:
+        items = "".join(f"<li><code>{t['target']}</code> <span>×{t['count']}</span></li>" for t in top)
+        top_html = f"<h2>Top búsquedas (7d)</h2><ul class='top-list'>{items}</ul>"
+
+    period = stats.get("period_days", 7)
+
+    return f"""<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Pipeline_X Admin</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{{box-sizing:border-box;margin:0;padding:0}}
+body{{background:#000;color:#e5e5e5;font-family:'IBM Plex Mono',monospace;font-size:13px;padding:24px}}
+a{{color:#4ade80;text-decoration:none}}
+h1{{font-size:18px;font-weight:700;color:#fff;margin-bottom:4px}}
+h2{{font-size:13px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:.08em;margin:32px 0 12px}}
+.subtitle{{color:#6b7280;font-size:12px;margin-bottom:32px}}
+.cards{{display:flex;flex-wrap:wrap;gap:12px;margin-bottom:8px}}
+.card{{background:#0a0a0a;border:1px solid #1a1a1a;padding:16px 20px;min-width:140px}}
+.card-value{{font-size:26px;font-weight:700;line-height:1}}
+.card-label{{color:#6b7280;font-size:11px;margin-top:6px;text-transform:uppercase;letter-spacing:.06em}}
+table{{width:100%;border-collapse:collapse;margin-top:8px}}
+th{{text-align:left;color:#6b7280;font-size:11px;text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid #1a1a1a;padding:8px 12px}}
+td{{padding:10px 12px;border-bottom:1px solid #111;vertical-align:middle}}
+tr:hover td{{background:#0a0a0a}}
+code{{background:#111;padding:2px 6px;border-radius:2px;font-size:12px}}
+.top-list{{list-style:none;display:flex;flex-wrap:wrap;gap:8px}}
+.top-list li{{background:#0a0a0a;border:1px solid #1a1a1a;padding:6px 12px;font-size:12px}}
+.top-list li span{{color:#4ade80;margin-left:8px}}
+.period-selector{{display:flex;gap:8px;margin-bottom:24px}}
+.period-selector a{{padding:4px 10px;border:1px solid #2a2a2a;color:#6b7280;font-size:12px}}
+.period-selector a.active{{border-color:#4ade80;color:#4ade80}}
+</style>
+</head>
+<body>
+<h1>Pipeline_X Admin</h1>
+<p class="subtitle">Dashboard interno · últimos {period} días</p>
+
+<div class="period-selector">
+  <a href="?key={key}&days=1" class="{'active' if period==1 else ''}">24h</a>
+  <a href="?key={key}&days=7" class="{'active' if period==7 else ''}">7d</a>
+  <a href="?key={key}&days=30" class="{'active' if period==30 else ''}">30d</a>
+</div>
+
+<h2>Funnel</h2>
+<div class="cards">{cards}</div>
+
+{top_html}
+
+<h2>Suscriptores</h2>
+<table>
+  <thead><tr>
+    <th>Teléfono</th><th>Plan</th><th>Estado</th>
+    <th>Activado</th><th>Expira</th><th>Notas</th>
+  </tr></thead>
+  <tbody>{rows}</tbody>
+</table>
+</body>
+</html>"""
+
+
+# ─── Admin: gestión de suscriptores ──────────────────────────────────────────
+
+def _check_admin_api_key(request: Request) -> None:
+    """Valida ADMIN_API_KEY en header X-Admin-Key. Lanza 403 si no coincide."""
+    import os
+    key = os.environ.get("ADMIN_API_KEY", "")
+    if not key:
+        raise HTTPException(status_code=503, detail="ADMIN_API_KEY no configurada")
+    if request.headers.get("X-Admin-Key", "") != key:
+        raise HTTPException(status_code=403, detail="Unauthorized")
+
+
+class ActivateSubscriberRequest(BaseModel):
+    phone:  str        = Field(..., description="Número sin '+' ni '@c.us', ej: 51987654321")
+    plan:   str        = Field("starter", description="Plan: starter, pro, reseller, founder")
+    days:   int | None = Field(30, description="Días de acceso. None = sin expiración")
+    notes:  str        = Field("", description="Notas internas (ref. transferencia, nombre)")
+
+
+@app.get("/admin", include_in_schema=False)
+async def admin_dashboard(key: str = "", days: int = 7):
+    """
+    Dashboard web de administración.
+    Acceso: /admin?key=<ADMIN_API_KEY>&days=7
+    """
+    admin_key = os.environ.get("ADMIN_API_KEY", "")
+    if not admin_key or key != admin_key:
+        return HTMLResponse("""<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>Pipeline_X Admin</title>
+<style>body{background:#000;color:#e5e5e5;font-family:monospace;display:flex;
+align-items:center;justify-content:center;height:100vh;margin:0}
+form{display:flex;flex-direction:column;gap:12px;min-width:260px}
+input{background:#0a0a0a;border:1px solid #2a2a2a;color:#e5e5e5;
+padding:10px;font-family:inherit;font-size:13px}
+button{background:#4ade80;color:#000;border:none;padding:10px;
+font-family:inherit;font-weight:700;cursor:pointer}
+h2{color:#fff;margin-bottom:8px;font-size:16px}</style></head>
+<body><form method="get">
+<h2>Pipeline_X Admin</h2>
+<input name="key" type="password" placeholder="Admin key" autofocus>
+<button type="submit">Acceder</button>
+</form></body></html>""", status_code=403)
+
+    stats       = await asyncio.to_thread(_db.get_stats, days)
+    subscribers = await asyncio.to_thread(_db.get_subscribers_list)
+    return HTMLResponse(_admin_html(stats, subscribers, key))
+
+
+@app.post("/admin/subscribers/activate", tags=["Admin"], status_code=200,
+          summary="Activar o renovar un suscriptor (requiere X-Admin-Key)")
+async def admin_activate_subscriber(req: ActivateSubscriberRequest, request: Request):
+    """
+    Activa manualmente un suscriptor después de confirmar su pago.
+
+    Header requerido: `X-Admin-Key: <ADMIN_API_KEY>`
+
+    Al activar:
+    - Crea o actualiza la fila en la tabla `subscribers`
+    - El bot WA detectará automáticamente el tier en la próxima búsqueda
+    - Envía notificación al suscriptor por WhatsApp
+    """
+    import db as _db
+    import wa_sender
+    _check_admin_api_key(request)
+
+    subscriber = await asyncio.to_thread(
+        _db.upsert_subscriber, req.phone, req.plan, req.days, req.notes
+    )
+    if not subscriber:
+        raise HTTPException(status_code=500, detail="Error guardando en DB")
+
+    # Notificar al suscriptor por WhatsApp
+    from messages import MSG
+    try:
+        plan_display = req.plan.capitalize()
+        days_str = f"{req.days} días" if req.days else "sin expiración"
+        welcome_msg = MSG["subscriber_welcome"].format(
+            plan=plan_display, days=days_str
+        )
+        await asyncio.to_thread(wa_sender.send_text, req.phone, welcome_msg)
+    except Exception as wa_exc:
+        log.warning("No se pudo enviar WA de bienvenida a %s: %s", req.phone, wa_exc)
+
+    _db.log_event(req.phone, _db.EventType.SUBSCRIBER_ACTIVATED,
+                  {"plan": req.plan, "days": req.days, "notes": req.notes})
+    asyncio.create_task(_notify_pipeassist(
+        f"💎 *Suscriptor activado*\n"
+        f"📱 `{req.phone}`\n"
+        f"📦 Plan: {req.plan.capitalize()}\n"
+        f"⏳ Duración: {req.days} días\n"
+        f"📝 {req.notes or '—'}"
+    ))
+    log.info("Admin activó suscriptor: phone=%s plan=%s days=%s", req.phone, req.plan, req.days)
+    return {"ok": True, "subscriber": subscriber}
+
+
+@app.get("/admin/subscribers/{phone}", tags=["Admin"],
+         summary="Consultar estado de un suscriptor (requiere X-Admin-Key)")
+async def admin_get_subscriber(phone: str, request: Request):
+    import db as _db
+    _check_admin_api_key(request)
+    sub = await asyncio.to_thread(_db.get_subscriber, phone)
+    if not sub:
+        raise HTTPException(status_code=404, detail="Suscriptor no encontrado")
+    return sub
+
+
+@app.get("/admin/stats", tags=["Admin"],
+         summary="KPIs de funnel (requiere X-Admin-Key)")
+async def admin_stats(days: int = 7, request: Request = None):
+    """
+    Métricas de funnel para los últimos `days` días (default 7).
+
+    Devuelve: búsquedas, reportes entregados, clics de upgrade,
+    activaciones, suscriptores activos y tasas de conversión.
+    """
+    _check_admin_api_key(request)
+    stats = await asyncio.to_thread(_db.get_stats, days)
+    return stats
+
+
+@app.delete("/admin/subscribers/{phone}", tags=["Admin"],
+            summary="Cancelar suscripción (requiere X-Admin-Key)")
+async def admin_cancel_subscriber(phone: str, reason: str = "", request: Request = None):
+    import db as _db
+    _check_admin_api_key(request)
+    await asyncio.to_thread(_db.cancel_subscriber, phone, reason)
+    log.info("Admin canceló suscripción: phone=%s", phone)
+    return {"ok": True, "phone": phone, "status": "cancelled"}

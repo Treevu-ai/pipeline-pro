@@ -27,7 +27,7 @@ CLAUDE = {
 # ─── Groq API (fallback si ANTHROPIC_API_KEY no está disponible) ──────────────
 # Requiere variable de entorno: GROQ_API_KEY
 GROQ = {
-    "model": "llama-3.3-70b-versatile",   # o "llama-3.1-8b-instant" para menor latencia
+    "model": "llama-3.1-8b-instant",   # 5x más rate limit que 70b en free tier
     "temperature": 0,   # 0 = determinista
     "retries": 3,
     "backoff_s": 2,
@@ -42,6 +42,12 @@ GOOGLE_PLACES_API_KEY: str = os.environ.get("GOOGLE_PLACES_API_KEY", "")
 # Requiere variable de entorno: APIFY_API_KEY
 # Obtener en: apify.com → Settings → Integrations
 APIFY_API_KEY: str = os.environ.get("APIFY_API_KEY", "")
+
+# ─── SerpApi (Google Maps scraper, alternativa a Apify) ──────────────────────
+# Requiere variable de entorno: SERPAPI_API_KEY
+# Obtener en: serpapi.com → Dashboard → API Key
+# Precio: pay-as-you-go ~$0.015/búsqueda (hasta 100 resultados)
+SERPAPI_API_KEY: str = os.environ.get("SERPAPI_API_KEY", "")
 
 # ─── Tu producto ─────────────────────────────────────────────────────────────
 PRODUCT = {
@@ -328,10 +334,16 @@ QUALIFICATION = {
     "max_score": 100,
     "min_score": 0,
     # Clamping: cuánto puede alejarse el LLM del pre-score.
-    # El LLM puede bajar hasta 20 pts (señal negativa fuerte que las reglas no ven)
-    # o subir hasta 25 pts (señal positiva como decisor identificado, urgencia clara).
-    "score_drift_down": 20,
-    "score_drift_up":   25,
+    # El LLM puede bajar hasta 30 pts (señal negativa fuerte que las reglas no ven)
+    # o subir hasta 35 pts (señal positiva: decisor identificado, urgencia, email confirmado).
+    # Ampliado vs. valores anteriores (20/25) para no penalizar injustamente
+    # leads con base baja pero señales cualitativas fuertes.
+    "score_drift_down": 30,
+    "score_drift_up":   35,
+    # Límites absolutos — el score final nunca puede salir de este rango
+    # independientemente del pre-score o el drift.
+    "score_floor":   10,
+    "score_ceiling": 95,
     # Límites de palabras por canal
     "word_limits": {
         "email": 100,
@@ -346,37 +358,49 @@ RATE_LIMITING = {
     # Límites por API externa
     "google_search": {"calls": 5, "period": 60},  # 5 llamadas por minuto
     "sunat_api": {"calls": 10, "period": 60},     # 10 llamadas por minuto
-    "website_scraping": {"calls": 3, "period": 10},  # 3 llamadas cada 10 segundos
+    "website_scraping": {"calls": 8, "period": 10},  # 8 llamadas cada 10 segundos
 }
 
 
 # ─── Planes de precios ────────────────────────────────────────────────────────
 # Fuente única de verdad para límites, precios y features por tier.
-# El enforcement real se aplica en api.py leyendo X-Plan-Tier header.
 #
-# Tiers disponibles:
-#   free      → freemium de entrada, sin tarjeta
-#   solo      → freelancers / fundadores solos
-#   starter   → MYPE con equipo pequeño (tier principal)
-#   pro       → equipos de ventas medianos
-#   reseller  → agencias que revenden el servicio (ex "Agency")
+# Tiers disponibles (en soles, mercado Perú):
+#   free      → freemium de entrada, sin tarjeta — 1 búsqueda/día, 10 leads demo
+#   trial     → 3 días full access (auto al primer upgrade intent), sin pago
+#   basico    → S/59/mes — 10 búsquedas/mes, 20 leads full — captura gap free→starter
+#   starter   → S/149/mes — reportes ilimitados, 30 leads — tier principal ⭐
+#   pro       → S/299/mes — 50 leads + API REST — equipos de ventas
+#   reseller  → S/1,099/mes — white-label, multi-cuenta — agencias
 #
 # Variantes especiales:
-#   starter_annual  → Starter pagado por año (2 meses gratis)
-#   founder         → Precio fundador para primeros 20 clientes
+#   founder   → S/99/mes para primeros 10 clientes (mismo acceso que Starter)
+#
+# Campos por plan:
+#   price_soles         → precio mensual en soles (int, 0 para free/trial)
+#   price_display       → string para mostrar al usuario
+#   leads_limit         → máx leads por búsqueda
+#   searches_per_day    → límite diario (None = sin límite diario)
+#   searches_per_month  → límite mensual (None = sin límite mensual)
+#   full_pdf            → True = PDF sin censura; False = PDF demo con leads bloqueados
+#   features.api_access → acceso a API REST directa
 
 PLANS: dict[str, dict] = {
-    # ── Freemium ─────────────────────────────────────────────────────────────
+
+    # ── Freemium ──────────────────────────────────────────────────────────────
     "free": {
         "name": "Free",
-        "price_monthly": 0,
-        "price_annual": 0,
+        "price_soles": 0,
+        "price_display": "S/0",
+        "price_monthly": 0,          # USD legacy — no usar para mostrar al usuario
         "leads_limit": 10,
-        "description": "Prueba sin tarjeta. 10 leads, sin compromiso.",
+        "searches_per_day": 1,       # 1 búsqueda/día
+        "searches_per_month": None,
+        "full_pdf": False,
+        "description": "Prueba sin tarjeta. 10 leads demo, sin compromiso.",
         "features": {
-            "enrich_sunat": False,       # Sin acceso SUNAT
-            "html_report": False,        # Sin reporte HTML
-            "api_access": False,         # Sin acceso a API directa
+            "enrich_sunat": False,
+            "api_access": False,
             "white_label": False,
             "multi_account": False,
         },
@@ -384,124 +408,135 @@ PLANS: dict[str, dict] = {
         "highlight": False,
     },
 
-    # ── Solo ─────────────────────────────────────────────────────────────────
-    "solo": {
-        "name": "Solo",
-        "price_monthly": 19,
-        "price_annual": 190,            # ~2 meses gratis
-        "leads_limit": 30,
-        "description": "Para freelancers y fundadores solos.",
+    # ── Trial (3 días full access — se activa automáticamente) ────────────────
+    "trial": {
+        "name": "Trial",
+        "price_soles": 0,
+        "price_display": "Trial 3 días",
+        "price_monthly": 0,
+        "leads_limit": 30,           # mismo que Starter
+        "searches_per_day": None,
+        "searches_per_month": None,  # sin límite durante el trial
+        "full_pdf": True,
+        "description": "Acceso completo por 3 días. Sin tarjeta.",
         "features": {
-            "enrich_sunat": False,       # Sin SUNAT — fricción para no canibalizar Starter
-            "html_report": False,        # Sin reporte HTML
-            "api_access": False,         # Sin acceso a API directa
+            "enrich_sunat": True,
+            "api_access": False,
             "white_label": False,
             "multi_account": False,
         },
-        "cta": "Comenzar por $19/mes",
+        "cta": "Activar trial gratis",
+        "highlight": False,
+    },
+
+    # ── Básico ────────────────────────────────────────────────────────────────
+    "basico": {
+        "name": "Básico",
+        "price_soles": 59,
+        "price_display": "S/59/mes",
+        "price_monthly": 59,
+        "leads_limit": 20,
+        "searches_per_day": None,
+        "searches_per_month": 10,    # 10 búsquedas/mes
+        "full_pdf": True,
+        "description": "Para freelancers y vendedores independientes. 10 reportes/mes.",
+        "features": {
+            "enrich_sunat": False,
+            "api_access": False,
+            "white_label": False,
+            "multi_account": False,
+        },
+        "cta": "Activar por S/59/mes",
         "highlight": False,
     },
 
     # ── Starter ───────────────────────────────────────────────────────────────
     "starter": {
         "name": "Starter",
-        "price_monthly": 39,
-        "price_annual": 390,            # 2 meses gratis vs mensual ($468/año)
-        "leads_limit": 200,
-        "description": "El tier principal. MYPE con equipo pequeño.",
+        "price_soles": 149,
+        "price_display": "S/149/mes",
+        "price_monthly": 149,
+        "leads_limit": 30,
+        "searches_per_day": None,
+        "searches_per_month": None,  # reportes ilimitados
+        "full_pdf": True,
+        "description": "El tier principal. Reportes ilimitados para equipo de ventas.",
         "features": {
             "enrich_sunat": True,
-            "html_report": True,
-            "api_access": True,
+            "api_access": False,
             "white_label": False,
             "multi_account": False,
         },
-        "cta": "Comenzar por $39/mes",
-        "highlight": True,              # Tier recomendado
+        "cta": "Activar Starter",
+        "highlight": True,           # tier recomendado ⭐
     },
 
     # ── Pro ──────────────────────────────────────────────────────────────────
     "pro": {
         "name": "Pro",
-        "price_monthly": 79,
-        "price_annual": 790,            # ~2 meses gratis
-        "leads_limit": 500,
-        "description": "Equipos de ventas con mayor volumen.",
+        "price_soles": 299,
+        "price_display": "S/299/mes",
+        "price_monthly": 299,
+        "leads_limit": 50,
+        "searches_per_day": None,
+        "searches_per_month": None,
+        "full_pdf": True,
+        "description": "50 leads por búsqueda + API REST. Para agencias que automatizan.",
         "features": {
             "enrich_sunat": True,
-            "html_report": True,
             "api_access": True,
             "white_label": False,
             "multi_account": False,
         },
-        "cta": "Comenzar por $79/mes",
+        "cta": "Activar Pro",
         "highlight": False,
     },
 
-    # ── Reseller (ex Agency) ─────────────────────────────────────────────────
-    # Precio subido de $199 → $299. El white-label + modelo de reventa
-    # justifica el precio: con 2 clientes a $150 ya cubre el costo.
+    # ── Reseller ─────────────────────────────────────────────────────────────
     "reseller": {
         "name": "Reseller",
-        "price_monthly": 299,
-        "price_annual": 2990,           # ~2 meses gratis
-        "leads_limit": 1000,
+        "price_soles": 1099,
+        "price_display": "S/1,099/mes",
+        "price_monthly": 1099,
+        "leads_limit": 100,
+        "searches_per_day": None,
+        "searches_per_month": None,
+        "full_pdf": True,
         "description": (
-            "Para agencias y consultores que revenden reportes a sus clientes. "
-            "Incluye white-label, multi-cuenta y kit de reventa."
+            "White-label + multi-cuenta. Para agencias que revenden reportes a sus clientes."
         ),
         "features": {
             "enrich_sunat": True,
-            "html_report": True,
             "api_access": True,
-            "white_label": True,        # Branding propio en reportes
-            "multi_account": True,      # Gestión de múltiples clientes
-            "reseller_kit": True,       # PDF de marca, email templates, pricing guide
+            "white_label": True,
+            "multi_account": True,
+            "reseller_kit": True,
         },
         "cta": "Hablar con ventas",
         "highlight": False,
     },
 
-    # ── Variantes especiales ─────────────────────────────────────────────────
-
-    # Starter anual: mismas features, precio anual fijo
-    "starter_annual": {
-        "name": "Starter Anual",
-        "price_monthly": None,
-        "price_annual": 390,
-        "leads_limit": 200,
-        "description": "Starter pagado por año. Equivale a $32.50/mes (2 meses gratis).",
-        "features": {
-            "enrich_sunat": True,
-            "html_report": True,
-            "api_access": True,
-            "white_label": False,
-            "multi_account": False,
-        },
-        "cta": "Pagar $390/año",
-        "highlight": False,
-        "base_tier": "starter",
-    },
-
-    # Precio fundador: Starter features a $29/mes para los primeros 20 clientes.
-    # Una vez cubiertos los 20 cupos, se migra automáticamente a Starter ($39).
+    # ── Precio fundador (primeros 10 clientes) ────────────────────────────────
     "founder": {
         "name": "Precio Fundador",
-        "price_monthly": 29,
-        "price_annual": 290,
-        "leads_limit": 200,
-        "description": "Precio exclusivo para los primeros 20 clientes. Mismo acceso que Starter.",
+        "price_soles": 99,
+        "price_display": "S/99/mes",
+        "price_monthly": 99,
+        "leads_limit": 30,
+        "searches_per_day": None,
+        "searches_per_month": None,
+        "full_pdf": True,
+        "description": "Precio exclusivo para los primeros 10 clientes. Acceso Starter completo.",
         "features": {
             "enrich_sunat": True,
-            "html_report": True,
-            "api_access": True,
+            "api_access": False,
             "white_label": False,
             "multi_account": False,
         },
         "cta": "Reclamar precio fundador",
         "highlight": False,
         "base_tier": "starter",
-        "slots_total": 20,              # Cupos disponibles
+        "slots_total": 10,
     },
 }
 
@@ -516,6 +551,11 @@ DEMO_REQUEST_LEADS_LIMIT: int = PLANS["free"]["leads_limit"]
 #   GREEN_API_URL       → https://api.green-api.com  (o la URL que te dé el console)
 #   GREEN_API_INSTANCE  → tu idInstance  (ej: 1101234567)
 #   GREEN_API_TOKEN     → tu apiTokenInstance
+# Número WhatsApp del bot (sin +, ej: 51987654321).
+# Usado para generar links wa.me en la landing page y notificaciones.
+# Variable de entorno: WA_BOT_PHONE
+WA_BOT_PHONE: str = os.environ.get("WA_BOT_PHONE", "")
+
 GREEN_API = {
     "api_url":     os.environ.get("GREEN_API_URL", "https://api.green-api.com"),
     "id_instance": os.environ.get("GREEN_API_INSTANCE", ""),
