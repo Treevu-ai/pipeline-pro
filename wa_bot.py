@@ -396,6 +396,7 @@ def _handle_message_locked(phone: str, text: str) -> list[dict]:
             or "," in text
             or len(words) >= 2
         )
+        log.info("TARGET_VALIDATION v2: text=%r words=%s has_location=%s", text, words, has_location)
         if not has_location:
             return [_t(
                 "¿En qué zona o ciudad? 📍\n\n"
