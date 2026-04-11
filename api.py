@@ -725,14 +725,16 @@ async def _deliver_and_notify_wa(phone: str, target: str) -> None:
 
         await asyncio.to_thread(wa_sender.send_text, phone, "\n".join(lines))
 
-        csv_bytes = _leads_to_csv(leads)
+        # PDF al prospecto (renderiza inline en WhatsApp)
+        from pdf_report import build_demo_pdf
+        pdf_bytes = await asyncio.to_thread(build_demo_pdf, target, leads)
         safe_name = target[:30].replace(" ", "_").replace("/", "-")
         await asyncio.to_thread(
             wa_sender.send_document,
             phone,
-            f"pipeline_x_{safe_name}.csv",
-            csv_bytes,
-            f"📊 Leads: {target}",
+            f"pipeline_x_{safe_name}.pdf",
+            pdf_bytes,
+            f"Tu reporte de leads - {target}",
         )
 
         wa_bot._set_session(phone, {"state": "done", "target": target})
