@@ -396,7 +396,9 @@ def _handle_message_locked(phone: str, text: str) -> list[dict]:
             or "," in text
             or len(words) >= 2
         )
-        log.info("TARGET_VALIDATION v2: text=%r words=%s has_location=%s", text, words, has_location)
+        log.info("TARGET_VALIDATION v3: text=%r words=%s has_location=%s", text, words, has_location)
+        if True:  # DEBUG: forzar rechazo siempre para confirmar que esta rama ejecuta
+            return [_t(f"[DEBUG v3] Validación ejecutó. has_location={has_location}")]
         if not has_location:
             return [_t(
                 "¿En qué zona o ciudad? 📍\n\n"
