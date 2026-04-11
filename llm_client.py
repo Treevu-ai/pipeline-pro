@@ -160,8 +160,7 @@ def _call_groq(system: str, user: str) -> dict[str, Any]:
 
 def call(system: str, user: str) -> dict[str, Any]:
     """
-    Llama al LLM disponible: Claude si ANTHROPIC_API_KEY está en el entorno,
-    Groq como fallback.
+    Llama al LLM disponible: Groq (primario) → Claude (fallback si no hay GROQ_API_KEY).
 
     Args:
         system: Prompt del sistema.
@@ -170,14 +169,9 @@ def call(system: str, user: str) -> dict[str, Any]:
     Returns:
         Diccionario con la respuesta del LLM.
     """
+    if os.environ.get("GROQ_API_KEY"):
+        return _call_groq(system, user)
+    # Fallback: Claude (requiere ANTHROPIC_API_KEY con créditos)
     if os.environ.get("ANTHROPIC_API_KEY"):
-        try:
-            return _call_claude(system, user)
-        except exc.RateLimitError:
-            raise
-        except exc.LLMCallError:
-            # Claude falló — intentar Groq como último recurso
-            if os.environ.get("GROQ_API_KEY"):
-                return _call_groq(system, user)
-            raise
-    return _call_groq(system, user)
+        return _call_claude(system, user)
+    raise exc.ConfigurationError("Se requiere GROQ_API_KEY o ANTHROPIC_API_KEY")
