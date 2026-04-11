@@ -144,9 +144,19 @@ _NO_ENTENDIDO = "No entendí eso 🤔 ¿En qué puedo ayudarte?"
 
 # ─── Constructores de respuesta ───────────────────────────────────────────────
 
-def _r_menu() -> list[dict]:
+def _r_menu(phone: str | None = None) -> list[dict]:
+    bienvenida = _BIENVENIDA
+    if phone:
+        try:
+            import db as _db
+            profile = _db.get_user_profile(phone)
+            name = profile.get("name")
+            if name:
+                bienvenida = f"Hola {name}! 👋\n\n" + _BIENVENIDA.split("\n\n", 1)[-1]
+        except Exception:
+            pass
     return [_b(
-        _BIENVENIDA,
+        bienvenida,
         [("demo", "🚀 Demo gratis"), ("precios", "💰 Precios"), ("info", "❓ Cómo funciona")],
         footer=_FOOTER,
     )]
@@ -326,6 +336,10 @@ _KEYWORDS: dict[str, list[str]] = {
     "feedback_good": ["feedback_good", "muy útil", "muy util", "excelente", "genial", "perfecto"],
     "feedback_ok":   ["feedback_ok",   "regular", "normal", "mas o menos", "más o menos", "ok"],
     "feedback_bad":  ["feedback_bad",  "poco útil", "poco util", "malo", "mal", "no sirvió", "no sirvio"],
+    "historial":     ["mis reportes", "historial", "mis busquedas", "mis búsquedas",
+                      "que busque", "qué busqué", "repetir"],
+    "unsubscribe":   ["stop", "baja", "no quiero mensajes", "cancelar mensajes", "unsubscribe",
+                      "cancelar", "dar de baja", "dejar de recibir"],
 }
 
 def _detect_intent(text: str) -> str | None:
@@ -471,11 +485,71 @@ def _handle_message_locked(phone: str, text: str) -> list[dict]:
 
     log.info("WA msg: phone=%s state=%s text=%r", phone, state, text[:80])
 
+    # ── Estado unsubscribed — solo reactivar con saludo ───────────────────────
+    if state == "unsubscribed":
+        intent = _detect_intent(text)
+        if intent == "saludo":
+            _set_session(phone, {"state": "menu_shown"})
+            return _r_menu(phone)
+        # Ignorar cualquier otro mensaje
+        return []
+
+    # ── Audio — respuesta amigable ────────────────────────────────────────────
+    if text == "__AUDIO__":
+        return [_t(_MSG("audio_not_supported"))]
+
+    # ── Imagen ────────────────────────────────────────────────────────────────
+    if text == "__IMAGE__":
+        if state == "upgrade_prompted":
+            _set_session(phone, {"state": "menu_shown"})
+            _notify_ceo_upgrade(phone)
+            return [_t(_MSG("image_received_upgrade"))]
+        return [_t(_MSG("image_unknown"))]
+
     # ── Saludo siempre resetea (cualquier estado) ─────────────────────────────
     intent = _detect_intent(text)
     if intent == "saludo":
         _set_session(phone, {"state": "menu_shown"})
-        return _r_menu()
+        return _r_menu(phone)
+
+    # ── Esperando nombre ──────────────────────────────────────────────────────
+    if state == "collecting_name":
+        name = text.strip().title()
+        try:
+            import db as _db
+            _db.set_user_profile(phone, name=name)
+        except Exception:
+            pass
+        session["name"] = name
+        _set_session(phone, {**session, "state": "menu_shown", "name": name})
+        from messages import MSG
+        bienvenida = MSG["name_saved"].format(name=name)
+        return [_b(
+            bienvenida,
+            [("demo", "🚀 Demo gratis"), ("precios", "💰 Precios"), ("info", "❓ Cómo funciona")],
+            footer=_FOOTER,
+        )]
+
+    # ── Confirmando ciudad por defecto ────────────────────────────────────────
+    if state == "confirming_city":
+        t_lower = text.lower().strip()
+        affirm = {"sí", "si", "ok", "esa", "mismo", "allí", "ahi", "ahí", "dale", "va"}
+        default_city = session.get("default_city", "")
+        if t_lower in affirm and default_city:
+            # Usar la ciudad guardada con el último target sin ciudad
+            last_target = session.get("pending_target", "")
+            full_target = f"{last_target} en {default_city}" if last_target else default_city
+            return _launch_pipeline(phone, full_target, session)
+        else:
+            # Tratar el texto como un nuevo target
+            new_text = text
+            # Si no trae ubicación, pasarlo como collecting_target
+            words = [w for w in new_text.split() if len(w) > 2]
+            has_location = " en " in new_text.lower() or "," in new_text or len(words) >= 2
+            if has_location:
+                return _launch_pipeline(phone, new_text, session)
+            _set_session(phone, {**session, "state": "collecting_target"})
+            return [_t(_MSG("ask_target"))]
 
     # ── Esperando target ──────────────────────────────────────────────────────
     if state == "collecting_target":
@@ -485,43 +559,23 @@ def _handle_message_locked(phone: str, text: str) -> list[dict]:
         words = [w for w in text.split() if len(w) > 2]
         has_location = " en " in text.lower() or "," in text or len(words) >= 2
         if not has_location:
+            # Verificar si hay ciudad por defecto guardada
+            try:
+                import db as _db
+                profile = _db.get_user_profile(phone)
+                default_city = profile.get("default_city") or session.get("default_city", "")
+            except Exception:
+                default_city = session.get("default_city", "")
+            if default_city:
+                _set_session(phone, {**session, "state": "confirming_city",
+                                     "pending_target": text, "default_city": default_city})
+                return [_t(_MSG("confirm_default_city").format(city=default_city))]
             return [_t(
                 "¿En qué zona o ciudad? 📍\n\n"
                 "Ejemplo: *\"Ferreterías en Miraflores\"* o *\"Clínicas Lima\"*\n\n"
                 "Con la ciudad los resultados son más precisos."
             )]
-        # ── Rate limiting por plan ────────────────────────────────────────────
-        try:
-            import db as _db
-            import config as _cfg
-            sub = _db.get_subscriber(phone)
-            plan_name = (
-                sub.get("plan", "free")
-                if sub and sub.get("status") == "active" and (
-                    not sub.get("expires_at") or
-                    sub.get("expires_at") > datetime.now(timezone.utc).isoformat()
-                )
-                else "free"
-            )
-            plan_cfg = _cfg.PLANS.get(plan_name, _cfg.PLANS["free"])
-            limit_day   = plan_cfg.get("searches_per_day")
-            limit_month = plan_cfg.get("searches_per_month")
-            if limit_day is not None and _db.get_daily_search_count(phone) >= limit_day:
-                _set_session(phone, {"state": "upgrade_prompted"})
-                return [_t(_MSG("daily_limit_reached"))] + _r_upgrade(phone)
-            if limit_month is not None and _db.get_monthly_search_count(phone) >= limit_month:
-                _set_session(phone, {"state": "upgrade_prompted"})
-                return [_t(_MSG("monthly_limit_reached"))] + _r_upgrade(phone)
-        except Exception:
-            pass
-
-        _set_session(phone, {"state": "running_pipeline", "target": text})
-        try:
-            import db as _db
-            _db.log_event(phone, _db.EventType.WA_SEARCH, {"target": text})
-        except Exception:
-            pass
-        return [*_r_procesando(text), {"type": "pipeline_request", "target": text}]
+        return _launch_pipeline(phone, text, session)
 
     # ── Pipeline corriendo — no interrumpir ───────────────────────────────────
     if state == "running_pipeline":
@@ -529,8 +583,8 @@ def _handle_message_locked(phone: str, text: str) -> list[dict]:
 
     # ── Esperando comprobante de pago ─────────────────────────────────────────
     if state == "upgrade_prompted":
-        # El usuario puede estar enviando texto de confirmación o imagen del comprobante.
-        # En cualquier caso: agradecemos, notificamos al CEO y volvemos a idle.
+        # El usuario puede estar enviando texto de confirmación.
+        # Si fuera imagen ya se manejó arriba.
         _set_session(phone, {"state": "menu_shown"})
         _notify_ceo_upgrade(phone)   # segunda notificación con el mensaje que mandó
         return [_t(
@@ -571,37 +625,7 @@ def _handle_message_locked(phone: str, text: str) -> list[dict]:
             words = [w for w in text.split() if len(w) > 2]
             has_location = " en " in text.lower() or "," in text or len(words) >= 2
             if has_location:
-                # Rate limiting por plan
-                try:
-                    import db as _db
-                    import config as _cfg
-                    sub = _db.get_subscriber(phone)
-                    plan_name = (
-                        sub.get("plan", "free")
-                        if sub and sub.get("status") == "active" and (
-                            not sub.get("expires_at") or
-                            sub.get("expires_at") > datetime.now(timezone.utc).isoformat()
-                        )
-                        else "free"
-                    )
-                    plan_cfg = _cfg.PLANS.get(plan_name, _cfg.PLANS["free"])
-                    limit_day   = plan_cfg.get("searches_per_day")
-                    limit_month = plan_cfg.get("searches_per_month")
-                    if limit_day is not None and _db.get_daily_search_count(phone) >= limit_day:
-                        _set_session(phone, {"state": "upgrade_prompted"})
-                        return [_t(_MSG("daily_limit_reached"))] + _r_upgrade(phone)
-                    if limit_month is not None and _db.get_monthly_search_count(phone) >= limit_month:
-                        _set_session(phone, {"state": "upgrade_prompted"})
-                        return [_t(_MSG("monthly_limit_reached"))] + _r_upgrade(phone)
-                except Exception:
-                    pass
-                _set_session(phone, {"state": "running_pipeline", "target": text})
-                try:
-                    import db as _db
-                    _db.log_event(phone, _db.EventType.WA_SEARCH, {"target": text})
-                except Exception:
-                    pass
-                return [*_r_procesando(text), {"type": "pipeline_request", "target": text}]
+                return _launch_pipeline(phone, text, session)
         _set_session(phone, {"state": "collecting_target"})
         return [_t(
             "¿Qué tipo de empresas buscas ahora? 🔍\n\n"
@@ -613,19 +637,76 @@ def _handle_message_locked(phone: str, text: str) -> list[dict]:
     if intent:
         return _handle_intent(phone, intent)
 
-    # Sin intención detectada: primera vez → menú, después → no entendido
+    # Sin intención detectada: primera vez → preguntar nombre; después → no entendido
     if state == "idle":
-        _set_session(phone, {"state": "menu_shown"})
-        return _r_menu()
+        _set_session(phone, {"state": "collecting_name"})
+        return [_t(_MSG("ask_name"))]
+
+    if state == "menu_shown":
+        return _r_no_entendido()
 
     return _r_no_entendido()
+
+
+def _launch_pipeline(phone: str, target: str, session: dict) -> list[dict]:
+    """
+    Helper compartido: aplica rate limiting, guarda ciudad por defecto,
+    lanza el pipeline y retorna mensajes.
+    """
+    # Rate limiting por plan
+    try:
+        import db as _db
+        import config as _cfg
+        sub = _db.get_subscriber(phone)
+        plan_name = (
+            sub.get("plan", "free")
+            if sub and sub.get("status") == "active" and (
+                not sub.get("expires_at") or
+                sub.get("expires_at") > datetime.now(timezone.utc).isoformat()
+            )
+            else "free"
+        )
+        plan_cfg = _cfg.PLANS.get(plan_name, _cfg.PLANS["free"])
+        limit_day   = plan_cfg.get("searches_per_day")
+        limit_month = plan_cfg.get("searches_per_month")
+        if limit_day is not None and _db.get_daily_search_count(phone) >= limit_day:
+            _set_session(phone, {**session, "state": "upgrade_prompted"})
+            return [_t(_MSG("daily_limit_reached"))] + _r_upgrade(phone)
+        if limit_month is not None and _db.get_monthly_search_count(phone) >= limit_month:
+            _set_session(phone, {**session, "state": "upgrade_prompted"})
+            return [_t(_MSG("monthly_limit_reached"))] + _r_upgrade(phone)
+    except Exception:
+        pass
+
+    # Extraer ciudad y guardar en perfil
+    try:
+        import db as _db
+        city = None
+        t_lower = target.lower()
+        if " en " in t_lower:
+            city = target.split(" en ")[-1].strip().title()
+        elif "," in target:
+            city = target.split(",")[-1].strip().title()
+        if city:
+            _db.set_user_profile(phone, default_city=city)
+            session = {**session, "default_city": city}
+    except Exception:
+        pass
+
+    _set_session(phone, {**session, "state": "running_pipeline", "target": target})
+    try:
+        import db as _db
+        _db.log_event(phone, _db.EventType.WA_SEARCH, {"target": target})
+    except Exception:
+        pass
+    return [*_r_procesando(target), {"type": "pipeline_request", "target": target}]
 
 
 def _handle_intent(phone: str, intent: str) -> list[dict]:
     """Despacha la intención detectada."""
     if intent == "saludo":
         _set_session(phone, {"state": "menu_shown"})
-        return _r_menu()
+        return _r_menu(phone)
 
     if intent == "demo":
         _set_session(phone, {"state": "collecting_target"})
@@ -666,6 +747,29 @@ def _handle_intent(phone: str, intent: str) -> list[dict]:
     if intent == "garantia":
         _set_session(phone, {"state": "menu_shown"})
         return _r_garantia()
+
+    if intent == "historial":
+        try:
+            import db as _db
+            from datetime import timedelta
+            history = _db.get_search_history(phone, limit=3)
+        except Exception:
+            history = []
+        if not history:
+            return [_t(_MSG("search_history_empty"))]
+        items = "\n".join(
+            f"• {h['target']} _{h['date']}_" for h in history
+        )
+        return [_t(_MSG("search_history").format(items=items))]
+
+    if intent == "unsubscribe":
+        _set_session(phone, {"state": "unsubscribed"})
+        try:
+            import db as _db
+            _db.log_event(phone, _db.EventType.WA_UNSUBSCRIBED)
+        except Exception:
+            pass
+        return [_t(_MSG("unsubscribed"))]
 
     _set_session(phone, {"state": "menu_shown"})
     return _r_no_entendido()
@@ -723,8 +827,16 @@ def parse_green_api_payload(payload: dict) -> tuple[str, str] | None:
         if not text:
             text = data.get("title", "").strip()
 
+    # Imagen o documento (comprobante de pago u otro)
+    elif msg_type in ("imageMessage", "documentMessage"):
+        return phone, "__IMAGE__"
+
+    # Audio / voz
+    elif msg_type in ("audioMessage", "pttMessage"):
+        return phone, "__AUDIO__"
+
     else:
-        return None   # audio, imagen, sticker, etc.
+        return None   # sticker, video, etc.
 
     if not text or not phone:
         return None

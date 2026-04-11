@@ -126,7 +126,13 @@ async def _followup_loop() -> None:
             candidates = await asyncio.to_thread(_db.get_followup_candidates)
             if candidates:
                 log.info("Followup 24h: %d candidatos", len(candidates))
+            # Obtener phones unsubscribed una sola vez antes del loop
+            unsubscribed = await asyncio.to_thread(_db.get_unsubscribed_phones)
             for phone in candidates:
+                if phone in unsubscribed:
+                    log.info("Followup omitido (unsubscribed): phone=%s", phone)
+                    await asyncio.sleep(2)
+                    continue
                 try:
                     await asyncio.to_thread(
                         wa_sender.send_text, phone, MSG["followup_24h"]
@@ -154,7 +160,13 @@ async def _trial_expired_loop() -> None:
             candidates = await asyncio.to_thread(_db.get_expired_trial_candidates)
             if candidates:
                 log.info("Trial expirado: %d candidatos para notificar", len(candidates))
+            # Obtener phones unsubscribed una sola vez antes del loop
+            unsubscribed = await asyncio.to_thread(_db.get_unsubscribed_phones)
             for phone in candidates:
+                if phone in unsubscribed:
+                    log.info("Trial expired omitido (unsubscribed): phone=%s", phone)
+                    await asyncio.sleep(2)
+                    continue
                 try:
                     await asyncio.to_thread(
                         wa_sender.send_text, phone, MSG["trial_expired"]
@@ -1092,12 +1104,25 @@ async def _deliver_and_notify_wa(phone: str, target: str) -> None:
     except Exception as exc:
         import exceptions as app_exc
         log.error("_deliver_and_notify_wa error: %s\n%s", exc, traceback.format_exc())
-        if isinstance(exc, (app_exc.GoogleMapsError, app_exc.ScrapingError)):
-            err_msg = MSG["error_no_results"]
-        else:
-            err_msg = MSG["error_pipeline"]
-        await asyncio.to_thread(wa_sender.send_text, phone, err_msg)
-        wa_bot._set_session(phone, {"state": "idle"})
+        # ── Error recovery con contador ───────────────────────────────────────
+        try:
+            current_session = wa_bot._get_session(phone)
+            error_count = current_session.get("error_count", 0) + 1
+            if error_count < 2:
+                wa_bot._set_session(phone, {**current_session,
+                                             "state": "collecting_target",
+                                             "error_count": error_count})
+                await asyncio.to_thread(
+                    wa_sender.send_text, phone, MSG["pipeline_error_retry"]
+                )
+            else:
+                wa_bot._set_session(phone, {"state": "done"})
+                await asyncio.to_thread(
+                    wa_sender.send_text, phone, MSG["pipeline_error_final"]
+                )
+        except Exception as recovery_exc:
+            log.error("error_recovery failed: %s", recovery_exc)
+            wa_bot._set_session(phone, {"state": "idle"})
 
 
 async def _demo_deliver_and_capture(target: str, chat_id: int) -> None:
@@ -1895,3 +1920,46 @@ async def admin_cancel_subscriber(phone: str, reason: str = "", request: Request
     await asyncio.to_thread(_db.cancel_subscriber, phone, reason)
     log.info("Admin canceló suscripción: phone=%s", phone)
     return {"ok": True, "phone": phone, "status": "cancelled"}
+
+
+# ─── Admin: Broadcast ─────────────────────────────────────────────────────────
+
+class BroadcastRequest(BaseModel):
+    message: str = Field(..., description="Texto del mensaje a enviar")
+    plan:    str | None = Field(None, description="Filtrar por plan (ej: 'free', 'starter'). Omitir para todos.")
+
+
+@app.post("/admin/broadcast", tags=["Admin"], status_code=200,
+          summary="Enviar broadcast WA a candidatos (requiere X-Admin-Key)")
+async def admin_broadcast(req: BroadcastRequest, request: Request):
+    """
+    Envía un mensaje de WhatsApp a todos los usuarios que han hecho al menos
+    una búsqueda y no están unsubscribed.
+
+    Header requerido: `X-Admin-Key: <ADMIN_API_KEY>`
+
+    Body:
+      - `message`: texto a enviar
+      - `plan` (opcional): filtrar por plan activo (ej: "free", "starter")
+    """
+    import db as _db
+    import wa_sender
+    _check_admin_api_key(request)
+
+    candidates = await asyncio.to_thread(_db.get_broadcast_candidates, req.plan)
+    log.info("Broadcast: %d candidatos (plan=%s)", len(candidates), req.plan)
+
+    sent   = 0
+    failed = 0
+    for phone in candidates:
+        try:
+            await asyncio.to_thread(wa_sender.send_text, phone, req.message)
+            sent += 1
+            log.info("Broadcast enviado: phone=%s", phone)
+        except Exception as exc:
+            failed += 1
+            log.warning("Broadcast error phone=%s: %s", phone, exc)
+        await asyncio.sleep(2)   # delay entre envíos
+
+    log.info("Broadcast completado: sent=%d failed=%d", sent, failed)
+    return {"sent": sent, "failed": failed, "total_candidates": len(candidates)}

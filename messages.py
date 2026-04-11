@@ -171,4 +171,64 @@ MSG: dict[str, str] = {
     # ── Genérico ──────────────────────────────────────────────────────────────
     "not_understood": "No entendí eso 🤔 ¿En qué puedo ayudarte?",
     "already_running": "⏳ Tu reporte está en proceso, ya casi está listo...",
+
+    # ── Captura de nombre ─────────────────────────────────────────────────────
+    "ask_name": (
+        "👋 Hola, soy *Pipeline_X*.\n"
+        "¿Cómo te llamas?"
+    ),
+    "name_saved": (
+        "Perfecto, {name} 👋\n\n"
+        "Te ayudo a conseguir más clientes sin contratar a nadie.\n"
+        "Dime a qué tipo de negocio le quieres vender y en qué ciudad — "
+        "en minutos recibes aquí mismo una lista de prospectos listos para contactar."
+    ),
+
+    # ── Audio / imagen ────────────────────────────────────────────────────────
+    "audio_not_supported": (
+        "🎤 No puedo escuchar audios aún.\n"
+        "Escríbeme el rubro y ciudad que buscas y te armo el reporte 👇"
+    ),
+    "image_received_upgrade": (
+        "📸 Recibido ✅\n\n"
+        "Estamos verificando tu pago. En minutos te confirmamos y activamos tu acceso.\n\n"
+        "Si tienes dudas escríbenos a *contacto@pipelinex.app*"
+    ),
+    "image_unknown": (
+        "Recibí tu imagen, pero no sé qué hacer con ella 🤔\n"
+        "¿Necesitas algo? Escríbeme."
+    ),
+
+    # ── Historial de búsquedas ────────────────────────────────────────────────
+    "search_history_empty": (
+        "Aún no tienes búsquedas registradas.\n\n"
+        "Escríbeme rubro + ciudad para tu primera búsqueda 👇"
+    ),
+    "search_history": (
+        "🕐 *Tus últimas búsquedas:*\n\n"
+        "{items}\n\n"
+        "Escribe cualquiera de nuevo o un rubro distinto 👇"
+    ),
+
+    # ── Unsubscribe ───────────────────────────────────────────────────────────
+    "unsubscribed": (
+        "✅ Listo, no te enviaré más mensajes proactivos.\n\n"
+        "Si algún día quieres volver, solo escríbeme *hola* 👋"
+    ),
+
+    # ── Error recovery de pipeline ────────────────────────────────────────────
+    "pipeline_error_retry": (
+        "⚠️ Hubo un problema con esa búsqueda.\n"
+        "Escríbeme de nuevo el rubro y ciudad para reintentar."
+    ),
+    "pipeline_error_final": (
+        "❌ No pudimos procesar esa búsqueda.\n"
+        "Escríbenos a *contacto@pipelinex.app*"
+    ),
+
+    # ── Ciudad por defecto ────────────────────────────────────────────────────
+    "confirm_default_city": (
+        "¿Buscamos en *{city}* otra vez, o prefieres otra ciudad?\n\n"
+        "Responde *sí* para {city} o escribe otra ciudad."
+    ),
 }

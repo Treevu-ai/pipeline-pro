@@ -133,6 +133,14 @@ def _create_tables() -> None:
                 CREATE INDEX IF NOT EXISTS events_phone_ts
                 ON events (phone, created_at DESC);
             """)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS user_profiles (
+                    phone        TEXT PRIMARY KEY,
+                    name         TEXT,
+                    default_city TEXT,
+                    updated_at   TIMESTAMPTZ DEFAULT now()
+                );
+            """)
             # Limpiar sesiones WA viejas (>24h) en cada arranque
             try:
                 cur.execute("""
@@ -521,6 +529,7 @@ class EventType:
     WA_TRIAL_EXPIRED      = "wa_trial_expired"
     SUBSCRIBER_ACTIVATED  = "subscriber_activated"
     SUBSCRIBER_CANCELLED  = "subscriber_cancelled"
+    WA_UNSUBSCRIBED       = "wa_unsubscribed"
 
 
 def get_followup_candidates(hours_min: int = 23, hours_max: int = 25) -> list[str]:
@@ -685,6 +694,161 @@ def log_event(phone: str | None, event_type: str, metadata: dict | None = None) 
                 """, (phone, event_type, json.dumps(metadata or {})))
     except Exception as exc:
         log.warning("log_event(%s, %s): %s", phone, event_type, exc)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# User Profiles
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def get_user_profile(phone: str) -> dict:
+    """Lee nombre y ciudad por defecto del usuario. {} si no existe."""
+    if not _USE_DB:
+        return {}
+    try:
+        with _conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT name, default_city FROM user_profiles WHERE phone = %s",
+                    (phone,)
+                )
+                row = cur.fetchone()
+                if not row:
+                    return {}
+                return {
+                    "name":         row[0],
+                    "default_city": row[1],
+                }
+    except Exception as exc:
+        log.error("get_user_profile(%s): %s", phone, exc)
+        return {}
+
+
+def set_user_profile(phone: str, name: str | None = None, default_city: str | None = None) -> None:
+    """Guarda/actualiza perfil del usuario (upsert). Solo actualiza campos no-None."""
+    if not _USE_DB:
+        return
+    try:
+        with _conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO user_profiles (phone, name, default_city, updated_at)
+                    VALUES (%s, %s, %s, now())
+                    ON CONFLICT (phone) DO UPDATE
+                        SET name         = COALESCE(%s, user_profiles.name),
+                            default_city = COALESCE(%s, user_profiles.default_city),
+                            updated_at   = now()
+                """, (phone, name, default_city, name, default_city))
+    except Exception as exc:
+        log.error("set_user_profile(%s): %s", phone, exc)
+
+
+def get_search_history(phone: str, limit: int = 3) -> list[dict]:
+    """Devuelve las últimas `limit` búsquedas del usuario con target y fecha."""
+    if not _USE_DB:
+        return []
+    try:
+        from datetime import timedelta
+        lima_tz = timezone(timedelta(hours=-5))
+        with _conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT metadata->>'target' AS target, created_at
+                    FROM events
+                    WHERE phone = %s
+                      AND event_type = %s
+                      AND metadata->>'target' IS NOT NULL
+                    ORDER BY created_at DESC
+                    LIMIT %s
+                """, (phone, EventType.WA_SEARCH, limit))
+                rows = cur.fetchall()
+                result = []
+                for row in rows:
+                    target = row[0]
+                    created_at = row[1]
+                    if created_at:
+                        lima_dt = created_at.astimezone(lima_tz)
+                        date_str = lima_dt.strftime("%d/%m/%Y")
+                    else:
+                        date_str = "—"
+                    result.append({"target": target, "date": date_str})
+                return result
+    except Exception as exc:
+        log.error("get_search_history(%s): %s", phone, exc)
+        return []
+
+
+def get_broadcast_candidates(plan: str | None = None) -> list[str]:
+    """
+    Phones para broadcast: hicieron al menos 1 búsqueda WA, no están
+    unsubscribed, opcionalmente filtrados por plan.
+    """
+    if not _USE_DB:
+        return []
+    try:
+        with _conn() as conn:
+            with conn.cursor() as cur:
+                plan_filter = ""
+                params: list = []
+                if plan:
+                    plan_filter = """
+                        AND EXISTS (
+                            SELECT 1 FROM subscribers s
+                            WHERE s.phone = e.phone
+                              AND s.plan = %s
+                              AND s.status = 'active'
+                        )
+                    """
+                    params.append(plan)
+                cur.execute(f"""
+                    SELECT DISTINCT e.phone
+                    FROM events e
+                    WHERE e.event_type = %s
+                      AND e.phone IS NOT NULL
+                      AND NOT EXISTS (
+                          SELECT 1 FROM events u
+                          WHERE u.phone = e.phone
+                            AND u.event_type = %s
+                            AND NOT EXISTS (
+                                SELECT 1 FROM events r
+                                WHERE r.phone = u.phone
+                                  AND r.event_type = %s
+                                  AND r.created_at > u.created_at
+                            )
+                      )
+                      {plan_filter}
+                """, [EventType.WA_SEARCH, EventType.WA_UNSUBSCRIBED, EventType.WA_SEARCH] + params)
+                return [row[0] for row in cur.fetchall()]
+    except Exception as exc:
+        log.error("get_broadcast_candidates: %s", exc)
+        return []
+
+
+def get_unsubscribed_phones() -> set[str]:
+    """
+    Phones que se dieron de baja (wa_unsubscribed) y NO se han reactivado
+    (no tienen wa_search posterior al último wa_unsubscribed).
+    """
+    if not _USE_DB:
+        return set()
+    try:
+        with _conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT DISTINCT u.phone
+                    FROM events u
+                    WHERE u.event_type = %s
+                      AND u.phone IS NOT NULL
+                      AND NOT EXISTS (
+                          SELECT 1 FROM events r
+                          WHERE r.phone = u.phone
+                            AND r.event_type = %s
+                            AND r.created_at > u.created_at
+                      )
+                """, (EventType.WA_UNSUBSCRIBED, EventType.WA_SEARCH))
+                return {row[0] for row in cur.fetchall()}
+    except Exception as exc:
+        log.error("get_unsubscribed_phones: %s", exc)
+        return set()
 
 
 def get_stats(days: int = 7) -> dict:
