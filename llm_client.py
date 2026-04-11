@@ -82,6 +82,14 @@ def _call_claude(system: str, user: str) -> dict[str, Any]:
             raise
         except Exception as e:
             last_err = e
+            # Log del error real para diagnóstico
+            err_body = getattr(e, 'response', None)
+            if err_body is not None:
+                try:
+                    log.error("Claude 400 body: %s", err_body.text)
+                except Exception:
+                    pass
+            log.warning("Claude intento %d/%d falló: %s: %s", attempt, retries, type(e).__name__, e)
             if attempt < retries:
                 time.sleep(backoff * attempt)
 
