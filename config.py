@@ -17,7 +17,7 @@ OLLAMA = {
 # ─── Claude API (producción — prioridad sobre Groq) ──────────────────────────
 # Requiere variable de entorno: ANTHROPIC_API_KEY
 CLAUDE = {
-    "model": "claude-haiku-4-5-20251001",  # rápido y barato (~$0.01/lead)
+    "model": "claude-3-5-haiku-20241022",  # rápido y barato (~$0.01/lead)
     "max_tokens": 1024,
     "temperature": 0,   # 0 = determinista
     "retries": 3,
