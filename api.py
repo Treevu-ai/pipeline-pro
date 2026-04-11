@@ -692,6 +692,7 @@ async def _deliver_and_notify(query: str, chat_id: int, limit: int, channel: str
 
 async def _deliver_and_notify_wa(phone: str, target: str) -> None:
     """Corre el pipeline y entrega el reporte al número de WhatsApp."""
+    import traceback
     import wa_sender
     import wa_bot
 
@@ -709,6 +710,8 @@ async def _deliver_and_notify_wa(phone: str, target: str) -> None:
             [l for l in leads if l.get("lead_score", 0) >= 60],
             key=lambda x: x.get("lead_score", 0), reverse=True,
         )
+
+        # ── Resumen de texto ────────────────────────────────────────────────────
         lines = [
             f"✅ *Reporte listo: {target}*",
             f"_{total} leads · {len(qualified)} calificados (score ≥60)_\n",
@@ -720,23 +723,39 @@ async def _deliver_and_notify_wa(phone: str, target: str) -> None:
             lines.append(f"*{i}. {empresa}* — Score {score}")
             lines.append(f"   → {action}")
         if not qualified:
-            lines.append("_No se encontraron leads con score ≥60. Revisa el CSV adjunto._")
-        lines.append("\n📎 CSV adjunto con todos los leads y borradores de mensaje.")
+            lines.append("_No se encontraron leads con score ≥60 en esta búsqueda._")
+        lines.append("\n📎 Adjuntando tu reporte en PDF...")
 
         await asyncio.to_thread(wa_sender.send_text, phone, "\n".join(lines))
 
-        # PDF al prospecto (renderiza inline en WhatsApp)
-        from pdf_report import build_demo_pdf
-        pdf_bytes = await asyncio.to_thread(build_demo_pdf, target, leads)
+        # ── PDF (con fallback a CSV si falla) ────────────────────────────────
         safe_name = target[:30].replace(" ", "_").replace("/", "-")
-        await asyncio.to_thread(
-            wa_sender.send_document,
-            phone,
-            f"pipeline_x_{safe_name}.pdf",
-            pdf_bytes,
-            f"Tu reporte de leads - {target}",
-        )
+        try:
+            from pdf_report import build_demo_pdf
+            pdf_bytes = await asyncio.to_thread(build_demo_pdf, target, leads)
+            await asyncio.to_thread(
+                wa_sender.send_document,
+                phone,
+                f"pipeline_x_{safe_name}.pdf",
+                pdf_bytes,
+                f"Tu reporte de leads — {target}",
+            )
+        except Exception as pdf_exc:
+            log.error("PDF generation/send failed: %s\n%s", pdf_exc, traceback.format_exc())
+            # Fallback: CSV para que el usuario igual reciba los datos
+            csv_bytes = _leads_to_csv(leads)
+            try:
+                await asyncio.to_thread(
+                    wa_sender.send_document,
+                    phone,
+                    f"pipeline_x_{safe_name}.csv",
+                    csv_bytes,
+                    f"Tu reporte de leads — {target}",
+                )
+            except Exception as csv_exc:
+                log.error("CSV fallback también falló: %s", csv_exc)
 
+        # ── Estado y notificaciones ─────────────────────────────────────────
         wa_bot._set_session(phone, {"state": "done", "target": target})
         await _notion_mark_delivered(target)
 
@@ -752,10 +771,10 @@ async def _deliver_and_notify_wa(phone: str, target: str) -> None:
                 await asyncio.to_thread(wa_sender.send_text, phone, msg["text"])
 
     except Exception as exc:
-        log.error("_deliver_and_notify_wa error: %s", exc)
+        log.error("_deliver_and_notify_wa error: %s\n%s", exc, traceback.format_exc())
         await asyncio.to_thread(
             wa_sender.send_text, phone,
-            f"❌ Hubo un error generando tu reporte.\nEscribe de nuevo tu target para reintentar."
+            "❌ Hubo un error procesando tu búsqueda.\nEscribe de nuevo el rubro y ciudad para reintentar."
         )
         wa_bot._set_session(phone, {"state": "idle"})
 
