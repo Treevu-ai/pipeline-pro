@@ -258,12 +258,31 @@ def _save_sessions(sessions: dict[str, Any]) -> None:
     )
 
 
+_SESSION_TTL = 30 * 60        # 30 min → resetea a idle
+_PIPELINE_TTL = 5 * 60        # 5 min → si sigue "running" se asume caído
+
+
 def _get_session(phone: str) -> dict:
-    return _load_sessions().get(phone, {"state": "idle"})
+    import time
+    session = _load_sessions().get(phone, {"state": "idle"})
+    now = time.time()
+    ts  = session.get("_ts", now)
+
+    # Pipeline atascado → resetear
+    if session.get("state") == "running_pipeline" and (now - ts) > _PIPELINE_TTL:
+        session = {"state": "idle"}
+
+    # Sesión expirada → resetear
+    elif session.get("state") not in ("idle",) and (now - ts) > _SESSION_TTL:
+        session = {"state": "idle"}
+
+    return session
 
 
 def _set_session(phone: str, session: dict) -> None:
+    import time
     sessions = _load_sessions()
+    session["_ts"] = time.time()
     sessions[phone] = session
     _save_sessions(sessions)
 
@@ -362,6 +381,12 @@ def _handle_message_locked(phone: str, text: str) -> list[dict]:
 
     log.info("WA msg: phone=%s state=%s text=%r", phone, state, text[:80])
 
+    # ── Saludo siempre resetea (cualquier estado) ─────────────────────────────
+    intent = _detect_intent(text)
+    if intent == "saludo":
+        _set_session(phone, {"state": "menu_shown"})
+        return _r_menu()
+
     # ── Esperando target ──────────────────────────────────────────────────────
     if state == "collecting_target":
         if len(text) < 5:
@@ -375,13 +400,11 @@ def _handle_message_locked(phone: str, text: str) -> list[dict]:
 
     # ── Ya entregado — ofrecer nuevo reporte o info ───────────────────────────
     if state == "done":
-        intent = _detect_intent(text)
         if intent:
             return _handle_intent(phone, intent)
         return _r_ya_registrado()
 
     # ── Cualquier otro estado — detectar intención ────────────────────────────
-    intent = _detect_intent(text)
     if intent:
         return _handle_intent(phone, intent)
 
