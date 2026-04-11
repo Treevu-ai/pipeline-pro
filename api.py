@@ -562,6 +562,25 @@ async def _tg_message(chat_id: int, text: str) -> None:
     })
 
 
+async def _tg_menu(chat_id: int, text: str, buttons: list[list[tuple[str, str]]]) -> None:
+    """Envía un mensaje con teclado inline. buttons es lista de filas, cada fila es lista de (text, callback_data)."""
+    keyboard = [
+        [{"text": t, "callback_data": d} for t, d in row]
+        for row in buttons
+    ]
+    await _tg_post("sendMessage", {
+        "chat_id": chat_id,
+        "text": text,
+        "parse_mode": "Markdown",
+        "reply_markup": {"inline_keyboard": keyboard},
+    })
+
+
+async def _tg_answer_callback(callback_query_id: str) -> None:
+    """Cierra el spinner del botón inline."""
+    await _tg_post("answerCallbackQuery", {"callback_query_id": callback_query_id})
+
+
 async def _tg_document(chat_id: int, filename: str, content: bytes, caption: str = "") -> None:
     if not _TG_TOKEN:
         return
@@ -790,13 +809,14 @@ async def _demo_deliver_and_capture(target: str, chat_id: int) -> None:
         _bot_states[chat_id] = {"flow": "demo_collecting_email", "target": target}
         _save_bot_states()
 
-        await _tg_message(chat_id,
-            "Esto es el *10% de lo que Pipeline_X entrega en Starter.*\n\n"
-            "Con el plan completo ($39/mes):\n"
-            "- 200 leads/mes en vez de 10\n"
-            "- Enriquecimiento SUNAT (capacidad de pago real)\n"
-            "- Reporte HTML con métricas\n\n"
-            "¿Querés activar el acceso completo? *Escribí tu email* y te lo activo hoy."
+        await _tg_menu(chat_id,
+            "Esto es solo una muestra.\n\n"
+            "Con el plan Starter (S/149/mes):\n"
+            "• Reportes ilimitados en vez de 10 leads\n"
+            "• Validación SUNAT (capacidad de pago real)\n"
+            "• PDF con mensajes personalizados por industria\n\n"
+            "¿Querés activar el acceso completo? *Escribí tu email* y te lo activo hoy.",
+            [[("🚀 Quiero plan completo", "upgrade"), ("💬 Tengo preguntas", "contacto")]],
         )
 
     except Exception as exc:
@@ -1003,13 +1023,67 @@ def _alex_reply(chat_id: int, user_text: str) -> str:
     )
 
 
+_TG_MAIN_MENU = [
+    [("🚀 Demo gratis", "demo"), ("💰 Ver precios", "precios")],
+    [("❓ Cómo funciona", "info")],
+]
+
+
+async def _handle_tg_callback(chat_id: int, data: str) -> None:
+    """Despacha el callback_data de un botón inline."""
+    if data == "demo":
+        _bot_states[chat_id] = {"flow": "demo"}
+        _save_bot_states()
+        await _tg_message(chat_id,
+            "🚀 Voy a generarte *10 leads reales* ahora mismo, sin tarjeta.\n\n"
+            "¿Qué tipo de empresa estás prospectando?\n"
+            "_Ej: Ferreterías en Trujillo · Clínicas en Bogotá_"
+        )
+    elif data == "precios":
+        await _tg_menu(chat_id,
+            "💰 *Planes Pipeline_X*\n\n"
+            "• Free — S/0 · 10 leads, sin tarjeta\n"
+            "• *Starter — S/149/mes · reportes ilimitados* ⭐\n"
+            "• Pro — S/299/mes · mayor volumen + API\n"
+            "• Reseller — S/1,099/mes · white-label para agencias\n\n"
+            "Menos que el costo de un vendedor por un día.\n"
+            "Sin contrato. Cancela cuando quieras.",
+            [[("🚀 Probar gratis", "demo"), ("💬 Hablar con alguien", "contacto")]],
+        )
+    elif data == "info":
+        await _tg_menu(chat_id,
+            "En 3 pasos:\n"
+            "1️⃣ Escribes qué buscas — *\"Ferreterías en Trujillo\"*\n"
+            "2️⃣ Buscamos en Google Maps y calificamos con IA (score 0–100)\n"
+            "3️⃣ Recibes aquí un PDF con leads + mensajes listos para enviar\n\n"
+            "Sin instalar nada. Sin aprender ningún sistema. Solo abres el PDF y llamas.",
+            [[("🚀 Demo gratis", "demo"), ("💰 Ver precios", "precios")]],
+        )
+    elif data == "contacto":
+        await _tg_message(chat_id,
+            "📧 contacto@pipelinex.app\n"
+            "🤖 Telegram: t.me/Pipeline_X_bot (respuesta inmediata)"
+        )
+    elif data == "upgrade":
+        await _tg_menu(chat_id,
+            "Para activar tu acceso escríbenos a *contacto@pipelinex.app* con asunto 'Acceso Starter'.\n\n"
+            "O empieza ahora mismo con la demo gratuita:",
+            [[("🚀 Demo gratis", "demo")]],
+        )
+    else:
+        await _tg_menu(chat_id, "¿En qué te puedo ayudar?", _TG_MAIN_MENU)
+
+
 @app.post("/webhook/telegram", include_in_schema=False)
 async def telegram_webhook(request: Request):
     """
     Recibe updates de Telegram (registrar con setWebhook apuntando a esta URL).
     Flujos:
-      /start reporte  → solicita target → corre /deliver → entrega CSV
-      cualquier otro  → bot de ventas Alex (Groq)
+      /start            → menú con botones inline
+      /start reporte    → solicita target → corre /deliver → entrega CSV
+      /start demo       → flujo demo (deep link desde landing)
+      callback_query    → botones inline (demo / precios / info / contacto)
+      cualquier otro    → bot de ventas Alex (Groq)
     """
     # Verificar token secreto si está configurado
     secret = os.environ.get("TELEGRAM_WEBHOOK_SECRET")
@@ -1019,6 +1093,15 @@ async def telegram_webhook(request: Request):
             raise HTTPException(status_code=403, detail="Forbidden")
 
     update = await request.json()
+
+    # ── Botón inline presionado ────────────────────────────────────────────────
+    cq = update.get("callback_query")
+    if cq:
+        chat_id = cq["message"]["chat"]["id"]
+        data    = cq.get("data", "")
+        await _tg_answer_callback(cq["id"])
+        await _handle_tg_callback(chat_id, data)
+        return {"ok": True}
 
     message = update.get("message")
     if not message:
@@ -1047,7 +1130,6 @@ async def telegram_webhook(request: Request):
             )
         elif payload == "demo":
             # Deep link desde landing: t.me/<bot>?start=demo
-            # Entrega valor primero (10 leads gratis), pide datos después.
             _bot_states[chat_id] = {"flow": "demo"}
             await _tg_message(chat_id,
                 "Hola 👋 Voy a generarte *10 leads reales* ahora mismo, sin tarjeta.\n\n"
@@ -1055,8 +1137,14 @@ async def telegram_webhook(request: Request):
                 "_Ej: Ferreterías en Trujillo · Clínicas en Bogotá_"
             )
         else:
-            reply = await asyncio.to_thread(_alex_reply, chat_id, "/start")
-            await _tg_message(chat_id, reply)
+            # Menú principal con botones inline
+            await _tg_menu(chat_id,
+                "👋 Hola, soy *Pipeline_X*.\n\n"
+                "Encuentra empresas reales en Google Maps, califícalas con IA "
+                "y recibe mensajes de outreach listos.\n\n"
+                "¿Por dónde empezamos?",
+                _TG_MAIN_MENU,
+            )
         _save_bot_states()
         return {"ok": True}
 
