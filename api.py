@@ -1567,14 +1567,7 @@ async def _deliver_and_notify_wa(phone: str, target: str) -> None:
             )
         except BaseException:
             log.error("No se pudo notificar error al admin")
-        # Enviar el error por WA directo al usuario para debug
-        try:
-            await asyncio.to_thread(
-                wa_sender.send_text, phone,
-                f"⚠️ Debug error: {type(exc).__name__}: {str(exc)[:150]}"
-            )
-        except BaseException:
-            pass
+        # Debug error ya no se envía al usuario (solo al admin via PipeAssist)
         # ── Error recovery con contador ───────────────────────────────────────
         try:
             current_session = wa_bot._get_session(phone)

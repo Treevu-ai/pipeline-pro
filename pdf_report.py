@@ -133,14 +133,27 @@ def _score_bar(pdf: _PipelineXPDF, x: float, y: float, score: int, w: float = 28
 
 def _lead_card_full(pdf: _PipelineXPDF, lead: dict, index: int) -> None:
     """Tarjeta completa: telefono, razon, mensaje."""
-    y0 = pdf.get_y()
-
-    # Altura dinamica segun mensaje
     msg      = (lead.get("draft_message") or "")[:200]
     why      = (lead.get("qualification_notes") or lead.get("fit_product") or lead.get("next_action") or "")[:130]
     maps_url = (lead.get("maps_url") or "").strip()
-    card_h   = 48
+    phone    = (lead.get("telefono") or lead.get("telefono_web") or "").strip()
 
+    # Calcular altura necesaria
+    base_h = 28  # empresa + score + industria + telefono + maps link
+    if why:
+        base_h += 8
+    if msg:
+        base_h += 16
+    card_h = base_h
+
+    # Si no cabe en la página actual, nueva página
+    if pdf.get_y() + card_h + 4 > pdf.h - 14:
+        pdf.add_page()
+        pdf.set_y(10)
+
+    y0 = pdf.get_y()
+
+    # Fondo
     pdf.set_fill_color(*_LIGHT)
     pdf.rect(10, y0, 190, card_h, "F")
 
@@ -179,7 +192,6 @@ def _lead_card_full(pdf: _PipelineXPDF, lead: dict, index: int) -> None:
     pdf.cell(160, 4, tag, ln=1)
 
     # Telefono + indicador fijo/movil
-    phone = (lead.get("telefono") or lead.get("telefono_web") or "").strip()
     pdf.set_xy(27, y0 + 15)
     pdf.set_font(_FONT_FAMILY, "", 8)
     pdf.set_text_color(*_GRAY)
@@ -202,34 +214,37 @@ def _lead_card_full(pdf: _PipelineXPDF, lead: dict, index: int) -> None:
         pdf.cell(60, 4, "No disponible", ln=1)
 
     # Link Google Maps
+    cur_y = y0 + 20
     if maps_url:
-        pdf.set_xy(27, y0 + 20)
+        pdf.set_xy(27, cur_y)
         pdf.set_font(_FONT_FAMILY, "I", 7.5)
         pdf.set_text_color(*_DBLUE)
         pdf.cell(0, 4, "Ver en Google Maps ->", link=maps_url, ln=1)
+        cur_y += 5
 
     # Por que califica
     if why:
-        pdf.set_xy(27, y0 + 25)
+        pdf.set_xy(27, cur_y)
         pdf.set_font(_FONT_FAMILY, "", 7.5)
         pdf.set_text_color(*_GRAY)
         pdf.cell(18, 4, "Razon:", ln=0)
         pdf.set_text_color(*_BLACK)
-        pdf.multi_cell(155, 3.8, why, ln=1)
+        pdf.cell(155, 4, why[:100], ln=1)
+        cur_y += 5
 
     # Mensaje sugerido
     if msg:
-        msg_y = y0 + 35
+        msg_y = cur_y + 1
         pdf.set_fill_color(*_LBLUE)
-        pdf.rect(27, msg_y, 173, 14, "F")
-        pdf.set_xy(29, msg_y + 1.5)
+        pdf.rect(27, msg_y, 173, 12, "F")
+        pdf.set_xy(29, msg_y + 1)
         pdf.set_font(_FONT_FAMILY, "B", 7)
         pdf.set_text_color(*_DBLUE)
         pdf.cell(0, 4, "Mensaje sugerido:", ln=1)
         pdf.set_x(29)
         pdf.set_font(_FONT_FAMILY, "I", 7.5)
         pdf.set_text_color(*_DBLUE)
-        pdf.multi_cell(169, 3.8, f'"{msg}"', ln=1)
+        pdf.cell(169, 4, f'"{msg[:120]}"', ln=1)
 
     pdf.set_y(y0 + card_h + 4)
 
