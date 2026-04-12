@@ -2048,24 +2048,11 @@ async def whatsapp_webhook(request: Request):
             if mtype == "pipeline_request":
                 # Lanzar pipeline en background — responde inmediatamente con "procesando"
                 asyncio.create_task(_deliver_and_notify_wa(phone, msg["target"]))
-            elif mtype == "buttons":
-                await asyncio.to_thread(
-                    wa_sender.send_buttons,
-                    phone,
-                    msg["body"],
-                    msg["buttons"],
-                    msg.get("header", ""),
-                    msg.get("footer", ""),
-                )
-            elif mtype == "list":
-                await asyncio.to_thread(
-                    wa_sender.send_list,
-                    phone,
-                    msg["body"],
-                    msg["button_text"],
-                    msg["sections"],
-                    msg.get("footer", ""),
-                )
+            elif mtype in ("buttons", "list"):
+                # Botones/listas ya no se usan — enviar como texto plano
+                body = msg.get("body", "") or msg.get("text", "")
+                if body:
+                    await asyncio.to_thread(wa_sender.send_text, phone, body)
             else:
                 await asyncio.to_thread(wa_sender.send_text, phone, msg["text"])
         except Exception as send_exc:

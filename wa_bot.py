@@ -99,13 +99,6 @@ _FOOTER = "Pipeline_X · pipelinex.app"
 
 # ─── Textos ───────────────────────────────────────────────────────────────────
 
-_BIENVENIDA = (
-    "👋 Hola, soy *Pipeline_X*.\n\n"
-    "Te ayudo a conseguir más clientes sin contratar a nadie.\n"
-    "Dime a qué tipo de negocio le quieres vender y en qué ciudad — "
-    "en minutos recibes aquí mismo una lista de prospectos listos para contactar."
-)
-
 _INFO_BODY = (
     "En 3 pasos:\n"
     "1️⃣ Escribes qué buscas — *\"Ferreterías en Trujillo\"*\n"
@@ -127,7 +120,7 @@ _PRECIOS_BODY = (
 
 _PEDIR_TARGET = "Solo escribeme: rubro + ciudad\n\nEj: restaurantes Lima"
 
-_PROCESANDO = "⏳ Buscando *\"{target}\"* en Google Maps... esto toma ~2 min ☕"
+_PROCESANDO = "⏳ Buscando *\"{target}\"* en Google Maps... te aviso en breve ☕"
 
 # strings centralizados en messages.py — importar lazy para no crear ciclos
 def _MSG(key: str, **kwargs) -> str:
@@ -138,11 +131,9 @@ _YA_REGISTRADO = "Tu reporte ya está en camino ✅"
 
 _BIENVENIDA = """👋 Hola, soy Pipeline_X.
 
-Te ayudo a encontrar leads calificados para tu negocio.
+Te ayudo a encontrar leads calificados para tu negocio."""
 
-Para empezar, presiona el botón de abajo 👇"""
-
-_NO_ENTENDIDO = """Para buscar leads, presiona *Demo gratis* y te explico cómo funciona."""
+_NO_ENTENDIDO = """No entendí eso 🤔\nEscribe rubro + ciudad para buscar leads.\nEj: _restaurantes Lima_"""
 
 # ─── Constructores de respuesta ───────────────────────────────────────────────
 
@@ -514,11 +505,7 @@ def _handle_message_locked(phone: str, text: str) -> list[dict]:
         _set_session(phone, {**session, "state": "menu_shown", "name": name})
         from messages import MSG
         bienvenida = MSG["name_saved"].format(name=name)
-        return [_b(
-            bienvenida,
-            [("demo", "🚀 Demo gratis"), ("precios", "💰 Precios"), ("info", "❓ Cómo funciona")],
-            footer=_FOOTER,
-        )]
+        return [_t(bienvenida)]
 
     # ── Confirmando ciudad por defecto ────────────────────────────────────────
     if state == "confirming_city":

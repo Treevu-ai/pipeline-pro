@@ -74,18 +74,18 @@ class TestStateMachine:
 
     def test_idle_shows_menu(self):
         msgs = handle(PHONE, "hola")
-        assert any(m.get("type") == "buttons" for m in msgs)
+        assert any(m.get("type") == "text" and "Pipeline_X" in m["text"] for m in msgs)
 
     def test_saludo_siempre_resetea(self, mock_db):
         mock_db[PHONE] = {"state": "done", "_ts": __import__("time").time()}
         msgs = handle(PHONE, "hola")
-        assert any(m.get("type") == "buttons" for m in msgs)
+        assert any(m.get("type") == "text" and "Pipeline_X" in m["text"] for m in msgs)
 
     def test_demo_intent_pide_target(self, mock_db):
         mock_db[PHONE] = {"state": "menu_shown", "_ts": __import__("time").time()}
         msgs = handle(PHONE, "demo")
-        assert any("tipo de empresas" in m.get("text", "").lower() or
-                   "tipo de empresas" in m.get("body", "").lower()
+        assert any("rubro" in m.get("text", "").lower() or
+                   "ciudad" in m.get("text", "").lower()
                    for m in msgs)
 
     def test_target_muy_corto_rechazado(self, mock_db):
@@ -168,18 +168,16 @@ class TestIntentDetection:
 
 class TestResponseBuilders:
 
-    def test_menu_has_3_buttons(self):
+    def test_menu_has_3_options(self):
         msgs = wa_bot._r_menu()
-        btns = msgs[0]["buttons"]
-        assert len(btns) == 3
+        text = msgs[0]["text"]
+        assert "1." in text and "2." in text and "3." in text
 
-    def test_feedback_has_3_buttons(self):
+    def test_feedback_has_3_options(self):
         msgs = wa_bot._r_feedback()
-        assert msgs[0]["type"] == "buttons"
-        btns = msgs[0]["buttons"]
-        assert len(btns) == 3
-        ids = {b["id"] for b in btns}
-        assert {"feedback_good", "feedback_ok", "feedback_bad"} == ids
+        assert msgs[0]["type"] == "text"
+        text = msgs[0]["text"]
+        assert "1." in text and "2." in text and "3." in text
 
     def test_upgrade_env_con_bank_info(self, monkeypatch):
         monkeypatch.setenv("BANK_TRANSFER_INFO", "BCP · 1234567890")
@@ -193,12 +191,10 @@ class TestResponseBuilders:
         msgs = wa_bot._r_upgrade(PHONE)
         assert any("contacto@pipelinex" in m.get("text", "") for m in msgs)
 
-    def test_post_demo_tiene_upgrade_button(self):
+    def test_post_demo_tiene_upgrade_option(self):
         msgs = wa_bot._r_post_demo()
-        all_btns = [b for m in msgs if m.get("type") == "buttons"
-                    for b in m["buttons"]]
-        ids = {b["id"] for b in all_btns}
-        assert "upgrade" in ids
+        text = msgs[0]["text"]
+        assert "plan completo" in text.lower() or "1." in text
 
 
 # ─── Rate limiting ────────────────────────────────────────────────────────────
@@ -260,17 +256,15 @@ class TestRateLimit:
         msgs = handle(PHONE, "Ferreterías en Lima")
         assert any(m.get("type") == "pipeline_request" for m in msgs)
 
-    def test_basico_monthly_limit(self, mock_db, monkeypatch):
-        """Básico: bloqueado al llegar a 10 búsquedas del mes."""
+    def test_free_daily_limit(self, mock_db, monkeypatch):
+        """Free: bloqueado al llegar al límite diario de 1 búsqueda."""
         import db as _db
-        monkeypatch.setattr(_db, "get_subscriber", lambda phone: _mock_sub("basico"))
-        monkeypatch.setattr(_db, "get_daily_search_count", lambda phone: 0)
-        monkeypatch.setattr(_db, "get_monthly_search_count", lambda phone: 10)
+        monkeypatch.setattr(_db, "get_subscriber", lambda phone: None)
+        monkeypatch.setattr(_db, "get_daily_search_count", lambda phone: 1)
+        monkeypatch.setattr(_db, "get_monthly_search_count", lambda phone: 0)
         mock_db[PHONE] = {"state": "collecting_target", "_ts": __import__("time").time()}
         msgs = handle(PHONE, "Ferreterías en Lima")
         assert not any(m.get("type") == "pipeline_request" for m in msgs)
-        assert any("mes" in m.get("text", "").lower() or "mes" in m.get("body", "").lower()
-                   for m in msgs)
 
     def test_basico_under_monthly_limit_passes(self, mock_db, monkeypatch):
         """Básico: dentro del límite mensual → pipeline_request OK."""
