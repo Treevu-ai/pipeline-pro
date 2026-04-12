@@ -467,7 +467,6 @@ class SignupRequest(BaseModel):
     name: Optional[str] = Field(None, description="Nombre del usuario")
     utm_source: Optional[str] = Field(None, description="utm_source para tracking")
     utm_medium: Optional[str] = Field(None, description="utm_medium para tracking")
-    ref: Optional[str] = Field(None, description="Código de referido")
 
 
 class SignupResponse(BaseModel):
@@ -477,11 +476,46 @@ class SignupResponse(BaseModel):
     message: str
 
 
+class LoginRequest(BaseModel):
+    phone: str
+
+
+class LoginResponse(BaseModel):
+    phone: str
+    plan: str
+    status: str
+    expires_at: Optional[str]
+
+
+class PaymentLinkRequest(BaseModel):
+    plan: str = Field(..., description="Plan a comprar: basico, starter, pro, enterprise")
+
+
+class PaymentLinkResponse(BaseModel):
+    payment_url: str
+    plan: str
+    amount_soles: int
+    expires_at: str
+
+
+# ─── Auth helpers ──────────────────────────────────────────────────────────────
+
+_API_KEY = os.environ.get("PIPELINE_X_API_KEY", "")
+
+def _generate_token(phone: str) -> str:
+    """Genera un token simple basado en phone + secret."""
+    if not _API_KEY:
+        return secrets.token_urlsafe(32)
+    payload = f"{phone}:{time.time()}"
+    return hmac.new(_API_KEY.encode(), payload.encode(), hashlib.sha256).hexdigest()[:32]
+
+
+# ─── Auth endpoints ───────────────────────────────────────────────────────────
+
 @app.post("/auth/signup", response_model=SignupResponse, tags=["Auth"])
 async def signup(req: SignupRequest, request: Request):
     """
     Registra un nuevo usuario y activa trial de 3 días.
-    Si se incluye ref=CODE, se registra como referido.
     El usuario recibirá un código por WhatsApp para verificar su número.
     """
     phone = req.phone.strip()
@@ -491,10 +525,6 @@ async def signup(req: SignupRequest, request: Request):
     phone = phone.replace("+51", "51").replace(" ", "").replace("-", "")
     if not phone.isdigit() or len(phone) < 9:
         raise HTTPException(status_code=400, detail="Teléfono inválido")
-    
-    referral_applied = False
-    if req.ref:
-        referral_applied = _db.use_referral_code(req.ref, phone)
     
     existing = _db.get_subscriber(phone)
     if existing and existing.get("status") == "active":
@@ -510,18 +540,12 @@ async def signup(req: SignupRequest, request: Request):
         utm_data["utm_source"] = req.utm_source
     if req.utm_medium:
         utm_data["utm_medium"] = req.utm_medium
-    if req.ref:
-        utm_data["ref"] = req.ref
     if utm_data:
         notes = json.dumps(utm_data)
     else:
         notes = ""
     
-    trial_days = 3
-    if referral_applied:
-        trial_days = 33
-    
-    _db.upsert_subscriber(phone, plan="trial", days=trial_days, notes=notes)
+    _db.upsert_subscriber(phone, plan="trial", days=3, notes=notes)
     
     if req.name:
         _db.save_user_profile(phone, name=req.name)
@@ -577,46 +601,6 @@ async def get_profile(request: Request):
         raise HTTPException(status_code=404, detail="Perfil no encontrado")
     
     return profile
-
-
-@app.post("/auth/referral/generate", tags=["Referral"])
-async def generate_referral(request: Request):
-    """
-    Genera un código de referido único.
-    max_referrals: máximo de referidos (default 10).
-    """
-    phone = request.headers.get("X-User-Phone", "").strip()
-    if not phone:
-        raise HTTPException(status_code=401, detail="X-User-Phone requerido")
-    
-    code = _db.generate_referral_code(phone)
-    referral_link = f"https://pipelinex.app?ref={code}"
-    
-    return {
-        "code": code,
-        "link": referral_link,
-        "message": "Comparte este link con tus colegas"
-    }
-
-
-@app.get("/auth/referral/{code}", tags=["Referral"])
-async def get_referral_info(code: str):
-    """Info de un código de referido."""
-    info = _db.get_referral_code(code)
-    if not info:
-        raise HTTPException(status_code=404, detail="Código no válido o expired")
-    
-    return info
-
-
-@app.get("/user/referrals", tags=["Referral"])
-async def get_my_referrals(request: Request):
-    """Lista de referidos del usuario."""
-    phone = request.headers.get("X-User-Phone", "").strip()
-    if not phone:
-        raise HTTPException(status_code=401, detail="X-User-Phone requerido")
-    
-    return _db.get_user_referrals(phone)
 
 
 @app.post("/auth/login", response_model=LoginResponse, tags=["Auth"])
@@ -686,14 +670,8 @@ async def payment_link(req: PaymentLinkRequest, request: Request):
     if amount == 0:
         raise HTTPException(status_code=400, detail="Plan gratuito, no requiere pago")
     
-    phone_last6 = phone[-6:] if len(phone) >= 6 else phone
-    payment_id = f"pay_{phone_last6}_{int(time.time())}"
-    
-    yape_url = os.environ.get("YAPE_LINK", "")
-    if yape_url:
-        payment_url = f"{yape_url}?phone={phone}&amount={amount}&plan={plan}"
-    else:
-        payment_url = f"https://yape.com.pe/{payment_id}"
+    payment_id = f"pay_{phone[:6]}_{int(time.time())}"
+    payment_url = f"https://yape.com.pe/{payment_id}"
     
     _db.save_payment_link(phone, payment_id, plan, amount)
     
@@ -705,62 +683,6 @@ async def payment_link(req: PaymentLinkRequest, request: Request):
         amount_soles=amount,
         expires_at=expires.isoformat()
     )
-
-
-@app.post("/webhook/payment", tags=["Webhooks"])
-async def webhook_payment(req: Request):
-    """
-    Webhook para confirmar pagos de Yape/Plin.
-    Configura en el panel de Yape: https://tu-api.railway.app/webhook/payment
-    """
-    try:
-        body = await req.json()
-    except:
-        body = {}
-    
-    payment_id = body.get("paymentId") or body.get("id") or ""
-    status = body.get("status") or body.get("paymentStatus") or ""
-    amount = body.get("amount", 0)
-    phone_from_payment = body.get("phoneNumber") or body.get("phone") or ""
-    
-    if not payment_id:
-        return {"ok": False, "detail": "paymentId requerido"}
-    
-    if status in ("success", "completed", "approved"):
-        result = _db.confirm_payment(payment_id)
-        if result:
-            _db.log_event(
-                result["phone"], 
-                _db.EventType.SUBSCRIBER_ACTIVATED,
-                {"plan": result["plan"], "amount": amount, "payment_id": payment_id}
-            )
-            
-            referral_reward = _db.activate_referralReward(result["phone"], result["plan"])
-            if referral_reward:
-                log.info(f"Referral reward activated: referrer={referral_reward['referred_by']}, days={referral_reward['days']}")
-            
-            _send_welcome_message(result["phone"])
-            return {"ok": True, "message": f"Suscripción activada para {result['phone']}"}
-    
-    return {"ok": False, "detail": "Pago no completado"}
-
-
-def _send_welcome_message(phone: str) -> None:
-    """Envia mensaje de bienvenida por WhatsApp."""
-    try:
-        import wa_sender
-        welcome_text = f"""🎉 ¡Bienvenido a Pipeline_X!
-        
-Tu suscripción está activa.
-
-📌 Para comenzar:
-1. Escribe el rubro que buscas (ej: "restaurantes en Lima")
-2. Te envío el reporte con leads calificados
-
-¿Tienes preguntas? Solo escríbeme."""
-        wa_sender.send_text(phone, welcome_text)
-    except Exception as e:
-        log.error("Welcome message failed: %s", e)
 
 
 # ─── Helpers async ───────────────────────────────────────────────────────────
