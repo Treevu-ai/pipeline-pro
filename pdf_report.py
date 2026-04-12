@@ -426,6 +426,14 @@ def build_full_pdf(target: str, leads: list[dict[str, Any]]) -> bytes:
     Returns:
         Bytes del PDF generado.
     """
+    import logging
+    log = logging.getLogger("pdf_report")
+    
+    log.info("build_full_pdf: target=%s leads=%d", target, len(leads))
+    if leads:
+        scores = [l.get("lead_score", 0) for l in leads[:5]]
+        log.info("build_full_pdf: first 5 scores=%s", scores)
+    
     qualified = sorted(
         [l for l in leads if (l.get("lead_score") or 0) >= 60],
         key=lambda x: x.get("lead_score", 0),
@@ -447,6 +455,7 @@ def build_full_pdf(target: str, leads: list[dict[str, Any]]) -> bytes:
         pdf.cell(0, 7, f"{len(all_leads)} leads encontrados", ln=1)
         pdf.ln(2)
         for i, lead in enumerate(all_leads, 1):
+            log.info("Rendering lead %d: empresa=%s score=%s", i, lead.get("empresa", "-"), lead.get("lead_score", 0))
             _lead_card_full(pdf, lead, i)
             if i % 3 == 0:
                 pdf.ln(2)

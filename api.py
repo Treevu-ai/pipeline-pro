@@ -851,6 +851,7 @@ def _save_report_bytes(data: bytes) -> str:
     token = secrets.token_urlsafe(8)
     path = REPORTS_DIR / f"{token}.pdf"
     path.write_bytes(data)
+    log.info("PDF saved: token=%s size=%d bytes", token, len(data))
     return token
 
 
@@ -1416,6 +1417,8 @@ async def _deliver_and_notify_wa(phone: str, target: str) -> None:
         # ── PDF ──────────────────────────────────────────────────────────────
         safe_name = target[:30].replace(" ", "_").replace("/", "-")
         try:
+            log.info("PDF gen: target=%s leads=%d qualified=%d full_pdf=%s",
+                     target, len(leads), len(qualified), plan_cfg.get("full_pdf", False))
             if plan_cfg.get("full_pdf", False):
                 from pdf_report import build_full_pdf
                 pdf_bytes = await asyncio.to_thread(build_full_pdf, target, leads)
@@ -1464,14 +1467,7 @@ async def _deliver_and_notify_wa(phone: str, target: str) -> None:
         # ── Post-entrega: upgrade CTA solo para free ───────────────────────
         if not is_paid:
             for msg in wa_bot._r_post_demo():
-                if msg.get("type") == "buttons":
-                    await asyncio.to_thread(
-                        wa_sender.send_buttons,
-                        phone, msg["body"], msg["buttons"],
-                        msg.get("header", ""), msg.get("footer", ""),
-                    )
-                else:
-                    await asyncio.to_thread(wa_sender.send_text, phone, msg["text"])
+                await asyncio.to_thread(wa_sender.send_text, phone, msg["text"])
         else:
             # Suscriptor: ofrecer nueva búsqueda directamente
             await asyncio.to_thread(
@@ -1485,14 +1481,7 @@ async def _deliver_and_notify_wa(phone: str, target: str) -> None:
             try:
                 fb_msgs = wa_bot._r_feedback()
                 for fb in fb_msgs:
-                    if fb.get("type") == "buttons":
-                        await asyncio.to_thread(
-                            wa_sender.send_buttons,
-                            phone, fb["body"], fb["buttons"],
-                            fb.get("header", ""), fb.get("footer", ""),
-                        )
-                    else:
-                        await asyncio.to_thread(wa_sender.send_text, phone, fb["text"])
+                    await asyncio.to_thread(wa_sender.send_text, phone, fb["text"])
                 wa_bot._set_session(phone, {"state": "feedback_prompted", "target": target})
             except Exception as fb_exc:
                 log.warning("feedback send error phone=%s: %s", phone, fb_exc)

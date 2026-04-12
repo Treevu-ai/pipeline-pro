@@ -157,25 +157,13 @@ def _r_menu(phone: str | None = None) -> list[dict]:
                 bienvenida = f"Hola {name}! 👋\n\n" + _BIENVENIDA.split("\n\n", 1)[-1]
         except Exception:
             pass
-    return [_b(
-        bienvenida,
-        [("demo", "🚀 Demo gratis"), ("precios", "💰 Precios"), ("info", "❓ Cómo funciona")],
-        footer=_FOOTER,
-    )]
+    return [_t(bienvenida + "\n\n" + "Elige una opción:\n1. 🚀 Demo gratis\n2. 💰 Precios\n3. ❓ Cómo funciona")]
 
 def _r_info() -> list[dict]:
-    return [_b(
-        _INFO_BODY,
-        [("demo", "🚀 Probar gratis"), ("precios", "💰 Ver precios")],
-        footer=_FOOTER,
-    )]
+    return [_t(_INFO_BODY + "\n\nElige:\n1. 🚀 Probar gratis\n2. 💰 Ver precios")]
 
 def _r_precios() -> list[dict]:
-    return [_b(
-        _PRECIOS_BODY,
-        [("demo", "🚀 Probar gratis"), ("contacto", "💬 Hablar con alguien")],
-        footer=_FOOTER,
-    )]
+    return [_t(_PRECIOS_BODY + "\n\nElige:\n1. 🚀 Probar gratis\n2. 💬 Hablar con alguien")]
 
 def _r_pedir_target() -> list[dict]:
     return [_t(_PEDIR_TARGET)]
@@ -184,15 +172,15 @@ def _r_procesando(target: str = "") -> list[dict]:
     return [_t(_PROCESANDO.format(target=target or "tu búsqueda"))]
 
 def _r_post_demo() -> list[dict]:
-    return [_b(
+    return [_t(
         "Esto es solo una muestra 👆\n\n"
         "Con el plan *Starter (S/149/mes)* tienes:\n"
         "✅ Reportes ilimitados\n"
         "✅ Todos los datos sin censura\n"
         "✅ Validación SUNAT incluida\n\n"
-        "¿Quieres activar tu acceso o buscar otro rubro?",
-        [("upgrade", "🚀 Quiero el plan completo"), ("demo", "🔍 Nueva búsqueda")],
-        footer=_FOOTER,
+        "¿Qué quieres hacer?\n"
+        "1. 🚀 Quiero el plan completo\n"
+        "2. 🔍 Nueva búsqueda"
     )]
 
 
@@ -289,35 +277,34 @@ def _r_contacto() -> list[dict]:
     )]
 
 def _r_ya_registrado() -> list[dict]:
-    return [_b(
-        _YA_REGISTRADO,
-        [("demo", "🔄 Nuevo reporte"), ("precios", "💰 Ver planes")],
-        footer=_FOOTER,
-    )]
+    return [_t(_YA_REGISTRADO + "\n\nElige:\n1. 🔄 Nuevo reporte\n2. 💰 Ver planes")]
 
 def _r_garantia() -> list[dict]:
-    return [_b(
+    return [_t(
         "😔 Lamento que no quedara cómo esperabas.\n\n"
         "Pero puedo reenviarte el reporte por *Telegram* donde suele ser más estable.\n\n"
         "1. Abre: t.me/Pipeline_X_Bot\n"
         "2. Escribe /start\n"
         "3. Envía tu búsqueda\n\n"
-        "¿Probamos por ahí? 🎯",
-        [("contacto", "💬 Hablar con alguien")],
+        "¿Probamos por ahí? 🎯\n\n"
+        "O escribe *contacto* para hablar con alguien."
     )]
 
 def _r_feedback() -> list[dict]:
-    return [_b(
-        _MSG("feedback_ask"),
-        [("feedback_good", "👍 Muy útil"), ("feedback_ok", "😐 Regular"), ("feedback_bad", "👎 Poco útil")],
-        footer=_FOOTER,
+    return [_t(
+        _MSG("feedback_ask") + "\n\n"
+        "1. 👍 Muy útil\n"
+        "2. 😐 Regular\n"
+        "3. 👎 Poco útil"
     )]
 
 def _r_no_entendido() -> list[dict]:
-    return [_b(
-        _NO_ENTENDIDO,
-        [("demo", "🚀 Demo gratis"), ("precios", "💰 Precios"), ("info", "❓ Info")],
-        footer=_FOOTER,
+    return [_t(
+        "No entendí eso 🤔\n\n"
+        "Elige:\n"
+        "1. 🚀 Demo gratis\n"
+        "2. 💰 Precios\n"
+        "3. ❓ Info"
     )]
 
 

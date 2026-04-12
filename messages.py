@@ -17,7 +17,7 @@ MSG: dict[str, str] = {
     # ── Flujo de búsqueda ─────────────────────────────────────────────────────
     "search_start": (
         "🔍 Buscando *{target}*...\n"
-        "Esto toma ~2 minutos, no cierres el chat."
+        "No cierres el chat, te aviso en breve."
     ),
     "qualify_progress": (
         "🤖 Calificando leads con IA... ya casi termina."
