@@ -465,7 +465,7 @@ class PipelineRequest(BaseModel):
 class SignupRequest(BaseModel):
     phone: str = Field(..., description="Número de WhatsApp (formato: 51xxxxxxxxx)")
     name: Optional[str] = Field(None, description="Nombre del usuario")
-   utm_source: Optional[str] = Field(None, description="utm_source para tracking")
+    utm_source: Optional[str] = Field(None, description="utm_source para tracking")
     utm_medium: Optional[str] = Field(None, description="utm_medium para tracking")
 
 
