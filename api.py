@@ -1359,13 +1359,6 @@ async def _deliver_and_notify_wa(phone: str, target: str) -> None:
         except Exception:
             pass
 
-    async def _progress_msg(delay: float, text: str) -> None:
-        await asyncio.sleep(delay)
-        try:
-            await asyncio.to_thread(wa_sender.send_text, phone, text)
-        except Exception:
-            pass
-
     try:
         await asyncio.to_thread(
             wa_sender.send_text, phone,
@@ -1500,7 +1493,15 @@ async def _deliver_and_notify_wa(phone: str, target: str) -> None:
 
     except Exception as exc:
         import exceptions as app_exc
-        log.error("_deliver_and_notify_wa error: %s\n%s", exc, traceback.format_exc())
+        tb = traceback.format_exc()
+        log.error("_deliver_and_notify_wa error: %s\n%s", exc, tb)
+        # Notificar al admin con detalle del error
+        asyncio.create_task(_notify_pipeassist(
+            f"❌ *Error pipeline WA*\n"
+            f"📱 `{phone}`\n"
+            f"🎯 `{target}`\n"
+            f"💥 `{type(exc).__name__}: {str(exc)[:200]}`"
+        ))
         # ── Error recovery con contador ───────────────────────────────────────
         try:
             current_session = wa_bot._get_session(phone)
