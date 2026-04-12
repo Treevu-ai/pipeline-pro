@@ -1545,6 +1545,11 @@ async def _deliver_and_notify_wa(phone: str, target: str) -> None:
         asyncio.create_task(_send_feedback_delayed())
 
     except BaseException as exc:
+        # Cancelar mensajes de progreso pendientes
+        try:
+            t1.cancel()
+        except Exception:
+            pass
         tb = traceback.format_exc()
         log.error("_deliver_and_notify_wa error [%s]: %s\n%s", type(exc).__name__, exc, tb)
         # Notificar al admin con detalle del error
