@@ -2056,6 +2056,14 @@ def _rate_limited(phone: str) -> bool:
 
 # ─── WhatsApp webhook (Green API) ─────────────────────────────────────────────
 
+_wa_phone_locks: dict[str, asyncio.Lock] = {}
+
+def _get_wa_lock(phone: str) -> asyncio.Lock:
+    """Lock async por teléfono — serializa webhooks del mismo usuario."""
+    if phone not in _wa_phone_locks:
+        _wa_phone_locks[phone] = asyncio.Lock()
+    return _wa_phone_locks[phone]
+
 @app.post("/webhook/whatsapp", include_in_schema=False)
 async def whatsapp_webhook(request: Request):
     """
@@ -2090,32 +2098,34 @@ async def whatsapp_webhook(request: Request):
     if _rate_limited(phone):
         return {"ok": True}
 
-    # Marcar como leído (ticks azules)
-    if id_message:
-        await asyncio.to_thread(wa_sender.mark_read, phone, id_message)
+    # Serializar mensajes del mismo teléfono
+    async with _get_wa_lock(phone):
+        # Marcar como leído (ticks azules)
+        if id_message:
+            await asyncio.to_thread(wa_sender.mark_read, phone, id_message)
 
-    # Procesar y responder (handle_message devuelve list[dict])
-    try:
-        messages = await asyncio.to_thread(wa_bot.handle_message, phone, text)
-    except Exception as exc:
-        log.error("handle_message error phone=%s: %s", phone, exc)
-        return {"ok": True}
-
-    for msg in messages:
-        mtype = msg.get("type", "text")
+        # Procesar y responder (handle_message devuelve list[dict])
         try:
-            if mtype == "pipeline_request":
-                # Lanzar pipeline en background — responde inmediatamente con "procesando"
-                asyncio.create_task(_deliver_and_notify_wa(phone, msg["target"]))
-            elif mtype in ("buttons", "list"):
-                # Botones/listas ya no se usan — enviar como texto plano
-                body = msg.get("body", "") or msg.get("text", "")
-                if body:
-                    await asyncio.to_thread(wa_sender.send_text, phone, body)
-            else:
-                await asyncio.to_thread(wa_sender.send_text, phone, msg["text"])
-        except Exception as send_exc:
-            log.warning("send error phone=%s type=%s: %s", phone, mtype, send_exc)
+            messages = await asyncio.to_thread(wa_bot.handle_message, phone, text)
+        except Exception as exc:
+            log.error("handle_message error phone=%s: %s", phone, exc)
+            return {"ok": True}
+
+        for msg in messages:
+            mtype = msg.get("type", "text")
+            try:
+                if mtype == "pipeline_request":
+                    # Lanzar pipeline en background — responde inmediatamente con "procesando"
+                    asyncio.create_task(_deliver_and_notify_wa(phone, msg["target"]))
+                elif mtype in ("buttons", "list"):
+                    # Botones/listas ya no se usan — enviar como texto plano
+                    body = msg.get("body", "") or msg.get("text", "")
+                    if body:
+                        await asyncio.to_thread(wa_sender.send_text, phone, body)
+                else:
+                    await asyncio.to_thread(wa_sender.send_text, phone, msg["text"])
+            except Exception as send_exc:
+                log.warning("send error phone=%s type=%s: %s", phone, mtype, send_exc)
 
     return {"ok": True}
 
