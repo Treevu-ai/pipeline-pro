@@ -4,6 +4,8 @@ config.py — Edita este archivo para adaptar el agente a tu producto y mercado.
 from __future__ import annotations
 import os
 
+
+
 # ─── Conexión a Ollama (legacy — solo para uso local) ─────────────────────────
 OLLAMA = {
     "url": "http://127.0.0.1:11434/api/chat",
