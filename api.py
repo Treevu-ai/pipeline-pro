@@ -470,6 +470,13 @@ class SignupRequest(BaseModel):
     ref: Optional[str] = Field(None, description="Código de referido")
 
 
+class SignupResponse(BaseModel):
+    phone: str
+    plan: str
+    trial_days: int
+    message: str
+
+
 @app.post("/auth/signup", response_model=SignupResponse, tags=["Auth"])
 async def signup(req: SignupRequest, request: Request):
     """
