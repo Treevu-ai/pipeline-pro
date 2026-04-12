@@ -1382,7 +1382,12 @@ async def _deliver_and_notify_wa(phone: str, target: str) -> None:
             30, MSG["qualify_progress"]
         ))
 
+        import time as _time
+        _t0 = _time.monotonic()
+        log.info("WA pipeline START: phone=%s target=%s limit=%d", phone, target, leads_limit)
         result = await asyncio.to_thread(_run_pipeline, req)
+        _elapsed = _time.monotonic() - _t0
+        log.info("WA pipeline END: phone=%s elapsed=%.1fs leads=%d", phone, _elapsed, len(result.get("leads", [])))
         t1.cancel()
         leads  = result.get("leads", [])
         total  = result.get("total", len(leads))
