@@ -34,7 +34,7 @@ _FONT_REGULAR = _get_font_path("arial.ttf") or _get_font_path("DejaVuSans.ttf")
 _FONT_BOLD    = _get_font_path("arialbd.ttf") or _get_font_path("DejaVuSans-Bold.ttf")
 _FONT_ITALIC  = _get_font_path("ariali.ttf") or _get_font_path("DejaVuSans-Oblique.ttf") or _get_font_path("DejaVuSans-Italic.ttf")
 _FONT_BOLDITALIC = _get_font_path("arialbi.ttf") or _get_font_path("DejaVuSans-BoldOblique.ttf") or _get_font_path("DejaVuSans-BoldItalic.ttf")
-_FONT_FAMILY = "Arial"
+_FONT_FAMILY = "DejaVuSans"
 
 # ─── Paleta ───────────────────────────────────────────────────────────────────
 
@@ -86,10 +86,13 @@ class _PipelineXPDF(FPDF):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         if _FONT_REGULAR:
-            self.add_font(_FONT_FAMILY, style="",  fname=_FONT_REGULAR)
-            self.add_font(_FONT_FAMILY, style="B", fname=_FONT_BOLD)
-            self.add_font(_FONT_FAMILY, style="I", fname=_FONT_ITALIC)
-            self.add_font(_FONT_FAMILY, style="BI", fname=_FONT_BOLDITALIC)
+            self.add_font(_FONT_FAMILY, style="",  fname=_FONT_REGULAR, uni=True)
+        if _FONT_BOLD:
+            self.add_font(_FONT_FAMILY, style="B", fname=_FONT_BOLD, uni=True)
+        if _FONT_ITALIC:
+            self.add_font(_FONT_FAMILY, style="I", fname=_FONT_ITALIC, uni=True)
+        if _FONT_BOLDITALIC:
+            self.add_font(_FONT_FAMILY, style="BI", fname=_FONT_BOLDITALIC, uni=True)
 
     def footer(self):
         self.set_y(-11)
