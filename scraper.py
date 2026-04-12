@@ -671,29 +671,48 @@ def scrape_google_maps(query: str, limit: int, headful: bool = False) -> list[di
         Lista de leads encontrados.
     """
     async def _run() -> list[dict[str, Any]]:
+        last_error = None
         # 1. Apify (prioridad)
         if cfg.APIFY_API_KEY:
             log.info("Usando Apify Google Maps para: %s", query)
-            leads = await _search_via_apify(query, limit)
-            if leads:
-                return leads
-            log.info("Apify sin resultados — fallback Outscraper")
+            try:
+                leads = await _search_via_apify(query, limit)
+                if leads:
+                    return leads
+                log.info("Apify sin resultados — fallback SerpApi")
+            except Exception as e:
+                last_error = e
+                log.warning("Apify error: %s — fallback SerpApi", e)
         # 2. SerpApi (fallback principal)
         if cfg.SERPAPI_API_KEY:
             log.info("Usando SerpApi para: %s", query)
-            leads = await _search_via_serpapi(query, limit)
-            if leads:
-                return leads
-            log.info("SerpApi sin resultados — fallback Places API")
+            try:
+                leads = await _search_via_serpapi(query, limit)
+                if leads:
+                    return leads
+                log.info("SerpApi sin resultados — fallback Places API")
+            except Exception as e:
+                last_error = e
+                log.warning("SerpApi error: %s — fallback Places API", e)
         # 3. Google Places API (fallback secundario)
         if cfg.GOOGLE_PLACES_API_KEY:
             log.info("Usando Google Places API para: %s", query)
-            leads = await _search_via_places_api(query, limit)
-            if leads:
-                return leads
-            log.info("Places API sin resultados — fallback Playwright")
-        # 4. Playwright (último recurso)
-        return await _scrape_maps_async(query, limit, headful)
+            try:
+                leads = await _search_via_places_api(query, limit)
+                if leads:
+                    return leads
+                log.info("Places API sin resultados")
+            except Exception as e:
+                last_error = e
+                log.warning("Places API error: %s", e)
+        # 4. Playwright — solo si está disponible
+        try:
+            return await _scrape_maps_async(query, limit, headful)
+        except Exception as e:
+            log.warning("Playwright no disponible: %s", e)
+            if last_error:
+                raise exc.GoogleMapsError(f"Todas las fuentes fallaron. Último error: {last_error}") from last_error
+            raise exc.GoogleMapsError("No se encontraron resultados y Playwright no está disponible") from e
 
     return asyncio.run(_run())
 
