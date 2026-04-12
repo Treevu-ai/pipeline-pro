@@ -7,6 +7,7 @@ Interfaz: call(system, user) -> dict
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import time
@@ -14,6 +15,8 @@ from typing import Any
 
 import config as cfg
 import exceptions as exc
+
+log = logging.getLogger("llm_client")
 
 
 def _parse_json_loose(text: str) -> dict[str, Any]:

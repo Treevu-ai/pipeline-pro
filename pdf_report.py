@@ -17,14 +17,23 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+import os
 from fpdf import FPDF
 
-# ─── Fuente TTF con soporte Unicode (tildes, ñ, ¡¿, etc.) ────────────────────
-_WIN_FONTS = Path("C:/Windows/Fonts")
-_ARIAL_REGULAR = str(_WIN_FONTS / "arial.ttf")
-_ARIAL_BOLD    = str(_WIN_FONTS / "arialbd.ttf")
-_ARIAL_ITALIC  = str(_WIN_FONTS / "ariali.ttf")
-_ARIAL_BOLDITALIC = str(_WIN_FONTS / "arialbi.ttf")
+def _get_font_path(name: str) -> str | None:
+    """Cross-platform font path: Windows → Linux fallback → None if not found."""
+    win_path = Path(f"C:/Windows/Fonts/{name}")
+    if win_path.exists():
+        return str(win_path)
+    linux_path = Path(f"/usr/share/fonts/truetype/dejavu/{name}")
+    if linux_path.exists():
+        return str(linux_path)
+    return None
+
+_FONT_REGULAR = _get_font_path("arial.ttf")
+_FONT_BOLD    = _get_font_path("arialbd.ttf")
+_FONT_ITALIC  = _get_font_path("ariali.ttf")
+_FONT_BOLDITALIC = _get_font_path("arialbi.ttf")
 _FONT_FAMILY = "Arial"
 
 # ─── Paleta ───────────────────────────────────────────────────────────────────
@@ -76,10 +85,11 @@ def _censor_phone(phone: str) -> str:
 class _PipelineXPDF(FPDF):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.add_font(_FONT_FAMILY, style="",  fname=_ARIAL_REGULAR)
-        self.add_font(_FONT_FAMILY, style="B", fname=_ARIAL_BOLD)
-        self.add_font(_FONT_FAMILY, style="I", fname=_ARIAL_ITALIC)
-        self.add_font(_FONT_FAMILY, style="BI", fname=_ARIAL_BOLDITALIC)
+        if _FONT_REGULAR:
+            self.add_font(_FONT_FAMILY, style="",  fname=_FONT_REGULAR)
+            self.add_font(_FONT_FAMILY, style="B", fname=_FONT_BOLD)
+            self.add_font(_FONT_FAMILY, style="I", fname=_FONT_ITALIC)
+            self.add_font(_FONT_FAMILY, style="BI", fname=_FONT_BOLDITALIC)
 
     def footer(self):
         self.set_y(-11)
@@ -420,6 +430,52 @@ def _page_cta(pdf: _PipelineXPDF) -> None:
 
 
 # ─── Funcion principal ────────────────────────────────────────────────────────
+
+def build_full_pdf(target: str, leads: list[dict[str, Any]]) -> bytes:
+    """
+    Genera el PDF completo (suscriptores pagos) - todos los leads sin censura.
+
+    Args:
+        target: Busqueda realizada
+        leads:  Lista de dicts de leads
+
+    Returns:
+        Bytes del PDF generado.
+    """
+    qualified = sorted(
+        [l for l in leads if (l.get("lead_score") or 0) >= 60],
+        key=lambda x: x.get("lead_score", 0),
+        reverse=True,
+    )
+    all_leads = qualified + [l for l in leads if (l.get("lead_score") or 0) < 60]
+
+    pdf = _PipelineXPDF(orientation="P", unit="mm", format="A4")
+    pdf.set_auto_page_break(auto=True, margin=14)
+    pdf.set_margins(10, 10, 10)
+
+    pdf.add_page()
+    _header_bar(pdf, target, len(leads), len(qualified))
+    pdf.set_y(34)
+
+    if all_leads:
+        pdf.set_font(_FONT_FAMILY, "B", 10)
+        pdf.set_text_color(*_PURPLE)
+        pdf.cell(0, 7, f"{len(all_leads)} leads encontrados", ln=1)
+        pdf.ln(2)
+        for i, lead in enumerate(all_leads, 1):
+            _lead_card_full(pdf, lead, i)
+            if i % 3 == 0:
+                pdf.ln(2)
+    else:
+        pdf.set_xy(10, 50)
+        pdf.set_font(_FONT_FAMILY, "I", 10)
+        pdf.set_text_color(*_GRAY)
+        pdf.cell(0, 10, "No se encontraron leads en esta busqueda.", ln=1)
+
+    _page_cta(pdf)
+
+    return bytes(pdf.output())
+
 
 def build_demo_pdf(target: str, leads: list[dict[str, Any]]) -> bytes:
     """

@@ -135,10 +135,32 @@ def _create_tables() -> None:
             """)
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS user_profiles (
+                    phone            TEXT PRIMARY KEY,
+                    name             TEXT,
+                    default_city     TEXT,
+                    email            TEXT,
+                    empresa          TEXT,
+                    leads_mensuales  TEXT,
+                    updated_at       TIMESTAMPTZ DEFAULT now()
+                );
+            """)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS api_tokens (
                     phone        TEXT PRIMARY KEY,
-                    name         TEXT,
-                    default_city TEXT,
-                    updated_at   TIMESTAMPTZ DEFAULT now()
+                    token        TEXT NOT NULL,
+                    created_at   TIMESTAMPTZ DEFAULT now(),
+                    expires_at   TIMESTAMPTZ DEFAULT now() + INTERVAL '30 days'
+                );
+            """)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS payment_links (
+                    id          TEXT PRIMARY KEY,
+                    phone       TEXT,
+                    plan        TEXT NOT NULL,
+                    amount      INTEGER NOT NULL,
+                    status      TEXT DEFAULT 'pending',
+                    created_at  TIMESTAMPTZ DEFAULT now(),
+                    expires_at  TIMESTAMPTZ DEFAULT now() + INTERVAL '24 hours'
                 );
             """)
             # Limpiar sesiones WA viejas (>24h) en cada arranque
@@ -449,24 +471,108 @@ def upsert_subscriber(phone: str, plan: str = "starter",
     try:
         with _conn() as conn:
             with conn.cursor() as cur:
-                expires_sql = (
-                    f"now() + INTERVAL '{days} days'" if days else "NULL"
-                )
-                cur.execute(f"""
+                cur.execute("""
                     INSERT INTO subscribers (phone, plan, status, activated_at, expires_at, notes)
-                    VALUES (%s, %s, 'active', now(), {expires_sql}, %s)
+                    VALUES (%s, %s, 'active', now(), 
+                            CASE WHEN %s IS NOT NULL THEN now() + %s::interval ELSE NULL END,
+                            %s)
                     ON CONFLICT (phone) DO UPDATE
                         SET plan         = EXCLUDED.plan,
                             status       = 'active',
                             activated_at = now(),
-                            expires_at   = {expires_sql},
+                            expires_at   = CASE WHEN EXCLUDED.expires_at IS NOT NULL THEN now() + EXCLUDED.expires_at::interval ELSE NULL END,
                             notes        = EXCLUDED.notes
-                """, (phone, plan, notes))
+                """, (phone, plan, days, days, notes))
         log.info("Subscriber activado: phone=%s plan=%s days=%s", phone, plan, days)
         return get_subscriber(phone) or {}
     except Exception as exc:
         log.error("upsert_subscriber(%s): %s", phone, exc)
         return {}
+
+
+def save_api_token(phone: str, token: str) -> bool:
+    """Guarda o actualiza el token de API para un usuario."""
+    if not _USE_DB:
+        return False
+    try:
+        with _conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO api_tokens (phone, token, created_at, expires_at)
+                    VALUES (%s, %s, now(), now() + INTERVAL '30 days')
+                    ON CONFLICT (phone) DO UPDATE
+                        SET token = EXCLUDED.token,
+                            created_at = now(),
+                            expires_at = now() + INTERVAL '30 days'
+                """, (phone, token))
+        return True
+    except Exception as exc:
+        log.error("save_api_token(%s): %s", phone, exc)
+        return False
+
+
+def get_api_token(phone: str) -> str | None:
+    """Obtiene el token activo de un usuario."""
+    if not _USE_DB:
+        return None
+    try:
+        with _conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT token FROM api_tokens
+                    WHERE phone = %s AND expires_at > now()
+                """, (phone,))
+                row = cur.fetchone()
+                return row[0] if row else None
+    except Exception as exc:
+        log.error("get_api_token(%s): %s", phone, exc)
+        return None
+
+
+def save_payment_link(phone: str, payment_id: str, plan: str, amount: int) -> bool:
+    """Guarda un link de pago generado."""
+    if not _USE_DB:
+        return False
+    try:
+        with _conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO payment_links (id, phone, plan, amount, status, created_at, expires_at)
+                    VALUES (%s, %s, %s, %s, 'pending', now(), now() + INTERVAL '24 hours')
+                    ON CONFLICT (id) DO UPDATE
+                        SET status = 'pending',
+                            phone = EXCLUDED.phone,
+                            plan = EXCLUDED.plan,
+                            amount = EXCLUDED.amount
+                """, (payment_id, phone, plan, amount))
+        return True
+    except Exception as exc:
+        log.error("save_payment_link(%s): %s", payment_id, exc)
+        return False
+
+
+def confirm_payment(payment_id: str) -> dict | None:
+    """Confirma un pago y activa la suscripción."""
+    if not _USE_DB:
+        return None
+    try:
+        with _conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    UPDATE payment_links
+                    SET status = 'paid'
+                    WHERE id = %s AND status = 'pending' AND expires_at > now()
+                    RETURNING phone, plan, amount
+                """, (payment_id,))
+                row = cur.fetchone()
+                if not row:
+                    return None
+                phone, plan, amount = row
+                _db.upsert_subscriber(phone, plan=plan, days=30)
+                return {"phone": phone, "plan": plan, "amount": amount}
+    except Exception as exc:
+        log.error("confirm_payment(%s): %s", payment_id, exc)
+        return None
 
 
 def get_subscribers_list(limit: int = 100) -> list[dict]:
@@ -701,45 +807,52 @@ def log_event(phone: str | None, event_type: str, metadata: dict | None = None) 
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def get_user_profile(phone: str) -> dict:
-    """Lee nombre y ciudad por defecto del usuario. {} si no existe."""
     if not _USE_DB:
         return {}
     try:
         with _conn() as conn:
             with conn.cursor() as cur:
-                cur.execute(
-                    "SELECT name, default_city FROM user_profiles WHERE phone = %s",
-                    (phone,)
-                )
+                cur.execute("""
+                    SELECT name, default_city, email, empresa, leads_mensuales
+                    FROM user_profiles WHERE phone = %s
+                """, (phone,))
                 row = cur.fetchone()
                 if not row:
                     return {}
                 return {
-                    "name":         row[0],
+                    "name": row[0],
                     "default_city": row[1],
+                    "email": row[2],
+                    "empresa": row[3],
+                    "leads_mensuales": row[4],
                 }
     except Exception as exc:
         log.error("get_user_profile(%s): %s", phone, exc)
         return {}
 
 
-def set_user_profile(phone: str, name: str | None = None, default_city: str | None = None) -> None:
-    """Guarda/actualiza perfil del usuario (upsert). Solo actualiza campos no-None."""
+def save_user_profile(phone: str, name: str | None = None, default_city: str | None = None,
+                      email: str | None = None, empresa: str | None = None,
+                      leads_mensuales: str | None = None) -> None:
+    """Guarda/actualiza perfil del usuario (upsert)."""
     if not _USE_DB:
         return
     try:
         with _conn() as conn:
             with conn.cursor() as cur:
                 cur.execute("""
-                    INSERT INTO user_profiles (phone, name, default_city, updated_at)
-                    VALUES (%s, %s, %s, now())
+                    INSERT INTO user_profiles (phone, name, default_city, email, empresa, leads_mensuales, updated_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, now())
                     ON CONFLICT (phone) DO UPDATE
-                        SET name         = COALESCE(%s, user_profiles.name),
-                            default_city = COALESCE(%s, user_profiles.default_city),
-                            updated_at   = now()
-                """, (phone, name, default_city, name, default_city))
+                        SET name           = COALESCE(EXCLUDED.name, user_profiles.name),
+                            default_city   = COALESCE(EXCLUDED.default_city, user_profiles.default_city),
+                            email           = COALESCE(EXCLUDED.email, user_profiles.email),
+                            empresa         = COALESCE(EXCLUDED.empresa, user_profiles.empresa),
+                            leads_mensuales = COALESCE(EXCLUDED.leads_mensuales, user_profiles.leads_mensuales),
+                            updated_at      = now()
+                """, (phone, name, default_city, email, empresa, leads_mensuales))
     except Exception as exc:
-        log.error("set_user_profile(%s): %s", phone, exc)
+        log.error("save_user_profile(%s): %s", phone, exc)
 
 
 def get_search_history(phone: str, limit: int = 3) -> list[dict]:
@@ -787,19 +900,7 @@ def get_broadcast_candidates(plan: str | None = None) -> list[str]:
     try:
         with _conn() as conn:
             with conn.cursor() as cur:
-                plan_filter = ""
-                params: list = []
-                if plan:
-                    plan_filter = """
-                        AND EXISTS (
-                            SELECT 1 FROM subscribers s
-                            WHERE s.phone = e.phone
-                              AND s.plan = %s
-                              AND s.status = 'active'
-                        )
-                    """
-                    params.append(plan)
-                cur.execute(f"""
+                base_query = """
                     SELECT DISTINCT e.phone
                     FROM events e
                     WHERE e.event_type = %s
@@ -815,8 +916,18 @@ def get_broadcast_candidates(plan: str | None = None) -> list[str]:
                                   AND r.created_at > u.created_at
                             )
                       )
-                      {plan_filter}
-                """, [EventType.WA_SEARCH, EventType.WA_UNSUBSCRIBED, EventType.WA_SEARCH] + params)
+                """
+                if plan:
+                    cur.execute(base_query + """
+                        AND EXISTS (
+                            SELECT 1 FROM subscribers s
+                            WHERE s.phone = e.phone
+                              AND s.plan = %s
+                              AND s.status = 'active'
+                        )
+                    """, [EventType.WA_SEARCH, EventType.WA_UNSUBSCRIBED, EventType.WA_SEARCH, plan])
+                else:
+                    cur.execute(base_query, [EventType.WA_SEARCH, EventType.WA_UNSUBSCRIBED, EventType.WA_SEARCH])
                 return [row[0] for row in cur.fetchall()]
     except Exception as exc:
         log.error("get_broadcast_candidates: %s", exc)

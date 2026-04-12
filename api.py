@@ -24,22 +24,26 @@ from __future__ import annotations
 
 import asyncio
 import csv
+import hashlib
+import hmac
 import io
 import json
 import logging
 import os
+import secrets
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 import threading
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Any, Literal, Optional
 
 import httpx
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.docs import get_swagger_ui_html
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from pydantic import BaseModel, Field
 
 import config as cfg
@@ -51,9 +55,24 @@ log = logging.getLogger("api")
 # ─── Plan helpers ─────────────────────────────────────────────────────────────
 
 def _resolve_tier(request: Request) -> str:
-    """Lee X-Plan-Tier header y lo valida. Default: 'free'."""
-    tier = request.headers.get("X-Plan-Tier", const.PlanTier.FREE).lower()
-    return tier if tier in const.PlanTier.ALL else const.PlanTier.FREE
+    """Resuelve el tier del usuario desde la DB usando X-User-Phone. Default: 'free'."""
+    phone = request.headers.get("X-User-Phone", "").strip()
+    if not phone:
+        return const.PlanTier.FREE
+    
+    import db as _db
+    subscriber = _db.get_subscriber(phone)
+    if not subscriber:
+        return const.PlanTier.FREE
+    
+    if subscriber.get("status") != "active":
+        return const.PlanTier.FREE
+    
+    expires_at = subscriber.get("expires_at")
+    if expires_at and expires_at < datetime.now(timezone.utc).isoformat():
+        return const.PlanTier.FREE
+    
+    return subscriber.get("plan", const.PlanTier.FREE)
 
 
 def _plan_limits(tier: str) -> dict:
@@ -376,11 +395,20 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+def _get_allowed_origins() -> list[str]:
+    """Lee CORS_ORIGINS desde variable de entorno, permite empty para server-to-server."""
+    env = os.environ.get("CORS_ORIGINS", "").strip()
+    if not env:
+        return []
+    return [o.strip() for o in env.split(",") if o.strip()]
+
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=_get_allowed_origins(),
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "X-User-Phone"],
 )
 
 # ─── Job store (PostgreSQL vía db.py) ────────────────────────────────────────
@@ -430,6 +458,231 @@ class PipelineRequest(BaseModel):
     enrich_sunat: bool = Field(False)
     qualify: bool = Field(True, description="Calificar leads tras el scraping")
     enrich_contacts: bool = Field(False, description="Enriquecer contactos al final")
+
+
+# ─── Auth schemas ───────────────────────────────────────────────────────────────
+
+class SignupRequest(BaseModel):
+    phone: str = Field(..., description="Número de WhatsApp (formato: 51xxxxxxxxx)")
+    name: Optional[str] = Field(None, description="Nombre del usuario")
+   utm_source: Optional[str] = Field(None, description="utm_source para tracking")
+    utm_medium: Optional[str] = Field(None, description="utm_medium para tracking")
+
+
+class SignupResponse(BaseModel):
+    phone: str
+    plan: str
+    trial_days: int
+    message: str
+
+
+class LoginRequest(BaseModel):
+    phone: str
+
+
+class LoginResponse(BaseModel):
+    phone: str
+    plan: str
+    status: str
+    expires_at: Optional[str]
+
+
+class PaymentLinkRequest(BaseModel):
+    plan: str = Field(..., description="Plan a comprar: basico, starter, pro, enterprise")
+
+
+class PaymentLinkResponse(BaseModel):
+    payment_url: str
+    plan: str
+    amount_soles: int
+    expires_at: str
+
+
+# ─── Auth helpers ──────────────────────────────────────────────────────────────
+
+_API_KEY = os.environ.get("PIPELINE_X_API_KEY", "")
+
+def _generate_token(phone: str) -> str:
+    """Genera un token simple basado en phone + secret."""
+    if not _API_KEY:
+        return secrets.token_urlsafe(32)
+    payload = f"{phone}:{time.time()}"
+    return hmac.new(_API_KEY.encode(), payload.encode(), hashlib.sha256).hexdigest()[:32]
+
+
+# ─── Auth endpoints ───────────────────────────────────────────────────────────
+
+@app.post("/auth/signup", response_model=SignupResponse, tags=["Auth"])
+async def signup(req: SignupRequest, request: Request):
+    """
+    Registra un nuevo usuario y activa trial de 3 días.
+    El usuario recibirá un código por WhatsApp para verificar su número.
+    """
+    phone = req.phone.strip()
+    if not phone:
+        raise HTTPException(status_code=400, detail="Teléfono requerido")
+    
+    phone = phone.replace("+51", "51").replace(" ", "").replace("-", "")
+    if not phone.isdigit() or len(phone) < 9:
+        raise HTTPException(status_code=400, detail="Teléfono inválido")
+    
+    existing = _db.get_subscriber(phone)
+    if existing and existing.get("status") == "active":
+        return SignupResponse(
+            phone=phone,
+            plan=existing.get("plan", "free"),
+            trial_days=0,
+            message="Ya tienes una cuenta activa"
+        )
+    
+    utm_data = {}
+    if req.utm_source:
+        utm_data["utm_source"] = req.utm_source
+    if req.utm_medium:
+        utm_data["utm_medium"] = req.utm_medium
+    if utm_data:
+        notes = json.dumps(utm_data)
+    else:
+        notes = ""
+    
+    _db.upsert_subscriber(phone, plan="trial", days=3, notes=notes)
+    
+    if req.name:
+        _db.save_user_profile(phone, name=req.name)
+    
+    token = _generate_token(phone)
+    _db.save_api_token(phone, token)
+    
+    return SignupResponse(
+        phone=phone,
+        plan="trial",
+        trial_days=3,
+        message="¡Bienvenido! Tienes 3 días de acceso completo gratis."
+    )
+
+
+@app.post("/auth/profile", tags=["Auth"])
+async def update_profile(
+    name: Optional[str] = None,
+    email: Optional[str] = None,
+    empresa: Optional[str] = None,
+    leads_mensuales: Optional[str] = None,
+    request: Request = None
+):
+    """
+    Actualiza el perfil del usuario (datos adicionales del formulario).
+    """
+    phone = request.headers.get("X-User-Phone", "").strip()
+    if not phone:
+        raise HTTPException(status_code=401, detail="X-User-Phone requerido")
+    
+    phone = phone.replace("+51", "51").replace(" ", "").replace("-", "")
+    
+    _db.save_user_profile(
+        phone,
+        name=name,
+        email=email,
+        empresa=empresa,
+        leads_mensuales=leads_mensuales
+    )
+    
+    return {"ok": True, "message": "Perfil actualizado"}
+
+
+@app.get("/auth/profile", tags=["Auth"])
+async def get_profile(request: Request):
+    """Obtiene el perfil del usuario."""
+    phone = request.headers.get("X-User-Phone", "").strip()
+    if not phone:
+        raise HTTPException(status_code=401, detail="X-User-Phone requerido")
+    
+    profile = _db.get_user_profile(phone)
+    if not profile:
+        raise HTTPException(status_code=404, detail="Perfil no encontrado")
+    
+    return profile
+
+
+@app.post("/auth/login", response_model=LoginResponse, tags=["Auth"])
+async def login(req: LoginRequest, request: Request):
+    """
+    Autentica al usuario y devuelve su información de suscripción.
+    """
+    phone = req.phone.strip().replace("+51", "51").replace(" ", "").replace("-", "")
+    
+    subscriber = _db.get_subscriber(phone)
+    if not subscriber:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    
+    is_active = (
+        subscriber.get("status") == "active" and
+        (not subscriber.get("expires_at") or 
+         subscriber.get("expires_at") > datetime.now(timezone.utc).isoformat())
+    )
+    
+    plan = subscriber.get("plan", "free") if is_active else "free"
+    status = "active" if is_active else "expired"
+    
+    return LoginResponse(
+        phone=phone,
+        plan=plan,
+        status=status,
+        expires_at=subscriber.get("expires_at")
+    )
+
+
+@app.post("/auth/token", tags=["Auth"])
+async def get_token(request: Request):
+    """
+    Obtiene un token de API para usar en llamadas subsecuentes.
+    Requiere header X-User-Phone.
+    """
+    phone = request.headers.get("X-User-Phone", "").strip()
+    if not phone:
+        raise HTTPException(status_code=401, detail="X-User-Phone requerido")
+    
+    token = _db.get_api_token(phone)
+    if not token:
+        token = _generate_token(phone)
+        _db.save_api_token(phone, token)
+    
+    return {"token": token}
+
+
+@app.post("/auth/payment-link", response_model=PaymentLinkResponse, tags=["Auth"])
+async def payment_link(req: PaymentLinkRequest, request: Request):
+    """
+    Genera un link de pago (Yape/Plin) para el plan seleccionado.
+    Requiere header X-User-Phone.
+    """
+    phone = request.headers.get("X-User-Phone", "").strip()
+    if not phone:
+        raise HTTPException(status_code=401, detail="X-User-Phone requerido")
+    
+    phone = phone.replace("+51", "51").replace(" ", "").replace("-", "")
+    
+    plan = req.plan.lower()
+    plan_config = cfg.PLANS.get(plan)
+    if not plan_config:
+        raise HTTPException(status_code=400, detail="Plan no válido")
+    
+    amount = plan_config.get("price_soles", 0)
+    if amount == 0:
+        raise HTTPException(status_code=400, detail="Plan gratuito, no requiere pago")
+    
+    payment_id = f"pay_{phone[:6]}_{int(time.time())}"
+    payment_url = f"https://yape.com.pe/{payment_id}"
+    
+    _db.save_payment_link(phone, payment_id, plan, amount)
+    
+    expires = datetime.now(timezone.utc) + timedelta(hours=24)
+    
+    return PaymentLinkResponse(
+        payment_url=payment_url,
+        plan=plan,
+        amount_soles=amount,
+        expires_at=expires.isoformat()
+    )
 
 
 # ─── Helpers async ───────────────────────────────────────────────────────────
@@ -595,7 +848,7 @@ async def scrape(req: ScrapeRequest, request: Request):
     Busca leads en Google Maps y opcionalmente enriquece con datos de sitios web y SUNAT.
     Operación síncrona — para queries grandes usa /jobs/pipeline.
 
-    El header `X-Plan-Tier` controla el límite de leads y acceso a SUNAT.
+    El header `X-User-Phone` identifica al usuario para resolver su plan.
     Sin header → tier free (10 leads, sin SUNAT).
     """
     tier = _resolve_tier(request)
@@ -614,6 +867,7 @@ async def qualify(req: QualifyRequest):
     """
     Califica una lista de leads usando Groq.
     Devuelve los leads con score, etapa CRM y borrador de mensaje.
+    No requiere autenticación — es una operación de solo lectura.
     """
     if not req.leads:
         raise HTTPException(status_code=422, detail="La lista de leads está vacía")
@@ -644,7 +898,7 @@ async def pipeline(req: PipelineRequest, request: Request):
     Pipeline completo síncrono: scrape → califica → enriquece.
     Para limite > 20 leads se recomienda usar /jobs/pipeline.
 
-    El header `X-Plan-Tier` controla el límite de leads y acceso a SUNAT.
+    El header `X-User-Phone` identifica al usuario para resolver su plan.
     Sin header → tier free (10 leads, sin SUNAT).
     """
     tier = _resolve_tier(request)
@@ -665,7 +919,7 @@ async def jobs_pipeline(req: PipelineRequest, request: Request):
     Lanza el pipeline completo en background y devuelve un job_id.
     Consulta el estado en GET /jobs/{job_id}.
 
-    El header `X-Plan-Tier` controla el límite de leads y acceso a SUNAT.
+    El header `X-User-Phone` identifica al usuario para resolver su plan.
     Sin header → tier free (10 leads, sin SUNAT).
     """
     tier = _resolve_tier(request)
