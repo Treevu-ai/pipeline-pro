@@ -924,8 +924,13 @@ async def health():
     except Exception:
         checks["green_api"] = "unconfigured"
 
+    # ── API keys disponibles ────────────────────────────────────────────────
+    checks["apify"] = "ok" if cfg.APIFY_API_KEY else "missing"
+    checks["serpapi"] = "ok" if cfg.SERPAPI_API_KEY else "missing"
+    checks["google_places"] = "ok" if cfg.GOOGLE_PLACES_API_KEY else "missing"
+
     overall = "ok" if all(
-        v in ("ok", "authorized", "fallback_file", "unconfigured")
+        v in ("ok", "authorized", "fallback_file", "unconfigured", "missing")
         for v in checks.values()
     ) else "degraded"
 
