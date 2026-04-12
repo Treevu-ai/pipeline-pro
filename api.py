@@ -467,6 +467,7 @@ class SignupRequest(BaseModel):
     name: Optional[str] = Field(None, description="Nombre del usuario")
     utm_source: Optional[str] = Field(None, description="utm_source para tracking")
     utm_medium: Optional[str] = Field(None, description="utm_medium para tracking")
+    referral_code: Optional[str] = Field(None, description="Código de referido (opcional)")
 
 
 class SignupResponse(BaseModel):
@@ -517,6 +518,7 @@ async def signup(req: SignupRequest, request: Request):
     """
     Registra un nuevo usuario y activa trial de 3 días.
     El usuario recibirá un código por WhatsApp para verificar su número.
+    Optionally accepts a referral_code to track referrals.
     """
     phone = req.phone.strip()
     if not phone:
@@ -540,6 +542,21 @@ async def signup(req: SignupRequest, request: Request):
         utm_data["utm_source"] = req.utm_source
     if req.utm_medium:
         utm_data["utm_medium"] = req.utm_medium
+    
+    # Apply referral code if provided
+    referral_applied = False
+    referral_message = ""
+    if req.referral_code:
+        code_info = await asyncio.to_thread(_db.validate_referral_code, req.referral_code)
+        if code_info:
+            # Apply referral - creates pending reward
+            result = await asyncio.to_thread(_db.apply_referral, req.referral_code, phone)
+            if result:
+                referral_applied = True
+                utm_data["referral_code"] = req.referral_code
+                utm_data["referrer_phone"] = code_info["referrer_phone"]
+                referral_message = " ¡Usaste un código de referido!"
+    
     if utm_data:
         notes = json.dumps(utm_data)
     else:
@@ -557,7 +574,7 @@ async def signup(req: SignupRequest, request: Request):
         phone=phone,
         plan="trial",
         trial_days=3,
-        message="¡Bienvenido! Tienes 3 días de acceso completo gratis."
+        message=f"¡Bienvenido! Tienes 3 días de acceso completo gratis.{referral_message}"
     )
 
 
@@ -682,6 +699,114 @@ async def payment_link(req: PaymentLinkRequest, request: Request):
         plan=plan,
         amount_soles=amount,
         expires_at=expires.isoformat()
+    )
+
+
+# ─── Referral endpoints ───────────────────────────────────────────────────────
+
+class ReferralCodeResponse(BaseModel):
+    code: str
+    plan: str
+    max_referrals: int
+    used_count: int
+    remaining: int
+    expires_at: str
+    share_url: str
+
+
+class ReferralInfoResponse(BaseModel):
+    code: str
+    referrer_phone: str
+    plan: str
+    remaining: int
+
+
+class ReferralStatsResponse(BaseModel):
+    total: int
+    activated: int
+    pending: int
+    rewards: list[dict]
+
+
+@app.post("/auth/referral/generate", response_model=ReferralCodeResponse, tags=["Referrals"])
+async def generate_referral(request: Request):
+    """
+    Genera un código de referido único para el usuario.
+    Requiere header X-User-Phone.
+    
+    El código puede compartirse con otros usuarios. Cuando el referido
+    compra un plan, el referidor gana 1 mes gratis.
+    """
+    phone = request.headers.get("X-User-Phone", "").strip()
+    if not phone:
+        raise HTTPException(status_code=401, detail="X-User-Phone requerido")
+    
+    phone = phone.replace("+51", "51").replace(" ", "").replace("-", "")
+    
+    subscriber = _db.get_subscriber(phone)
+    if not subscriber or subscriber.get("status") != "active":
+        raise HTTPException(status_code=403, detail="Solo usuarios activos pueden generar códigos de referido")
+    
+    code_info = await asyncio.to_thread(_db.get_referral_code, phone)
+    if not code_info:
+        raise HTTPException(status_code=500, detail="Error generando código de referido")
+    
+    base_url = os.environ.get("BASE_URL", "https://pipelinex.app")
+    share_url = f"{base_url}?ref={code_info['code']}"
+    
+    return ReferralCodeResponse(
+        code=code_info["code"],
+        plan=code_info["plan"],
+        max_referrals=code_info["max_referrals"],
+        used_count=code_info["used_count"],
+        remaining=code_info["max_referrals"] - code_info["used_count"],
+        expires_at=code_info["expires_at"],
+        share_url=share_url,
+    )
+
+
+@app.get("/auth/referral/{code}", response_model=ReferralInfoResponse, tags=["Referrals"])
+async def get_referral_info(code: str):
+    """
+    Obtiene información de un código de referido.
+    Público (no requiere autenticación).
+    """
+    code_info = await asyncio.to_thread(_db.validate_referral_code, code)
+    if not code_info:
+        raise HTTPException(status_code=404, detail="Código de referido inválido o expirado")
+    
+    return ReferralInfoResponse(
+        code=code_info["code"],
+        referrer_phone=code_info["referrer_phone"][:6] + "****",
+        plan=code_info["plan"],
+        remaining=code_info["remaining"],
+    )
+
+
+@app.get("/auth/referrals", response_model=ReferralStatsResponse, tags=["Referrals"])
+async def get_my_referrals(request: Request):
+    """
+    Obtiene los referidos del usuario autenticado.
+    Requiere header X-User-Phone.
+    """
+    phone = request.headers.get("X-User-Phone", "").strip()
+    if not phone:
+        raise HTTPException(status_code=401, detail="X-User-Phone requerido")
+    
+    phone = phone.replace("+51", "51").replace(" ", "").replace("-", "")
+    
+    stats = await asyncio.to_thread(_db.get_referral_stats, phone)
+    rewards = await asyncio.to_thread(_db.get_referral_rewards, phone)
+    
+    for r in rewards:
+        if r.get("referred_phone"):
+            r["referred_phone"] = r["referred_phone"][:6] + "****"
+    
+    return ReferralStatsResponse(
+        total=stats["total"],
+        activated=stats["activated"],
+        pending=stats["pending"],
+        rewards=rewards,
     )
 
 

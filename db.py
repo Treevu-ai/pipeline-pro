@@ -153,8 +153,7 @@ def _create_tables() -> None:
                 );
             """)
             cur.execute("""
-                CREATE TABLE IF NOT EXISTS payment_links (
-                    id          TEXT PRIMARY KEY,
+                CREATE TABLE IF NOT EXISTS payment_links (id TEXT PRIMARY KEY,
                     phone       TEXT,
                     plan        TEXT NOT NULL,
                     amount      INTEGER NOT NULL,
@@ -162,6 +161,38 @@ def _create_tables() -> None:
                     created_at  TIMESTAMPTZ DEFAULT now(),
                     expires_at  TIMESTAMPTZ DEFAULT now() + INTERVAL '24 hours'
                 );
+            """)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS referral_codes (
+                    code        TEXT PRIMARY KEY,
+                    phone       TEXT NOT NULL,
+                    plan        TEXT NOT NULL,
+                    max_referrals INTEGER DEFAULT 5,
+                    used_count  INTEGER DEFAULT 0,
+                    created_at  TIMESTAMPTZ DEFAULT now(),
+                    expires_at  TIMESTAMPTZ DEFAULT now() + INTERVAL '90 days'
+                );
+            """)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS referral_rewards (
+                    id          TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+                    referrer_phone TEXT NOT NULL,
+                    referred_phone TEXT NOT NULL,
+                    referral_code   TEXT NOT NULL,
+                    reward_plan TEXT,
+                    reward_days INTEGER DEFAULT 30,
+                    status      TEXT DEFAULT 'pending',
+                    created_at  TIMESTAMPTZ DEFAULT now(),
+                    activated_at TIMESTAMPTZ
+                );
+            """)
+            cur.execute("""
+                CREATE INDEX IF NOT EXISTS idx_referral_codes_phone
+                ON referral_codes (phone);
+            """)
+            cur.execute("""
+                CREATE INDEX IF NOT EXISTS idx_referral_rewards_referrer
+                ON referral_rewards (referrer_phone);
             """)
             # Limpiar sesiones WA viejas (>24h) en cada arranque
             try:
@@ -1038,3 +1069,253 @@ def get_stats(days: int = 7) -> dict:
     except Exception as exc:
         log.error("get_stats: %s", exc)
         return {}
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Referral System
+# ═══════════════════════════════════════════════════════════════════════════════
+
+import secrets
+import string
+
+def generate_referral_code(length: int = 8) -> str:
+    """Genera un código de referido aleatorio."""
+    chars = string.ascii_uppercase + string.digits
+    return ''.join(secrets.choice(chars) for _ in range(length))
+
+
+def create_referral_code(phone: str, plan: str = "starter", max_referrals: int = 5) -> dict | None:
+    """
+    Crea un código de referido para el usuario.
+    Devuelve el dict con el código creado o None si falla.
+    """
+    if not _USE_DB:
+        return None
+    try:
+        code = generate_referral_code()
+        with _conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO referral_codes (code, phone, plan, max_referrals, used_count, created_at, expires_at)
+                    VALUES (%s, %s, %s, %s, 0, now(), now() + INTERVAL '90 days')
+                    ON CONFLICT (code) DO NOTHING
+                    RETURNING code, phone, plan, max_referrals, used_count, created_at, expires_at
+                """, (code, phone, plan, max_referrals))
+                row = cur.fetchone()
+                if not row:
+                    return None
+                return {
+                    "code": row[0],"phone": row[1],
+                    "plan": row[2],
+                    "max_referrals": row[3],
+                    "used_count": row[4],
+                    "created_at": row[5].isoformat() if row[5] else None,
+                    "expires_at": row[6].isoformat() if row[6] else None,
+                }
+    except Exception as exc:
+        log.error("create_referral_code(%s): %s", phone, exc)
+        return None
+
+
+def get_referral_code(phone: str) -> dict | None:
+    """
+    Obtiene el código de referido activo del usuario.
+    Si no tiene uno, lo crea automáticamente.
+    """
+    if not _USE_DB:
+        return None
+    try:
+        with _conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT code, phone, plan, max_referrals, used_count, created_at, expires_at
+                    FROM referral_codes
+                    WHERE phone = %s AND expires_at > now()
+                    ORDER BY created_at DESC
+                    LIMIT1
+                """, (phone,))
+                row = cur.fetchone()
+                if row:
+                    return {
+                        "code": row[0],
+                        "plan": row[2],
+                        "max_referrals": row[3],
+                        "used_count": row[4],
+                        "created_at": row[5].isoformat() if row[5] else None,
+                        "expires_at": row[6].isoformat() if row[6] else None,
+                    }
+                return create_referral_code(phone)
+    except Exception as exc:
+        log.error("get_referral_code(%s): %s", phone, exc)
+        return None
+
+
+def validate_referral_code(code: str) -> dict | None:
+    """
+    Valida un código de referido.
+    Devuelve info del código o None si no existe/expiró/limite alcanzado.
+    """
+    if not _USE_DB:
+        return None
+    try:
+        with _conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT code, phone, plan, max_referrals, used_count, expires_at
+                    FROM referral_codes
+                    WHERE code = %s AND expires_at > now()
+                """, (code.upper(),))
+                row = cur.fetchone()
+                if not row:
+                    return None
+                if row[4] >= row[3]:  # used_count >= max_referrals
+                    return None
+                return {
+                    "code": row[0],
+                    "referrer_phone": row[1],
+                    "plan": row[2],
+                    "remaining": row[3] - row[4],
+                }
+    except Exception as exc:
+        log.error("validate_referral_code(%s): %s", code, exc)
+        return None
+
+
+def apply_referral(code: str, referred_phone: str) -> dict | None:
+    """
+    Aplica un código de referido a un nuevo usuario.
+    Incrementa el contador del código y crea un reward pendiente.
+    Devuelve info del reward o None si falla.
+    """
+    if not _USE_DB:
+        return None
+    try:
+        code_info = validate_referral_code(code)
+        if not code_info:
+            return None
+        
+        referrer_phone = code_info["referrer_phone"]
+        
+        # Verificar que no se refiera a sí mismo
+        if referrer_phone == referred_phone:
+            return None
+        
+        with _conn() as conn:
+            with conn.cursor() as cur:
+                # Incrementar contador del código
+                cur.execute("""
+                    UPDATE referral_codes
+                    SET used_count = used_count + 1
+                    WHERE code = %s
+                """, (code.upper(),))
+                
+                # Crear reward pendiente
+                import uuid
+                reward_id = str(uuid.uuid4())[:8]
+                cur.execute("""
+                    INSERT INTO referral_rewards (id, referrer_phone, referred_phone, referral_code, status)
+                    VALUES (%s, %s, %s, %s, 'pending')
+                    RETURNING id, referrer_phone, referred_phone, referral_code, status
+                """, (reward_id, referrer_phone, referred_phone, code.upper()))
+                row = cur.fetchone()
+                
+                return {
+                    "reward_id": row[0],
+                    "referrer_phone": row[1],
+                    "referred_phone": row[2],
+                    "referral_code": row[3],
+                    "status": row[4],
+                }
+    except Exception as exc:
+        log.error("apply_referral(%s, %s): %s", code, referred_phone, exc)
+        return None
+
+
+def get_referral_rewards(phone: str) -> list[dict]:
+    """
+    Obtiene los rewards de referidos para un usuario.
+    """
+    if not _USE_DB:
+        return []
+    try:
+        with _conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT id, referrer_phone, referred_phone, referral_code, reward_plan, reward_days, status, created_at, activated_at
+                    FROM referral_rewards
+                    WHERE referrer_phone = %s
+                    ORDER BY created_at DESC
+                """, (phone,))
+                return [
+                    {
+                        "id": r[0],
+                        "referred_phone": r[2],
+                        "referral_code": r[3],
+                        "reward_plan": r[4],
+                        "reward_days": r[5],
+                        "status": r[6],
+                        "created_at": r[7].isoformat() if r[7] else None,
+                        "activated_at": r[8].isoformat() if r[8] else None,
+                    }
+                    for r in cur.fetchall()
+                ]
+    except Exception as exc:
+        log.error("get_referral_rewards(%s): %s", phone, exc)
+        return []
+
+
+def activate_referral_reward(reward_id: str, plan: str, days: int = 30) -> bool:
+    """
+    Activa un reward de referido cuando el referido compra un plan.
+    """
+    if not _USE_DB:
+        return False
+    try:
+        with _conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    UPDATE referral_rewards
+                    SET status = 'activated',
+                        reward_plan = %s,
+                        reward_days = %s,
+                        activated_at = now()
+                    WHERE id = %s AND status = 'pending'
+                    RETURNING referrer_phone
+                """, (plan, days, reward_id))
+                row = cur.fetchone()
+                if not row:
+                    return False
+                
+                referrer_phone = row[0]
+                # Extender la suscripción del referidor
+                upsert_subscriber(referrer_phone, plan="starter", days=days, notes=f"referral_reward_{reward_id}")
+                return True
+    except Exception as exc:
+        log.error("activate_referral_reward(%s): %s", reward_id, exc)
+        return False
+
+
+def get_referral_stats(phone: str) -> dict:
+    """
+    Obtiene estadísticas de referidos para un usuario.
+    """
+    if not _USE_DB:
+        return {"total": 0, "activated": 0, "pending": 0}
+    try:
+        with _conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT status, COUNT(*) 
+                    FROM referral_rewards 
+                    WHERE referrer_phone = %s
+                    GROUP BY status
+                """, (phone,))
+                stats = {"total": 0, "activated": 0, "pending": 0}
+                for row in cur.fetchall():
+                    status, count = row
+                    stats[status] = count
+                    stats["total"] += count
+                return stats
+    except Exception as exc:
+        log.error("get_referral_stats(%s): %s", phone, exc)
+        return {"total": 0, "activated": 0, "pending": 0}
