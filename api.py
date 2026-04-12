@@ -402,6 +402,16 @@ app = FastAPI(
 
 app.mount("/reports", StaticFiles(directory=str(REPORTS_DIR)), name="reports")
 
+
+@app.get("/r/{token}", include_in_schema=False)
+async def short_report_redirect(token: str):
+    """Redirect corto: /r/TOKEN → /reports/TOKEN.pdf"""
+    from fastapi.responses import RedirectResponse
+    path = REPORTS_DIR / f"{token}.pdf"
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="Reporte no encontrado o expirado")
+    return RedirectResponse(url=f"/reports/{token}.pdf")
+
 def _get_allowed_origins() -> list[str]:
     """Lee CORS_ORIGINS desde variable de entorno, permite empty para server-to-server."""
     env = os.environ.get("CORS_ORIGINS", "").strip()
@@ -1470,14 +1480,14 @@ async def _deliver_and_notify_wa(phone: str, target: str) -> None:
                 from pdf_report import build_demo_pdf
                 pdf_bytes = await asyncio.to_thread(build_demo_pdf, target, leads)
             token = _save_report_bytes(pdf_bytes)
-            download_url = f"{API_PUBLIC_URL}/reports/{token}.pdf"
+            short_url = f"{API_PUBLIC_URL}/r/{token}"
             n_qualified = len(qualified)
             await asyncio.to_thread(
                 wa_sender.send_text,
                 phone,
                 f"✅ *Reporte listo: {target}*\n"
                 f"_{total} leads · {n_qualified} calificados_\n\n"
-                f"📄 Descárgalo aquí 👇\n{download_url}",
+                f"📄 Descárgalo aquí 👇\n{short_url}",
             )
             log.info("PDF guardado: %s (token=%s)", safe_name, token)
         except Exception as pdf_exc:
