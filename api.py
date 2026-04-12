@@ -961,6 +961,52 @@ async def debug_claude():
         }
 
 
+@app.get("/debug/wa-pipeline", tags=["Sistema"], include_in_schema=False)
+async def debug_wa_pipeline(target: str = "Textiles Arequipa", phone: str = "51903176598"):
+    """Simula el flujo WA pipeline para diagnóstico."""
+    import traceback
+    import db as _db
+    steps = []
+    try:
+        # Step 1: subscriber
+        subscriber = await asyncio.to_thread(_db.get_subscriber, phone)
+        steps.append({"step": "get_subscriber", "result": str(subscriber)[:200]})
+
+        _active = (
+            subscriber and subscriber.get("status") == "active" and (
+                not subscriber.get("expires_at") or
+                subscriber.get("expires_at") > datetime.now(timezone.utc).isoformat()
+            )
+        )
+        plan_name = subscriber.get("plan", "free") if _active else "free"
+        plan_cfg_local = cfg.PLANS.get(plan_name, cfg.PLANS["free"])
+        leads_limit = plan_cfg_local.get("leads_limit", 10)
+        steps.append({"step": "plan_resolve", "plan": plan_name, "limit": leads_limit, "active": _active})
+
+        # Step 2: pipeline
+        req = PipelineRequest(
+            query=target, limit=leads_limit, channel="whatsapp",
+            enrich_web=True, enrich_sunat=False,
+            qualify=True, enrich_contacts=False,
+        )
+        import time as _time
+        t0 = _time.monotonic()
+        result = await asyncio.to_thread(_run_pipeline, req)
+        elapsed = _time.monotonic() - t0
+        leads = result.get("leads", [])
+        steps.append({"step": "pipeline", "elapsed_s": round(elapsed, 1), "leads": len(leads)})
+
+        # Step 3: PDF
+        from pdf_report import build_demo_pdf
+        pdf_bytes = await asyncio.to_thread(build_demo_pdf, target, leads)
+        steps.append({"step": "pdf", "size_bytes": len(pdf_bytes)})
+
+        return {"ok": True, "steps": steps}
+    except Exception as exc:
+        steps.append({"step": "ERROR", "type": type(exc).__name__, "msg": str(exc)[:300], "tb": traceback.format_exc()[-500:]})
+        return {"ok": False, "steps": steps}
+
+
 @app.get("/plans", tags=["Sistema"])
 def plans():
     """
