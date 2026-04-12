@@ -670,8 +670,14 @@ async def payment_link(req: PaymentLinkRequest, request: Request):
     if amount == 0:
         raise HTTPException(status_code=400, detail="Plan gratuito, no requiere pago")
     
-    payment_id = f"pay_{phone[:6]}_{int(time.time())}"
-    payment_url = f"https://yape.com.pe/{payment_id}"
+    phone_last6 = phone[-6:] if len(phone) >= 6 else phone
+    payment_id = f"pay_{phone_last6}_{int(time.time())}"
+    
+    yape_url = os.environ.get("YAPE_LINK", "")
+    if yape_url:
+        payment_url = f"{yape_url}?phone={phone}&amount={amount}&plan={plan}"
+    else:
+        payment_url = f"https://yape.com.pe/{payment_id}"
     
     _db.save_payment_link(phone, payment_id, plan, amount)
     
@@ -683,6 +689,57 @@ async def payment_link(req: PaymentLinkRequest, request: Request):
         amount_soles=amount,
         expires_at=expires.isoformat()
     )
+
+
+@app.post("/webhook/payment", tags=["Webhooks"])
+async def webhook_payment(req: Request):
+    """
+    Webhook para confirmar pagos de Yape/Plin.
+    Configura en el panel de Yape: https://tu-api.railway.app/webhook/payment
+    """
+    try:
+        body = await req.json()
+    except:
+        body = {}
+    
+    payment_id = body.get("paymentId") or body.get("id") or ""
+    status = body.get("status") or body.get("paymentStatus") or ""
+    amount = body.get("amount", 0)
+    phone_from_payment = body.get("phoneNumber") or body.get("phone") or ""
+    
+    if not payment_id:
+        return {"ok": False, "detail": "paymentId requerido"}
+    
+    if status in ("success", "completed", "approved"):
+        result = _db.confirm_payment(payment_id)
+        if result:
+            _db.log_event(
+                result["phone"], 
+                _db.EventType.SUBSCRIBER_ACTIVATED,
+                {"plan": result["plan"], "amount": amount, "payment_id": payment_id}
+            )
+            _send_welcome_message(result["phone"])
+            return {"ok": True, "message": f"Suscripción activada para {result['phone']}"}
+    
+    return {"ok": False, "detail": "Pago no completado"}
+
+
+def _send_welcome_message(phone: str) -> None:
+    """Envia mensaje de bienvenida por WhatsApp."""
+    try:
+        import wa_sender
+        welcome_text = f"""🎉 ¡Bienvenido a Pipeline_X!
+        
+Tu suscripción está activa.
+
+📌 Para comenzar:
+1. Escribe el rubro que buscas (ej: "restaurantes en Lima")
+2. Te envío el reporte con leads calificados
+
+¿Tienes preguntas? Solo escríbeme."""
+        wa_sender.send_text(phone, welcome_text)
+    except Exception as e:
+        log.error("Welcome message failed: %s", e)
 
 
 # ─── Helpers async ───────────────────────────────────────────────────────────
