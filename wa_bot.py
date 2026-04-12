@@ -136,24 +136,13 @@ def _MSG(key: str, **kwargs) -> str:
 
 _YA_REGISTRADO = "Tu reporte ya está en camino ✅"
 
-_BIENVENIDA = """Pipeline_X - Tu vendedor virtual
+_BIENVENIDA = """👋 Hola, soy Pipeline_X.
 
-Solo escribeme lo que buscas:
-"restaurantes Lima"
-"ferreterias Arequipa"
-"clinicas Trujillo"
+Te ayudo a encontrar leads calificados para tu negocio.
 
-Yo busco, califico y te mando el PDF.
-Asi de simple.
+Para empezar, presiona el botón de abajo 👇"""
 
-Telegram: t.me/Pipeline_X_Bot"""
-
-_NO_ENTENDIDO = """Solo escribeme tu busqueda:
-
-"restaurantes Lima"
-"ferreterias Trujillo"
-
-Rubro + ciudad. Es todo lo que necesito."""
+_NO_ENTENDIDO = """Para buscar leads, presiona *Demo gratis* y te explico cómo funciona."""
 
 # ─── Constructores de respuesta ───────────────────────────────────────────────
 
