@@ -44,12 +44,17 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 import config as cfg
 import constants as const
 
 log = logging.getLogger("api")
+
+API_PUBLIC_URL = os.environ.get("API_PUBLIC_URL") or os.environ.get("BASE_URL") or "https://agentepyme-api-production.up.railway.app"
+REPORTS_DIR = Path("output/reports")
+REPORTS_DIR.mkdir(parents=True, exist_ok=True)
 
 
 # ─── Plan helpers ─────────────────────────────────────────────────────────────
@@ -394,6 +399,8 @@ app = FastAPI(
     docs_url=None,
     lifespan=lifespan,
 )
+
+app.mount("/reports", StaticFiles(directory=str(REPORTS_DIR)), name="reports")
 
 def _get_allowed_origins() -> list[str]:
     """Lee CORS_ORIGINS desde variable de entorno, permite empty para server-to-server."""
@@ -838,6 +845,13 @@ def _run_pipeline(req: PipelineRequest) -> dict:
         "total": len(enriched),
         "leads": enriched,
     }
+
+
+def _save_report_bytes(data: bytes) -> str:
+    token = secrets.token_urlsafe(8)
+    path = REPORTS_DIR / f"{token}.pdf"
+    path.write_bytes(data)
+    return token
 
 
 # ─── Endpoints ───────────────────────────────────────────────────────────────
@@ -1408,13 +1422,18 @@ async def _deliver_and_notify_wa(phone: str, target: str) -> None:
             else:
                 from pdf_report import build_demo_pdf
                 pdf_bytes = await asyncio.to_thread(build_demo_pdf, target, leads)
+            token = _save_report_bytes(pdf_bytes)
+            download_url = f"{API_PUBLIC_URL}/reports/{token}.pdf"
             await asyncio.to_thread(
-                wa_sender.send_document,
+                wa_sender.send_text,
                 phone,
-                f"pipeline_x_{safe_name}.pdf",
-                pdf_bytes,
-                f"Tu reporte de leads — {target}",
+                MSG["report_download_ready"].format(
+                    url=download_url,
+                    code=token,
+                    expires="48 horas",
+                ),
             )
+            log.info("PDF guardado: %s (token=%s)", safe_name, token)
         except Exception as pdf_exc:
             log.error("PDF generation/send failed: %s\n%s", pdf_exc, traceback.format_exc())
             await asyncio.to_thread(

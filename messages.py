@@ -28,6 +28,11 @@ MSG: dict[str, str] = {
     "pdf_attaching": (
         "\n📎 Adjuntando tu reporte en PDF..."
     ),
+    "report_download_ready": (
+        "📄 Tu reporte está listo para descargar:\n"
+        "{url}\n\n"
+        "Código de descarga: {code} (vence en {expires})."
+    ),
 
     # ── Validación de target ──────────────────────────────────────────────────
     "target_too_short": (
