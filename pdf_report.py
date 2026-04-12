@@ -30,10 +30,10 @@ def _get_font_path(name: str) -> str | None:
         return str(linux_path)
     return None
 
-_FONT_REGULAR = _get_font_path("arial.ttf")
-_FONT_BOLD    = _get_font_path("arialbd.ttf")
-_FONT_ITALIC  = _get_font_path("ariali.ttf")
-_FONT_BOLDITALIC = _get_font_path("arialbi.ttf")
+_FONT_REGULAR = _get_font_path("arial.ttf") or _get_font_path("DejaVuSans.ttf")
+_FONT_BOLD    = _get_font_path("arialbd.ttf") or _get_font_path("DejaVuSans-Bold.ttf")
+_FONT_ITALIC  = _get_font_path("ariali.ttf") or _get_font_path("DejaVuSans-Oblique.ttf") or _get_font_path("DejaVuSans-Italic.ttf")
+_FONT_BOLDITALIC = _get_font_path("arialbi.ttf") or _get_font_path("DejaVuSans-BoldOblique.ttf") or _get_font_path("DejaVuSans-BoldItalic.ttf")
 _FONT_FAMILY = "Arial"
 
 # ─── Paleta ───────────────────────────────────────────────────────────────────
