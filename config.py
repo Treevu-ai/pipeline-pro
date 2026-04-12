@@ -370,178 +370,110 @@ RATE_LIMITING = {
 # ─── Planes de precios ────────────────────────────────────────────────────────
 # Fuente única de verdad para límites, precios y features por tier.
 #
-# Tiers disponibles (en soles, mercado Perú):
-#   free      → freemium de entrada, sin tarjeta — 1 búsqueda/día, 10 leads demo
-#   trial     → 3 días full access (auto al primer upgrade intent), sin pago
-#   basico    → S/59/mes — 10 búsquedas/mes, 20 leads full — captura gap free→starter
-#   starter   → S/149/mes — reportes ilimitados, 30 leads — tier principal ⭐
-#   pro       → S/299/mes — 50 leads + API REST — equipos de ventas
-#   reseller  → S/1,099/mes — white-label, multi-cuenta — agencias
+# Estructura simplificada (3 planes de pago):
+#   free      → 10 leads demo, 1 búsqueda/día — sin tarjeta
+#   trial     → 3 días full access automático al registrarse
+#   starter   → S/149/mes — 30 leads, reportes ilimitados ⭐ RECOMENDADO
+#   pro       → S/299/mes — 50 leads, API access, enriquecimiento full
+#   reseller  → S/1,099/mes — white-label, multi-cuenta (agencias)
 #
-# Variantes especiales:
-#   founder   → S/99/mes para primeros 10 clientes (mismo acceso que Starter)
-#
-# Campos por plan:
-#   price_soles         → precio mensual en soles (int, 0 para free/trial)
-#   price_display       → string para mostrar al usuario
-#   leads_limit         → máx leads por búsqueda
-#   searches_per_day    → límite diario (None = sin límite diario)
-#   searches_per_month  → límite mensual (None = sin límite mensual)
-#   full_pdf            → True = PDF sin censura; False = PDF demo con leads bloqueados
-#   features.api_access → acceso a API REST directa
+# El trial se activa automáticamente al signup y dura 3 días.
 
 PLANS: dict[str, dict] = {
 
-    # ── Freemium ──────────────────────────────────────────────────────────────
+    # ── Free (demo) ──────────────────────────────────────────────────────────
     "free": {
         "name": "Free",
-        "price_soles": 0,
-        "price_display": "S/0",
-        "price_monthly": 0,          # USD legacy — no usar para mostrar al usuario
+        "price_soles": 0,"price_display": "Gratis",
         "leads_limit": 10,
-        "searches_per_day": 1,       # 1 búsqueda/día
-        "searches_per_month": None,
+        "searches_per_day": 1,"searches_per_month": None,
         "full_pdf": False,
-        "description": "Prueba sin tarjeta. 10 leads demo, sin compromiso.",
+        "description": "Prueba sin tarjeta. 10 leads demo para evaluar.",
         "features": {
             "enrich_sunat": False,
             "api_access": False,
-            "white_label": False,
-            "multi_account": False,
+            "whatsapp_delivery": True,
         },
-        "cta": "Empieza gratis",
+        "cta": "Probar gratis",
         "highlight": False,
     },
 
-    # ── Trial (3 días full access — se activa automáticamente) ────────────────
+    # ── Trial (automático 3 días) ───────────────────────────────────────────
     "trial": {
         "name": "Trial",
         "price_soles": 0,
-        "price_display": "Trial 3 días",
-        "price_monthly": 0,
-        "leads_limit": 30,           # mismo que Starter
+        "price_display": "3 días gratis",
+        "leads_limit": 30,
         "searches_per_day": None,
-        "searches_per_month": None,  # sin límite durante el trial
+        "searches_per_month": None,
         "full_pdf": True,
-        "description": "Acceso completo por 3 días. Sin tarjeta.",
+        "description": "Acceso completo por 3 días. Se activa al registrarse.",
         "features": {
             "enrich_sunat": True,
             "api_access": False,
-            "white_label": False,
-            "multi_account": False,
+            "whatsapp_delivery": True,
         },
-        "cta": "Activar trial gratis",
+        "cta": "Activar trial",
         "highlight": False,
     },
 
-    # ── Básico ────────────────────────────────────────────────────────────────
-    "basico": {
-        "name": "Básico",
-        "price_soles": 59,
-        "price_display": "S/59/mes",
-        "price_monthly": 59,
-        "leads_limit": 20,
-        "searches_per_day": None,
-        "searches_per_month": 10,    # 10 búsquedas/mes
-        "full_pdf": True,
-        "description": "Para freelancers y vendedores independientes. 10 reportes/mes.",
-        "features": {
-            "enrich_sunat": False,
-            "api_access": False,
-            "white_label": False,
-            "multi_account": False,
-        },
-        "cta": "Activar por S/59/mes",
-        "highlight": False,
-    },
-
-    # ── Starter ───────────────────────────────────────────────────────────────
+    # ── Starter (plan principal) ────────────────────────────────────────────
     "starter": {
         "name": "Starter",
         "price_soles": 149,
         "price_display": "S/149/mes",
-        "price_monthly": 149,
         "leads_limit": 30,
         "searches_per_day": None,
-        "searches_per_month": None,  # reportes ilimitados
+        "searches_per_month": None,
         "full_pdf": True,
-        "description": "El tier principal. Reportes ilimitados para equipo de ventas.",
+        "description": "Reportes ilimitados. Ideal para equipos de ventas.",
         "features": {
             "enrich_sunat": True,
             "api_access": False,
-            "white_label": False,
-            "multi_account": False,
+            "whatsapp_delivery": True,
         },
-        "cta": "Activar Starter",
-        "highlight": True,           # tier recomendado ⭐
+        "cta": "Empezar con Starter",
+        "highlight": True,
     },
 
-    # ── Pro ──────────────────────────────────────────────────────────────────
+    # ── Pro ───────────────────────────────────────────────────────────────────
     "pro": {
         "name": "Pro",
         "price_soles": 299,
         "price_display": "S/299/mes",
-        "price_monthly": 299,
         "leads_limit": 50,
         "searches_per_day": None,
         "searches_per_month": None,
         "full_pdf": True,
-        "description": "50 leads por búsqueda + API REST. Para agencias que automatizan.",
+        "description": "50 leads + API REST. Para equipos que automatizan.",
         "features": {
             "enrich_sunat": True,
             "api_access": True,
-            "white_label": False,
-            "multi_account": False,
+            "whatsapp_delivery": True,
         },
-        "cta": "Activar Pro",
+        "cta": "Empezar con Pro",
         "highlight": False,
     },
 
-    # ── Reseller ─────────────────────────────────────────────────────────────
+    # ── Reseller (agencias) ──────────────────────────────────────────────────
     "reseller": {
         "name": "Reseller",
         "price_soles": 1099,
         "price_display": "S/1,099/mes",
-        "price_monthly": 1099,
         "leads_limit": 100,
         "searches_per_day": None,
         "searches_per_month": None,
         "full_pdf": True,
-        "description": (
-            "White-label + multi-cuenta. Para agencias que revenden reportes a sus clientes."
-        ),
+        "description": "White-label + multi-cuenta. Para agencias.",
         "features": {
             "enrich_sunat": True,
             "api_access": True,
+            "whatsapp_delivery": True,
             "white_label": True,
             "multi_account": True,
-            "reseller_kit": True,
         },
-        "cta": "Hablar con ventas",
+        "cta": "Contactar ventas",
         "highlight": False,
-    },
-
-    # ── Precio fundador (primeros 10 clientes) ────────────────────────────────
-    "founder": {
-        "name": "Precio Fundador",
-        "price_soles": 99,
-        "price_display": "S/99/mes",
-        "price_monthly": 99,
-        "leads_limit": 30,
-        "searches_per_day": None,
-        "searches_per_month": None,
-        "full_pdf": True,
-        "description": "Precio exclusivo para los primeros 10 clientes. Acceso Starter completo.",
-        "features": {
-            "enrich_sunat": True,
-            "api_access": False,
-            "white_label": False,
-            "multi_account": False,
-        },
-        "cta": "Reclamar precio fundador",
-        "highlight": False,
-        "base_tier": "starter",
-        "slots_total": 10,
     },
 }
 

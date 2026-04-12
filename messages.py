@@ -153,21 +153,19 @@ MSG: dict[str, str] = {
         "⏳ Tu trial de 3 días terminó. Esperamos que hayas comprobado el potencial.\n\n"
         "Hoy tienes *1 búsqueda gratis* disponible 👇\n\n"
         "Para seguir sin límites:\n"
-        "• *Básico S/59/mes* — 10 reportes/mes, 20 leads full\n"
-        "• *Starter S/149/mes* — reportes ilimitados ⭐\n\n"
+        "• *Starter S/149/mes* — reportes ilimitados ⭐\n"
+        "• *Pro S/299/mes* — 50 leads + API\n\n"
         "Responde *upgrade* para activar o escribe rubro + ciudad para tu búsqueda gratis."
     ),
 
     # ── Rate limiting ────────────────────────────────────────────────────────
     "daily_limit_reached": (
         "⏳ Ya usaste tu búsqueda gratuita de hoy.\n\n"
-        "Opciones para seguir:\n"
-        "• *Básico S/59/mes* — 10 reportes/mes, 20 leads full\n"
-        "• *Starter S/149/mes* — reportes ilimitados ⭐\n\n"
+        "Con *Starter (S/149/mes)* tienes reportes ilimitados 🚀\n\n"
         "¿Quieres activar tu acceso?"
     ),
     "monthly_limit_reached": (
-        "📊 Llegaste al límite de 10 búsquedas del plan Básico este mes.\n\n"
+        "📊 Llegaste al límite mensual.\n\n"
         "Con *Starter (S/149/mes)* tienes reportes ilimitados 🚀\n\n"
         "¿Quieres hacer el upgrade?"
     ),
