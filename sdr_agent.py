@@ -167,6 +167,35 @@ def pre_score(row: dict[str, Any]) -> int:
     phone = str(row.get(const.ColumnNames.TELEFONO, row.get("phone", ""))).strip()
     if phone and len(phone.replace(".", "").replace("+", "").replace(" ", "")) >= 7:
         score += weights["has_phone"]
+    
+    # WhatsApp disponible (teléfono móvil)
+    phone_clean = phone.replace(".", "").replace("+", "").replace(" ", "").replace("-", "")
+    if phone_clean.startswith("51") and len(phone_clean) >= 11 and phone_clean[2] == "9":
+        score += weights.get("has_whatsapp", 0)
+    elif phone_clean.startswith("9") and len(phone_clean) >= 9:
+        score += weights.get("has_whatsapp", 0)
+    
+    # Email corporativo (no gmail/hotmail/yahoo)
+    email = str(row.get(const.ColumnNames.EMAIL, "")).strip()
+    if email and "@" in email:
+        domain = email.split("@")[-1].lower()
+        free_domains = ["gmail.com", "hotmail.com", "yahoo.com", "outlook.com", "live.com", "mail.ru"]
+        if domain not in free_domains:
+            score += weights.get("corporate_email", 0)
+    
+    # Nombre empresa real (no genérico)
+    empresa = str(row.get(const.ColumnNames.EMPRESA, "")).strip().lower()
+    generic_names = ["empresa", "compañia", "company", "negocio", "professional", "servicios", "consultoria", "soluciones", "soluciones s.a.c"]
+    if empresa and len(empresa) > 3:
+        is_generic = any(g in empresa for g in generic_names)
+        if not is_generic:
+            score += weights.get("real_business_name", 0)
+    
+    # Reseñas óptimas (evitar sobresaturación)
+    if 30 <= resenas <= 300:
+        score += weights.get("reviews_optimal", 0)
+    elif resenas > 1000:
+        score -= weights.get("reviews_penalty", 0)
 
     # ── Distrito (proxy de nivel socioeconómico) ─────────────────────────────
     # Construimos address_fields con todos los campos de dirección disponibles.

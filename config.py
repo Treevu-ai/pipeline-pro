@@ -176,25 +176,28 @@ ICP = {
     # Pesos calibrados para que el pre-score máximo sea ~65.
     # El LLM ajusta los 35 puntos restantes según señales cualitativas.
     "score_weights": {
-        "base": 5,                    # score base mínimo (cualquier lead conocido vale algo)
-        "industry_match": 15,         # puntos si la industria está en target_industries
-        "reviews_high": 12,           # puntos si num_resenas >= reviews_high
-        "reviews_mid": 6,             # puntos si num_resenas >= reviews_mid
-        "rating_good": 8,             # puntos si rating >= rating_min_good
-        "has_website": 10,            # puntos si tiene sitio web
-        "has_email": 8,               # puntos si tiene email válido
-        "has_phone": 6,               # puntos si tiene teléfono
-        "distrito_high": 8,           # puntos si está en distrito A
-        "distrito_medium": 4,         # puntos si está en distrito B
-        "has_contact": 5,             # puntos si tiene nombre de contacto
-        "has_cargo": 3,               # puntos si tiene cargo del contacto
-        "review_velocity_high": 7,    # puntos si ≥2 reseñas/mes (negocio muy activo)
-        "review_velocity_mid":  3,    # puntos si ≥0.5 reseñas/mes (negocio activo)
-        # Régimen tributario SUNAT (proxy de tamaño y capacidad de pago)
-        "regimen_general": 8,         # Régimen General → empresa mediana/grande
-        "regimen_mype":    5,         # Régimen MYPE Tributario → MYPE establecida
-        "regimen_rer":     2,         # Régimen Especial → microempresa activa
-        # RUS no suma — microempresa mínima, capacidad de pago insuficiente
+        "base": 5,
+        "industry_match": 15,
+        "reviews_high": 12,
+        "reviews_mid": 6,
+        "rating_good": 8,
+        "has_website": 10,
+        "has_email": 8,
+        "has_phone": 6,
+        "has_whatsapp": 20,
+        "corporate_email": 15,
+        "real_business_name": 10,
+        "reviews_optimal": 12,
+        "reviews_penalty": 3,
+        "distrito_high": 8,
+        "distrito_medium": 4,
+        "has_contact": 5,
+        "has_cargo": 3,
+        "review_velocity_high": 7,
+        "review_velocity_mid": 3,
+        "regimen_general": 8,
+        "regimen_mype": 5,
+        "regimen_rer": 2,
     },
 }
 
