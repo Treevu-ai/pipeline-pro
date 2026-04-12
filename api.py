@@ -1456,24 +1456,7 @@ async def _deliver_and_notify_wa(phone: str, target: str) -> None:
             key=_int_score, reverse=True,
         )
 
-        # ── Resumen de texto ────────────────────────────────────────────────────
-        tier_label = "✨ *Plan activo*" if is_paid else "🆓 *Demo gratuita*"
-        lines = [
-            f"✅ *Reporte listo: {target}*  {tier_label}",
-            f"_{total} leads · {len(qualified)} calificados (score ≥60)_\n",
-        ]
-        preview_leads = qualified[:5] if is_paid else qualified[:3]
-        for i, lead in enumerate(preview_leads, 1):
-            empresa = lead.get("empresa", "—")
-            score   = lead.get("lead_score", "—")
-            action  = lead.get("next_action", "—")
-            lines.append(f"*{i}. {empresa}* — Score {score}")
-            lines.append(f"   → {action}")
-        if not qualified:
-            lines.append("_No se encontraron leads con score ≥60 en esta búsqueda._")
-        lines.append("\n📎 Adjuntando tu reporte en PDF...")
-
-        await asyncio.to_thread(wa_sender.send_text, phone, "\n".join(lines))
+        # ── Resumen breve (sin listar empresas) ──────────────────────────────
 
         # ── PDF ──────────────────────────────────────────────────────────────
         safe_name = target[:30].replace(" ", "_").replace("/", "-")
@@ -1488,14 +1471,13 @@ async def _deliver_and_notify_wa(phone: str, target: str) -> None:
                 pdf_bytes = await asyncio.to_thread(build_demo_pdf, target, leads)
             token = _save_report_bytes(pdf_bytes)
             download_url = f"{API_PUBLIC_URL}/reports/{token}.pdf"
+            n_qualified = len(qualified)
             await asyncio.to_thread(
                 wa_sender.send_text,
                 phone,
-                MSG["report_download_ready"].format(
-                    url=download_url,
-                    code=token,
-                    expires="48 horas",
-                ),
+                f"✅ *Reporte listo: {target}*\n"
+                f"_{total} leads · {n_qualified} calificados_\n\n"
+                f"📄 Descárgalo aquí 👇\n{download_url}",
             )
             log.info("PDF guardado: %s (token=%s)", safe_name, token)
         except Exception as pdf_exc:
