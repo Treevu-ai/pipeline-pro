@@ -125,7 +125,7 @@ _PRECIOS_BODY = (
     "¿Quieres probar 3 días gratis con acceso completo?"
 )
 
-_PEDIR_TARGET = "Solo escribeme: rubio + ciudad\n\nEj: restaurantes Lima"
+_PEDIR_TARGET = "Solo escribeme: rubro + ciudad\n\nEj: restaurantes Lima"
 
 _PROCESANDO = "⏳ Buscando *\"{target}\"* en Google Maps... esto toma ~2 min ☕"
 
