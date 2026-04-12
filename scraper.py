@@ -672,17 +672,22 @@ def scrape_google_maps(query: str, limit: int, headful: bool = False) -> list[di
     """
     async def _run() -> list[dict[str, Any]]:
         last_error = None
+        apis_tried = []
         # 1. Apify (prioridad)
         if cfg.APIFY_API_KEY:
-            log.info("Usando Apify Google Maps para: %s", query)
+            log.info("scrape_google_maps: trying Apify for '%s' limit=%d", query, limit)
+            apis_tried.append("apify")
             try:
                 leads = await _search_via_apify(query, limit)
+                log.info("scrape_google_maps: Apify returned %d leads", len(leads) if leads else 0)
                 if leads:
                     return leads
                 log.info("Apify sin resultados — fallback SerpApi")
             except Exception as e:
                 last_error = e
                 log.warning("Apify error: %s — fallback SerpApi", e)
+        else:
+            log.warning("scrape_google_maps: APIFY_API_KEY not set")
         # 2. SerpApi (fallback principal)
         if cfg.SERPAPI_API_KEY:
             log.info("Usando SerpApi para: %s", query)
@@ -707,12 +712,14 @@ def scrape_google_maps(query: str, limit: int, headful: bool = False) -> list[di
                 log.warning("Places API error: %s", e)
         # 4. Playwright — solo si está disponible
         try:
+            apis_tried.append("playwright")
             return await _scrape_maps_async(query, limit, headful)
         except Exception as e:
             log.warning("Playwright no disponible: %s", e)
+            msg = f"Ninguna fuente retornó resultados para '{query}'. APIs probadas: {', '.join(apis_tried)}."
             if last_error:
-                raise exc.GoogleMapsError(f"Todas las fuentes fallaron. Último error: {last_error}") from last_error
-            raise exc.GoogleMapsError("No se encontraron resultados y Playwright no está disponible") from e
+                msg += f" Último error: {last_error}"
+            raise exc.GoogleMapsError(msg) from (last_error or e)
 
     return asyncio.run(_run())
 
