@@ -1386,18 +1386,6 @@ async def _deliver_and_notify_wa(phone: str, target: str) -> None:
     import db as _db
     from messages import MSG
 
-    subscriber  = await asyncio.to_thread(_db.get_subscriber, phone)
-    _active = (
-        subscriber and subscriber.get("status") == "active" and (
-            not subscriber.get("expires_at") or
-            subscriber.get("expires_at") > datetime.now(timezone.utc).isoformat()
-        )
-    )
-    plan_name   = subscriber.get("plan", "free") if _active else "free"
-    plan_cfg    = cfg.PLANS.get(plan_name, cfg.PLANS["free"])
-    is_paid     = plan_name != "free"
-    leads_limit = plan_cfg.get("leads_limit", 10)
-
     async def _progress_msg(delay: float, text: str) -> None:
         await asyncio.sleep(delay)
         try:
@@ -1406,6 +1394,18 @@ async def _deliver_and_notify_wa(phone: str, target: str) -> None:
             pass
 
     try:
+        subscriber  = await asyncio.to_thread(_db.get_subscriber, phone)
+        _active = (
+            subscriber and subscriber.get("status") == "active" and (
+                not subscriber.get("expires_at") or
+                subscriber.get("expires_at") > datetime.now(timezone.utc).isoformat()
+            )
+        )
+        plan_name   = subscriber.get("plan", "free") if _active else "free"
+        plan_cfg    = cfg.PLANS.get(plan_name, cfg.PLANS["free"])
+        is_paid     = plan_name != "free"
+        leads_limit = plan_cfg.get("leads_limit", 10)
+        log.info("WA deliver: phone=%s plan=%s active=%s limit=%d", phone, plan_name, _active, leads_limit)
         # Nota: el mensaje "Buscando..." ya se envió desde wa_bot._r_procesando()
         asyncio.create_task(_notify_pipeassist(
             f"🔍 *Nueva búsqueda*\n"
@@ -1544,10 +1544,10 @@ async def _deliver_and_notify_wa(phone: str, target: str) -> None:
 
         asyncio.create_task(_send_feedback_delayed())
 
-    except Exception as exc:
+    except BaseException as exc:
         tb = traceback.format_exc()
-        log.error("_deliver_and_notify_wa error: %s\n%s", exc, tb)
-        # Notificar al admin con detalle del error (await, no create_task)
+        log.error("_deliver_and_notify_wa error [%s]: %s\n%s", type(exc).__name__, exc, tb)
+        # Notificar al admin con detalle del error
         try:
             await _notify_pipeassist(
                 f"❌ *Error pipeline WA*\n"
@@ -1555,8 +1555,16 @@ async def _deliver_and_notify_wa(phone: str, target: str) -> None:
                 f"🎯 `{target}`\n"
                 f"💥 `{type(exc).__name__}: {str(exc)[:200]}`"
             )
-        except Exception:
+        except BaseException:
             log.error("No se pudo notificar error al admin")
+        # Enviar el error por WA directo al usuario para debug
+        try:
+            await asyncio.to_thread(
+                wa_sender.send_text, phone,
+                f"⚠️ Debug error: {type(exc).__name__}: {str(exc)[:150]}"
+            )
+        except BaseException:
+            pass
         # ── Error recovery con contador ───────────────────────────────────────
         try:
             current_session = wa_bot._get_session(phone)
@@ -1573,7 +1581,7 @@ async def _deliver_and_notify_wa(phone: str, target: str) -> None:
                 await asyncio.to_thread(
                     wa_sender.send_text, phone, MSG["pipeline_error_final"]
                 )
-        except Exception as recovery_exc:
+        except BaseException as recovery_exc:
             log.error("error_recovery failed: %s", recovery_exc)
             wa_bot._set_session(phone, {"state": "idle"})
 
