@@ -125,11 +125,7 @@ _PRECIOS_BODY = (
     "¿Quieres probar 3 días gratis con acceso completo?"
 )
 
-_PEDIR_TARGET = (
-    "¿Qué tipo de empresas quieres prospectar?\n\n"
-    "Escribe industria + ciudad:\n"
-    "_\"Ferreterías en Trujillo\"_ · _\"Clínicas en Lima\"_"
-)
+_PEDIR_TARGET = "Solo escribeme: rubio + ciudad\n\nEj: restaurantes Lima"
 
 _PROCESANDO = "⏳ Buscando *\"{target}\"* en Google Maps... esto toma ~2 min ☕"
 
@@ -140,28 +136,24 @@ def _MSG(key: str, **kwargs) -> str:
 
 _YA_REGISTRADO = "Tu reporte ya está en camino ✅"
 
-_BIENVENIDA = """🚀 *¡Bienvenido a Pipeline_X!*
+_BIENVENIDA = """Pipeline_X - Tu vendedor virtual
 
-Genera reportes de leads calificados con IA en minutos.
+Solo escribeme lo que buscas:
+"restaurantes Lima"
+"ferreterias Arequipa"
+"clinicas Trujillo"
 
-*¿Cómo funciona?*
-1. Me dices qué buscas (ej: "restaurantes en Lima")
-2. Yo busco en Google Maps
-3. Califico con IA (score, teléfono, mensaje)
-4. Te envío el reporte en PDF
+Yo busco, califico y te mando el PDF.
+Asi de simple.
 
-*También funciona en Telegram 👇*
-t.me/Pipeline_X_Bot
+Telegram: t.me/Pipeline_X_Bot"""
 
-*Para empezar, escríbeme:*
-• Rubro + ciudad (ej: "restaurantes en Lima")
-• O usa los botones de abajo 👇"""
+_NO_ENTENDIDO = """Solo escribeme tu busqueda:
 
-_NO_ENTENDIDO = """No entendí 🤔
+"restaurantes Lima"
+"ferreterias Trujillo"
 
-*Puedes:*
-• Escribir directamente lo que buscas (rubro + ciudad)
-• O usar los botones 👇"""
+Rubro + ciudad. Es todo lo que necesito."""
 
 # ─── Constructores de respuesta ───────────────────────────────────────────────
 
