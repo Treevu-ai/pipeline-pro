@@ -1134,7 +1134,7 @@ def get_referral_code(phone: str) -> dict | None:
                     FROM referral_codes
                     WHERE phone = %s AND expires_at > now()
                     ORDER BY created_at DESC
-                    LIMIT1
+                    LIMIT 1
                 """, (phone,))
                 row = cur.fetchone()
                 if row:
