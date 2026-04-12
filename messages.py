@@ -60,8 +60,12 @@ MSG: dict[str, str] = {
         "Escribe de nuevo el rubro y ciudad para reintentar."
     ),
     "error_pdf": (
-        "⚠️ Hubo un problema generando el PDF. "
-        "Escríbenos a contacto@pipelinex.app"
+        "⚠️ Tuve un problema generando el PDF.\n\n"
+        "Pero puedo enviártelo por Telegram 👇\n\n"
+        "1. Abre: t.me/Pipeline_X_Bot\n"
+        "2. Escribe /start\n"
+        "3. Envía tu búsqueda ahí\n\n"
+        "🚀 Y recibirás el reporte instantáneo."
     ),
 
     # ── Upgrade / planes ─────────────────────────────────────────────────────

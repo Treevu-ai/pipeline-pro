@@ -140,7 +140,28 @@ def _MSG(key: str, **kwargs) -> str:
 
 _YA_REGISTRADO = "Tu reporte ya está en camino ✅"
 
-_NO_ENTENDIDO = "No entendí eso 🤔 ¿En qué puedo ayudarte?"
+_BIENVENIDA = """🚀 *¡Bienvenido a Pipeline_X!*
+
+Genera reportes de leads calificados con IA en minutos.
+
+*¿Cómo funciona?*
+1. Me dices qué buscas (ej: "restaurantes en Lima")
+2. Yo busco en Google Maps
+3. Califico con IA (score, teléfono, mensaje)
+4. Te envío el reporte en PDF
+
+*También funciona en Telegram 👇*
+t.me/Pipeline_X_Bot
+
+*Para empezar, escríbeme:*
+• Rubro + ciudad (ej: "restaurantes en Lima")
+• O usa los botones de abajo 👇"""
+
+_NO_ENTENDIDO = """No entendí 🤔
+
+*Puedes:*
+• Escribir directamente lo que buscas (rubro + ciudad)
+• O usar los botones 👇"""
 
 # ─── Constructores de respuesta ───────────────────────────────────────────────
 
@@ -295,14 +316,13 @@ def _r_ya_registrado() -> list[dict]:
 
 def _r_garantia() -> list[dict]:
     return [_b(
-        "Entendido 👌\n\n"
-        "Nuestra garantía es simple:\n"
-        "Si tu primer reporte no incluye al menos *5 leads calificados* "
-        "(score ≥ 60), te generamos otro sin costo — sin preguntas.\n\n"
-        "Pero antes de pagar, puedes probarlo gratis ahora mismo.\n"
-        "Dinos qué tipo de empresas buscas y en qué ciudad 👇",
-        [("demo", "🚀 Probar gratis primero"), ("precios", "💰 Ver planes")],
-        footer=_FOOTER,
+        "😔 Lamento que no quedara cómo esperabas.\n\n"
+        "Pero puedo reenviarte el reporte por *Telegram* donde suele ser más estable.\n\n"
+        "1. Abre: t.me/Pipeline_X_Bot\n"
+        "2. Escribe /start\n"
+        "3. Envía tu búsqueda\n\n"
+        "¿Probamos por ahí? 🎯",
+        [("contacto", "💬 Hablar con alguien")],
     )]
 
 def _r_feedback() -> list[dict]:
@@ -324,8 +344,10 @@ def _r_no_entendido() -> list[dict]:
 
 _KEYWORDS: dict[str, list[str]] = {
     "saludo":    ["hola", "buenas", "buenos dias", "buenos días", "buenas tardes", "buenas noches",
-                  "hey", "hi", "hello", "buen dia", "buen día", "saludos"],
-    "demo":      ["demo", "gratis", "probar", "prueba", "leads", "reporte", "ver", "🚀", "1", "nuevo reporte", "nuevo"],
+                  "hey", "hi", "hello", "buen dia", "buen día", "saludos", "iniciar", "empezar", "empezamos"],
+    "buscar":    ["buscar", "busqueda", "búsqueda", "prospectar", "lead", "leads", "encontrar",
+                  "busco", "necesito", "quiero buscar", "dame leads", "darme leads"],
+    "demo":      ["demo", "gratis", "probar", "prueba", "leads", "reporte", "ver", "🚀", "1", "nuevo reporte", "nuevo", "test"],
     "precios":   ["precio", "precios", "costo", "plan", "planes", "cuanto", "cuánto", "tarifa", "💰", "2"],
     "info":      ["info", "que es", "qué es", "como funciona", "cómo funciona", "información", "❓", "3"],
     "contacto":  ["contacto", "hablar", "humano", "soporte", "ayuda", "llamar", "💬", "4"],
@@ -335,7 +357,7 @@ _KEYWORDS: dict[str, list[str]] = {
                   "no funcionó", "no sirve", "mal reporte", "quiero mi dinero", "reembolsar"],
     "feedback_good": ["feedback_good", "muy útil", "muy util", "excelente", "genial", "perfecto"],
     "feedback_ok":   ["feedback_ok",   "regular", "normal", "mas o menos", "más o menos", "ok"],
-    "feedback_bad":  ["feedback_bad",  "poco útil", "poco util", "malo", "mal", "no sirvió", "no sirvio"],
+    "feedback_bad":  ["feedback_bad", "poco útil", "poco util", "malo", "mal", "no sirvió", "no sirvio"],
     "historial":     ["mis reportes", "historial", "mis busquedas", "mis búsquedas",
                       "que busque", "qué busqué", "repetir"],
     "unsubscribe":   ["stop", "baja", "no quiero mensajes", "cancelar mensajes", "unsubscribe",
@@ -708,6 +730,10 @@ def _handle_intent(phone: str, intent: str) -> list[dict]:
         _set_session(phone, {"state": "menu_shown"})
         return _r_menu(phone)
 
+    if intent == "buscar":
+        _set_session(phone, {"state": "collecting_target"})
+        return _r_pedir_target()
+    
     if intent == "demo":
         _set_session(phone, {"state": "collecting_target"})
         return _r_pedir_target()
