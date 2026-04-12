@@ -21,20 +21,9 @@ import os
 from fpdf import FPDF
 
 def _get_font_path(name: str) -> str | None:
-    """Cross-platform font path: Windows → Linux fallback → None if not found."""
-    win_path = Path(f"C:/Windows/Fonts/{name}")
-    if win_path.exists():
-        return str(win_path)
-    linux_path = Path(f"/usr/share/fonts/truetype/dejavu/{name}")
-    if linux_path.exists():
-        return str(linux_path)
-    return None
+    return None  # Railway no tiene fuentes locales, usar built-in
 
-_FONT_REGULAR = _get_font_path("arial.ttf") or _get_font_path("DejaVuSans.ttf")
-_FONT_BOLD    = _get_font_path("arialbd.ttf") or _get_font_path("DejaVuSans-Bold.ttf")
-_FONT_ITALIC  = _get_font_path("ariali.ttf") or _get_font_path("DejaVuSans-Oblique.ttf") or _get_font_path("DejaVuSans-Italic.ttf")
-_FONT_BOLDITALIC = _get_font_path("arialbi.ttf") or _get_font_path("DejaVuSans-BoldOblique.ttf") or _get_font_path("DejaVuSans-BoldItalic.ttf")
-_FONT_FAMILY = "DejaVuSans"
+_FONT_FAMILY = "helvetica"  # Built-in, siempre disponible
 
 # ─── Paleta ───────────────────────────────────────────────────────────────────
 
@@ -85,14 +74,6 @@ def _censor_phone(phone: str) -> str:
 class _PipelineXPDF(FPDF):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        if _FONT_REGULAR:
-            self.add_font(_FONT_FAMILY, style="",  fname=_FONT_REGULAR, uni=True)
-        if _FONT_BOLD:
-            self.add_font(_FONT_FAMILY, style="B", fname=_FONT_BOLD, uni=True)
-        if _FONT_ITALIC:
-            self.add_font(_FONT_FAMILY, style="I", fname=_FONT_ITALIC, uni=True)
-        if _FONT_BOLDITALIC:
-            self.add_font(_FONT_FAMILY, style="BI", fname=_FONT_BOLDITALIC, uni=True)
 
     def footer(self):
         self.set_y(-11)
@@ -225,7 +206,7 @@ def _lead_card_full(pdf: _PipelineXPDF, lead: dict, index: int) -> None:
         pdf.set_xy(27, y0 + 20)
         pdf.set_font(_FONT_FAMILY, "I", 7.5)
         pdf.set_text_color(*_DBLUE)
-        pdf.cell(0, 4, "Ver en Google Maps \u2192", link=maps_url, ln=1)
+        pdf.cell(0, 4, "Ver en Google Maps ->", link=maps_url, ln=1)
 
     # Por que califica
     if why:
