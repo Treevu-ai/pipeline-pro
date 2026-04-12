@@ -838,9 +838,13 @@ def _run_enrich(leads: list[dict]) -> list[dict]:
 
 
 def _run_pipeline(req: PipelineRequest) -> dict:
+    log.info("Pipeline start: query=%s limit=%d", req.query, req.limit)
     leads = _run_scrape(req.query, req.limit, req.enrich_web, req.enrich_sunat)
+    log.info("After scrape: %d leads", len(leads))
     qualified = _run_qualify(leads, req.channel) if req.qualify else leads
+    log.info("After qualify: %d leads", len(qualified))
     enriched = _run_enrich(qualified) if req.enrich_contacts else qualified
+    log.info("Pipeline end: total=%d", len(enriched))
     return {
         "total": len(enriched),
         "leads": enriched,
@@ -1389,6 +1393,12 @@ async def _deliver_and_notify_wa(phone: str, target: str) -> None:
         t1.cancel()
         leads  = result.get("leads", [])
         total  = result.get("total", len(leads))
+
+        # Debug: log first 5 leads
+        sample = []
+        for l in leads[:5]:
+            sample.append({"empresa": l.get("empresa", "-"), "score": l.get("lead_score", 0)})
+        log.info("Pipeline result: total=%d leads_sample=%s", total, sample)
 
         qualified = sorted(
             [l for l in leads if _int_score(l) >= 60],
