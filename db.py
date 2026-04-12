@@ -504,14 +504,16 @@ def upsert_subscriber(phone: str, plan: str = "starter",
             with conn.cursor() as cur:
                 cur.execute("""
                     INSERT INTO subscribers (phone, plan, status, activated_at, expires_at, notes)
-                    VALUES (%s, %s, 'active', now(), 
-                            CASE WHEN %s IS NOT NULL THEN now() + %s::interval ELSE NULL END,
-                            %s)
+                    VALUES (
+                        %s, %s, 'active', now(),
+                        CASE WHEN %s IS NOT NULL THEN (now() + (%s || ' days')::interval) ELSE NULL END,
+                        %s
+                    )
                     ON CONFLICT (phone) DO UPDATE
                         SET plan         = EXCLUDED.plan,
                             status       = 'active',
                             activated_at = now(),
-                            expires_at   = CASE WHEN EXCLUDED.expires_at IS NOT NULL THEN now() + EXCLUDED.expires_at::interval ELSE NULL END,
+                            expires_at   = EXCLUDED.expires_at,
                             notes        = EXCLUDED.notes
                 """, (phone, plan, days, days, notes))
         log.info("Subscriber activado: phone=%s plan=%s days=%s", phone, plan, days)
