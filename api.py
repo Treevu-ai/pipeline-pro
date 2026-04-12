@@ -1360,10 +1360,7 @@ async def _deliver_and_notify_wa(phone: str, target: str) -> None:
             pass
 
     try:
-        await asyncio.to_thread(
-            wa_sender.send_text, phone,
-            MSG["search_start"].format(target=target),
-        )
+        # Nota: el mensaje "Buscando..." ya se envió desde wa_bot._r_procesando()
         asyncio.create_task(_notify_pipeassist(
             f"🔍 *Nueva búsqueda*\n"
             f"📱 `{phone}`\n"
@@ -1385,7 +1382,12 @@ async def _deliver_and_notify_wa(phone: str, target: str) -> None:
         import time as _time
         _t0 = _time.monotonic()
         log.info("WA pipeline START: phone=%s target=%s limit=%d", phone, target, leads_limit)
-        result = await asyncio.to_thread(_run_pipeline, req)
+        try:
+            result = await asyncio.to_thread(_run_pipeline, req)
+        except Exception as pipe_exc:
+            _elapsed = _time.monotonic() - _t0
+            log.error("WA pipeline FAILED after %.1fs: %s\n%s", _elapsed, pipe_exc, traceback.format_exc())
+            raise
         _elapsed = _time.monotonic() - _t0
         log.info("WA pipeline END: phone=%s elapsed=%.1fs leads=%d", phone, _elapsed, len(result.get("leads", [])))
         t1.cancel()
@@ -1497,16 +1499,18 @@ async def _deliver_and_notify_wa(phone: str, target: str) -> None:
         asyncio.create_task(_send_feedback_delayed())
 
     except Exception as exc:
-        import exceptions as app_exc
         tb = traceback.format_exc()
         log.error("_deliver_and_notify_wa error: %s\n%s", exc, tb)
-        # Notificar al admin con detalle del error
-        asyncio.create_task(_notify_pipeassist(
-            f"❌ *Error pipeline WA*\n"
-            f"📱 `{phone}`\n"
-            f"🎯 `{target}`\n"
-            f"💥 `{type(exc).__name__}: {str(exc)[:200]}`"
-        ))
+        # Notificar al admin con detalle del error (await, no create_task)
+        try:
+            await _notify_pipeassist(
+                f"❌ *Error pipeline WA*\n"
+                f"📱 `{phone}`\n"
+                f"🎯 `{target}`\n"
+                f"💥 `{type(exc).__name__}: {str(exc)[:200]}`"
+            )
+        except Exception:
+            log.error("No se pudo notificar error al admin")
         # ── Error recovery con contador ───────────────────────────────────────
         try:
             current_session = wa_bot._get_session(phone)
