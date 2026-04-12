@@ -308,12 +308,12 @@ async def _search_via_apify(query: str, limit: int) -> list[dict[str, Any]]:
         ) as client:
             try:
                 resp = await client.post(run_url, params=params, json=body)
-            except httpx.TimeoutException:
+            except httpx.TimeoutException as te:
                 log.error(
                     "Apify timeout (%ds) para '%s' — intenta reducir el límite de leads",
                     _APIFY_HTTP_TIMEOUT_S, query,
                 )
-                return []
+                raise exc.GoogleMapsError(f"Apify timeout ({_APIFY_HTTP_TIMEOUT_S}s)") from te
             resp.raise_for_status()
             items = resp.json()
 
@@ -335,7 +335,7 @@ async def _search_via_apify(query: str, limit: int) -> list[dict[str, Any]]:
         return leads
     except Exception as e:
         log.warning("Apify falló para '%s': %s", query, e)
-        return []
+        raise
 
 
 async def _search_via_serpapi(query: str, limit: int) -> list[dict[str, Any]]:
