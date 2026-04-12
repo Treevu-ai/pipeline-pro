@@ -176,7 +176,7 @@ def _lead_card_full(pdf: _PipelineXPDF, lead: dict, index: int) -> None:
     pdf.set_xy(27, y0 + 3)
     pdf.set_font(_FONT_FAMILY, "B", 11)
     pdf.set_text_color(*_BLACK)
-    pdf.cell(115, 6, (lead.get("empresa") or "—")[:48], ln=0)
+    pdf.cell(115, 6, (lead.get("empresa") or "-")[:48], ln=0)
 
     # Score label + barra
     pdf.set_xy(155, y0 + 3)
@@ -207,7 +207,7 @@ def _lead_card_full(pdf: _PipelineXPDF, lead: dict, index: int) -> None:
             pdf.cell(60, 4, phone[:22], ln=0)
             pdf.set_font(_FONT_FAMILY, "I", 7)
             pdf.set_text_color(*_GRAY)
-            pdf.cell(0, 4, " Fijo — no disponible en WA", ln=1)
+            pdf.cell(0, 4, " Fijo - no disponible en WA", ln=1)
         else:
             pdf.set_font(_FONT_FAMILY, "B", 9)
             pdf.set_text_color(*_BLACK)
@@ -274,7 +274,7 @@ def _lead_card_locked(pdf: _PipelineXPDF, lead: dict, index: int) -> None:
     pdf.set_xy(27, y0 + 4)
     pdf.set_font(_FONT_FAMILY, "B", 10)
     pdf.set_text_color(*_BLACK)
-    pdf.cell(90, 5, (lead.get("empresa") or "—")[:42], ln=0)
+    pdf.cell(90, 5, (lead.get("empresa") or "-")[:42], ln=0)
 
     # Score barra
     pdf.set_xy(148, y0 + 4)
