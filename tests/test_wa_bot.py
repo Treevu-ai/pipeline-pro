@@ -74,12 +74,12 @@ class TestStateMachine:
 
     def test_idle_shows_menu(self):
         msgs = handle(PHONE, "hola")
-        assert any(m.get("type") == "text" and "Pipeline_X" in m["text"] for m in msgs)
+        assert any(m.get("type") in ("text", "buttons") and "Pipeline_X" in m.get("text", "") for m in msgs)
 
     def test_saludo_siempre_resetea(self, mock_db):
         mock_db[PHONE] = {"state": "done", "_ts": __import__("time").time()}
         msgs = handle(PHONE, "hola")
-        assert any(m.get("type") == "text" and "Pipeline_X" in m["text"] for m in msgs)
+        assert any(m.get("type") in ("text", "buttons") and "Pipeline_X" in m.get("text", "") for m in msgs)
 
     def test_demo_intent_pide_target(self, mock_db):
         mock_db[PHONE] = {"state": "menu_shown", "_ts": __import__("time").time()}
@@ -178,8 +178,8 @@ class TestResponseBuilders:
 
     def test_menu_has_3_options(self):
         msgs = wa_bot._r_menu()
-        text = msgs[0]["text"]
-        assert "1." in text and "2." in text and "3." in text
+        assert msgs[0]["type"] == "buttons"
+        assert len(msgs[0]["buttons"]) == 3
 
     def test_feedback_has_3_options(self):
         msgs = wa_bot._r_feedback()
