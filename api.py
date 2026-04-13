@@ -2481,6 +2481,39 @@ async def admin_activate_subscriber(req: ActivateSubscriberRequest, request: Req
     return {"ok": True, "subscriber": subscriber}
 
 
+@app.delete("/admin/users/{phone}", tags=["Admin"], include_in_schema=False)
+async def admin_delete_user(phone: str, request: Request):
+    """
+    Elimina todos los datos de un usuario (subscriber, sesión WA, eventos, perfil).
+    Útil para pruebas e2e y solicitudes GDPR.
+    Requiere X-Admin-Key.
+    """
+    import db as _db
+    _check_admin_api_key(request)
+    phone = phone.replace("+", "").replace(" ", "")
+
+    deleted: dict = {}
+    try:
+        with _db._conn() as conn:
+            with conn.cursor() as cur:
+                for table in ("subscribers", "wa_sessions", "events", "user_profiles", "api_tokens", "payment_links"):
+                    cur.execute(f"DELETE FROM {table} WHERE phone = %s", (phone,))
+                    deleted[table] = cur.rowcount
+                conn.commit()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+    # Limpiar sesión en memoria también
+    try:
+        import wa_bot
+        wa_bot._set_session(phone, {"state": "idle"})
+    except Exception:
+        pass
+
+    log.info("Admin eliminó datos de phone=%s: %s", phone, deleted)
+    return {"ok": True, "phone": phone, "deleted": deleted}
+
+
 @app.get("/admin/activate", tags=["Admin"], include_in_schema=False)
 async def admin_activate_quick(phone: str, plan: str = "starter", days: int = 30, request: Request = None):
     """
