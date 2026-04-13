@@ -358,8 +358,25 @@ def _handle_message_locked(phone: str, text: str) -> list[dict]:
     # ── Imagen ────────────────────────────────────────────────────────────────
     if text == "__IMAGE__":
         if state == "upgrade_prompted":
-            _set_session(phone, {"state": "menu_shown"})
+            # Mantener estado upgrade_prompted hasta que el CEO confirme manualmente
+            # No resetear — el usuario debe esperar la confirmación del CEO
             _notify_ceo_upgrade(phone)
+            # Notificar al CEO con instrucciones explícitas de activación
+            try:
+                import db as _db
+                profile = _db.get_user_profile(phone)
+                user_name = profile.get("name", "") or phone
+            except Exception:
+                user_name = phone
+            _notify_admins(
+                f"📸 *Comprobante de pago recibido*\n\n"
+                f"📱 `{phone}` ({user_name})\n"
+                f"💰 Plan: Starter (S/129/mes)\n\n"
+                f"Para activar, llama a:\n"
+                f"`POST /admin/subscribers/activate`\n"
+                f"Header: `X-Admin-Key: <tu_key>`\n"
+                f"Body: `{{\"phone\": \"{phone}\", \"plan\": \"starter\", \"days\": 30}}`"
+            )
             return [_t(_MSG("image_received_upgrade"))]
         return [_t(_MSG("image_unknown"))]
 

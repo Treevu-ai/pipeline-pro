@@ -183,6 +183,8 @@ async def _followup_loop() -> None:
                 await asyncio.sleep(2)   # pequeño delay entre envíos
         except Exception as exc:
             log.warning("followup_loop error: %s", exc)
+        # Limpiar locks inactivos cada hora (memory leak prevention)
+        _cleanup_wa_locks()
         await asyncio.sleep(3600)   # revisar cada hora
 
 
@@ -2084,13 +2086,29 @@ def _rate_limited(phone: str) -> bool:
 # ─── WhatsApp webhook (Green API) ─────────────────────────────────────────────
 
 _wa_phone_locks: dict[str, asyncio.Lock] = {}
+_wa_lock_last_used: dict[str, float] = {}   # timestamp de último uso por phone
 _background_tasks: set[asyncio.Task] = set()  # evita garbage collection de tasks
+_WA_LOCK_TTL = 3600  # limpiar locks no usados en más de 1 hora
 
 def _get_wa_lock(phone: str) -> asyncio.Lock:
     """Lock async por teléfono — serializa webhooks del mismo usuario."""
     if phone not in _wa_phone_locks:
         _wa_phone_locks[phone] = asyncio.Lock()
+    _wa_lock_last_used[phone] = _time.monotonic()
     return _wa_phone_locks[phone]
+
+def _cleanup_wa_locks() -> None:
+    """Elimina locks de teléfonos inactivos para evitar memory leak."""
+    now = _time.monotonic()
+    stale = [
+        p for p, ts in _wa_lock_last_used.items()
+        if now - ts > _WA_LOCK_TTL and not _wa_phone_locks.get(p, asyncio.Lock()).locked()
+    ]
+    for p in stale:
+        _wa_phone_locks.pop(p, None)
+        _wa_lock_last_used.pop(p, None)
+    if stale:
+        log.debug("Cleaned %d stale wa_phone_locks", len(stale))
 
 def _fire_and_forget(coro) -> None:
     """Lanza una corutina en background protegida de cancelación."""
@@ -2251,9 +2269,9 @@ code{{background:#111;padding:2px 6px;border-radius:2px;font-size:12px}}
 <p class="subtitle">Dashboard interno · últimos {period} días</p>
 
 <div class="period-selector">
-  <a href="?key={key}&days=1" class="{'active' if period==1 else ''}">24h</a>
-  <a href="?key={key}&days=7" class="{'active' if period==7 else ''}">7d</a>
-  <a href="?key={key}&days=30" class="{'active' if period==30 else ''}">30d</a>
+  <a href="?days=1" class="{'active' if period==1 else ''}">24h</a>
+  <a href="?days=7" class="{'active' if period==7 else ''}">7d</a>
+  <a href="?days=30" class="{'active' if period==30 else ''}">30d</a>
 </div>
 
 <h2>Funnel</h2>
@@ -2293,32 +2311,60 @@ class ActivateSubscriberRequest(BaseModel):
 
 
 @app.get("/admin", include_in_schema=False)
-async def admin_dashboard(key: str = "", days: int = 7):
+async def admin_dashboard(request: Request, days: int = 7):
     """
     Dashboard web de administración.
-    Acceso: /admin?key=<ADMIN_API_KEY>&days=7
+    La clave se envía como cookie httpOnly (establecida al hacer POST /admin/login).
     """
+    from fastapi.responses import HTMLResponse as _HR
     admin_key = os.environ.get("ADMIN_API_KEY", "")
-    if not admin_key or key != admin_key:
-        return HTMLResponse("""<!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>Pipeline_X Admin</title>
-<style>body{background:#000;color:#e5e5e5;font-family:monospace;display:flex;
-align-items:center;justify-content:center;height:100vh;margin:0}
-form{display:flex;flex-direction:column;gap:12px;min-width:260px}
-input{background:#0a0a0a;border:1px solid #2a2a2a;color:#e5e5e5;
-padding:10px;font-family:inherit;font-size:13px}
-button{background:#4ade80;color:#000;border:none;padding:10px;
-font-family:inherit;font-weight:700;cursor:pointer}
-h2{color:#fff;margin-bottom:8px;font-size:16px}</style></head>
-<body><form method="get">
-<h2>Pipeline_X Admin</h2>
-<input name="key" type="password" placeholder="Admin key" autofocus>
-<button type="submit">Acceder</button>
-</form></body></html>""", status_code=403)
+
+    # Verificar cookie de sesión (más seguro que query param)
+    session_cookie = request.cookies.get("admin_session", "")
+    if not admin_key or session_cookie != admin_key:
+        return _HR(_ADMIN_LOGIN_HTML, status_code=403)
 
     stats       = await asyncio.to_thread(_db.get_stats, days)
     subscribers = await asyncio.to_thread(_db.get_subscribers_list)
-    return HTMLResponse(_admin_html(stats, subscribers, key))
+    return _HR(_admin_html(stats, subscribers, ""))
+
+
+@app.post("/admin/login", include_in_schema=False)
+async def admin_login(request: Request):
+    """Valida la clave y establece cookie httpOnly de sesión."""
+    form = await request.form()
+    key  = form.get("key", "")
+    admin_key = os.environ.get("ADMIN_API_KEY", "")
+    if not admin_key or key != admin_key:
+        return HTMLResponse(_ADMIN_LOGIN_HTML + "<script>document.querySelector('p.err') && (document.querySelector('p.err').style.display='block')</script>", status_code=403)
+    resp = RedirectResponse(url="/admin", status_code=303)
+    resp.set_cookie(
+        "admin_session", admin_key,
+        httponly=True, samesite="strict",
+        max_age=8 * 3600,  # 8 horas
+    )
+    return resp
+
+
+_ADMIN_LOGIN_HTML = """<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>Pipeline_X Admin</title>
+<style>
+body{background:#000;color:#e5e5e5;font-family:monospace;display:flex;
+align-items:center;justify-content:center;height:100vh;margin:0}
+form{display:flex;flex-direction:column;gap:12px;min-width:260px}
+input{background:#0a0a0a;border:1px solid #2a2a2a;color:#e5e5e5;
+padding:10px;font-family:inherit;font-size:13px;border-radius:4px}
+button{background:#25D366;color:#000;border:none;padding:10px;
+font-family:inherit;font-weight:700;cursor:pointer;border-radius:4px}
+h2{color:#fff;margin-bottom:4px;font-size:16px}
+p.err{color:#f87171;font-size:12px;display:none;margin:0}
+</style></head>
+<body><form method="post" action="/admin/login">
+<h2>Pipeline_X Admin</h2>
+<p class="err">Clave incorrecta</p>
+<input name="key" type="password" placeholder="Admin key" autofocus>
+<button type="submit">Acceder</button>
+</form></body></html>"""
 
 
 @app.post("/admin/subscribers/activate", tags=["Admin"], status_code=200,
@@ -2367,6 +2413,52 @@ async def admin_activate_subscriber(req: ActivateSubscriberRequest, request: Req
     ))
     log.info("Admin activó suscriptor: phone=%s plan=%s days=%s", req.phone, req.plan, req.days)
     return {"ok": True, "subscriber": subscriber}
+
+
+@app.get("/admin/activate", tags=["Admin"], include_in_schema=False)
+async def admin_activate_quick(phone: str, plan: str = "starter", days: int = 30, request: Request = None):
+    """
+    Activación rápida por GET — útil desde el móvil del CEO.
+    Uso: /admin/activate?phone=51XXXXXXXXX&plan=starter&days=30
+    Requiere header X-Admin-Key o query param key=<ADMIN_API_KEY>.
+    """
+    import db as _db
+    import wa_sender
+    # Soporte para key por query param solo en este endpoint de conveniencia
+    admin_key_env = os.environ.get("ADMIN_API_KEY", "")
+    key_header    = request.headers.get("X-Admin-Key", "") if request else ""
+    key_param     = request.query_params.get("key", "") if request else ""
+    if not admin_key_env or (key_header != admin_key_env and key_param != admin_key_env):
+        raise HTTPException(status_code=403, detail="Clave inválida")
+
+    phone = phone.replace("+", "").replace(" ", "")
+    subscriber = await asyncio.to_thread(_db.upsert_subscriber, phone, plan, days, "activado-quick")
+    if not subscriber:
+        raise HTTPException(status_code=500, detail="Error guardando en DB")
+
+    from messages import MSG
+    try:
+        plan_display = plan.capitalize()
+        days_str = f"{days} días"
+        welcome_msg = MSG["subscriber_welcome"].format(plan=plan_display, days=days_str)
+        await asyncio.to_thread(wa_sender.send_text, phone, welcome_msg)
+    except Exception as wa_exc:
+        log.warning("WA bienvenida falló: %s", wa_exc)
+
+    _db.log_event(phone, _db.EventType.SUBSCRIBER_ACTIVATED, {"plan": plan, "days": days})
+    asyncio.create_task(_notify_pipeassist(
+        f"💎 *Suscriptor activado (quick)*\n"
+        f"📱 `{phone}`\n"
+        f"📦 Plan: {plan.capitalize()} · {days} días"
+    ))
+    log.info("Quick-activate: phone=%s plan=%s days=%s", phone, plan, days)
+    return HTMLResponse(
+        f"<html><body style='font-family:monospace;background:#000;color:#4ade80;padding:40px'>"
+        f"<h2>✅ Activado</h2>"
+        f"<p>📱 {phone}</p><p>📦 {plan.capitalize()} · {days} días</p>"
+        f"<p>El usuario ya recibió su mensaje de bienvenida por WhatsApp.</p>"
+        f"</body></html>"
+    )
 
 
 @app.get("/admin/subscribers/{phone}", tags=["Admin"],

@@ -197,9 +197,10 @@ MSG: dict[str, str] = {
         "Escríbeme el rubro y ciudad que buscas y te armo el reporte 👇"
     ),
     "image_received_upgrade": (
-        "📸 Recibido ✅\n\n"
-        "Estamos verificando tu pago. En minutos te confirmamos y activamos tu acceso.\n\n"
-        "Si tienes dudas escríbenos a *contacto@pipelinex.app*"
+        "📸 ¡Comprobante recibido! ✅\n\n"
+        "Estoy verificando tu pago ahora mismo. "
+        "En menos de *30 minutos* te confirmo y activo tu acceso al Plan Starter.\n\n"
+        "Mientras tanto puedes hacer una búsqueda de prueba — escríbeme rubro y ciudad 👇"
     ),
     "image_unknown": (
         "Recibí tu imagen, pero no sé qué hacer con ella 🤔\n"

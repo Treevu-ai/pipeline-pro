@@ -412,7 +412,7 @@ def _page_cta(pdf: _PipelineXPDF) -> None:
     pdf.set_x(10)
     pdf.set_font(_FONT_FAMILY, "B", 15)
     pdf.set_text_color(*_PURPLE)
-    pdf.cell(0, 10, "pipelinex.app/planes", align="C", ln=1)
+    pdf.cell(0, 10, "pipelinex.app/#pricing", align="C", ln=1)
 
     pdf.ln(6)
 
