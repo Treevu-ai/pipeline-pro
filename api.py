@@ -1001,6 +1001,25 @@ def root():
     return RedirectResponse(url="/docs")
 
 
+@app.get("/live", tags=["Sistema"])
+async def live():
+    """Liveness probe — solo confirma que la app está corriendo."""
+    return {"status": "ok"}
+
+
+@app.get("/ready", tags=["Sistema"])
+async def ready():
+    """Readiness probe — confirma que DB está disponible."""
+    import db as _db
+    try:
+        with _db._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT 1")
+        return {"status": "ok", "db": "connected"}
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"db_error: {e}")
+
+
 @app.get("/health", tags=["Sistema"])
 async def health():
     """Estado del servicio — incluye checks de Groq y PostgreSQL."""
@@ -1061,6 +1080,19 @@ async def health():
         "status":  overall,
         "product": cfg.PRODUCT["name"],
         "checks":  checks,
+    }
+
+
+@app.get("/metrics", tags=["Sistema"])
+async def metrics():
+    """Métricas básicas del sistema (formato Prometheus)."""
+    import db as _db
+    stats = await asyncio.to_thread(_db.get_stats, 7)
+    return {
+        "pipeline_searches_total": stats.get("searches", 0),
+        "pipeline_reports_total": stats.get("reports_delivered", 0),
+        "pipeline_upgrades_total": stats.get("upgrade_clicks", 0),
+        "pipeline_subscribers_active": stats.get("active_subscribers", 0),
     }
 
 
@@ -2102,7 +2134,7 @@ from collections import deque as _deque
 _seen_ids_deque: _deque = _deque(maxlen=2000)  # LRU fijo — no pierde historial al limpiar
 _seen_ids_set:  set[str] = set()               # lookup O(1)
 _phone_ts: dict[str, list] = {}                # phone → lista de timestamps recientes
-_MAX_MSG_PER_MIN = 6                           # máx mensajes por número por minuto
+_MAX_MSG_PER_MIN = 3                           # máx mensajes por número por minuto
 
 
 def _is_duplicate(id_message: str) -> bool:
