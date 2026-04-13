@@ -1,36 +1,26 @@
 """
-wa_bot.py — Bot de 5 respuestas automáticas para WhatsApp (Pipeline_X).
+wa_bot.py — Bot conversacional de WhatsApp para Pipeline_X.
 
 Flujo:
-  Cualquier mensaje  → [R1] Menú interactivo con lista de 4 opciones
-  Opción 1           → [R2] ¿Qué es Pipeline_X? + botones CTA
-  Opción 2           → [R3] Planes y precios + botones CTA
-  Opción 3           → [R4] Captura de email para demo gratuita
-  Opción 4           → [R5] Link a Telegram + correo de soporte
-  Email válido       → Guarda lead, notifica admin en Telegram
+  Saludo       → Menú con opciones numeradas (1. Demo, 2. Precios, 3. Info)
+  "1" / demo   → Pide rubro + ciudad → lanza pipeline → entrega PDF
+  "2" / precios → Muestra planes en soles
+  "3" / info    → Explica cómo funciona
 
 Tipos de mensaje devueltos (list[dict]):
-  {"type": "text",    "text": str}
-  {"type": "buttons", "body": str, "buttons": list[{"id", "text"}], "header": str, "footer": str}
-  {"type": "list",    "body": str, "button_text": str, "sections": list[...], "footer": str}
-
-Persistencia de sesiones: output/.wa_sessions.json
-Leads capturados:        output/.demo_requests.json  (mismo store que API + Telegram)
+  {"type": "text",             "text": str}
+  {"type": "pipeline_request", "target": str}
 """
 from __future__ import annotations
 
 import json
 import logging
 import os
-import re
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
 
 log = logging.getLogger("wa_bot")
-
-_EMAIL_RE = re.compile(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}")
 
 # ─── Lock por número — evita race condition con mensajes simultáneos ──────────
 _phone_locks: dict[str, threading.Lock] = {}
@@ -42,60 +32,21 @@ def _get_lock(phone: str) -> threading.Lock:
             _phone_locks[phone] = threading.Lock()
         return _phone_locks[phone]
 
-# ─── Stores ──────────────────────────────────────────────────────────────────
-
-_DEMO_STORE = Path("output/.demo_requests.json")
-
 # ─── Estados de conversación ─────────────────────────────────────────────────
-# idle             → nunca ha escrito (o reiniciado)
-# menu_shown       → se mostró el menú, esperando opción 1-4
-# collecting_email → eligió demo (opción 3), esperando email
-# done             → email capturado, conversación cerrada
+# idle              → nunca ha escrito (o reiniciado)
+# menu_shown        → se mostró el menú, esperando opción 1-3
+# collecting_name   → nuevo usuario, pidiendo nombre
+# collecting_target → esperando rubro + ciudad
+# running_pipeline  → pipeline en ejecución
+# done              → reporte entregado
+# upgrade_prompted  → se le ofreció upgrade
+# feedback_prompted → esperando feedback
 
-# ─── Helpers para construir mensajes interactivos ─────────────────────────────
+# ─── Helpers ──────────────────────────────────────────────────────────────────
 
 def _t(text: str) -> dict:
     """Mensaje de texto simple."""
     return {"type": "text", "text": text}
-
-
-def _b(body: str, buttons: list[tuple[str, str]], header: str = "", footer: str = "") -> dict:
-    """
-    Mensaje con hasta 3 botones.
-    buttons: lista de (id, display_text)
-    """
-    return {
-        "type":    "buttons",
-        "body":    body,
-        "buttons": [{"id": bid, "text": btxt} for bid, btxt in buttons],
-        "header":  header,
-        "footer":  footer,
-    }
-
-
-def _l(body: str, rows: list[tuple[str, str, str]], footer: str = "") -> dict:
-    """
-    Mensaje con lista de opciones seleccionables.
-    rows: lista de (id, title, description)
-    """
-    return {
-        "type":        "list",
-        "body":        body,
-        "button_text": "Ver opciones",
-        "sections":    [{
-            "title": "Elige una opción",
-            "rows":  [
-                {"id": rid, "title": rtitle, "description": rdesc}
-                for rid, rtitle, rdesc in rows
-            ],
-        }],
-        "footer": footer,
-    }
-
-
-# ─── Textos base ──────────────────────────────────────────────────────────────
-
-_FOOTER = "Pipeline_X · pipelinex.app"
 
 # ─── Textos ───────────────────────────────────────────────────────────────────
 
@@ -127,13 +78,9 @@ def _MSG(key: str, **kwargs) -> str:
     from messages import MSG
     return MSG[key].format(**kwargs) if kwargs else MSG[key]
 
-_YA_REGISTRADO = "Tu reporte ya está en camino ✅"
-
 _BIENVENIDA = """👋 Hola, soy Pipeline_X.
 
 Te ayudo a encontrar leads calificados para tu negocio."""
-
-_NO_ENTENDIDO = """No entendí eso 🤔\nEscribe rubro + ciudad para buscar leads.\nEj: _restaurantes Lima_"""
 
 # ─── Constructores de respuesta ───────────────────────────────────────────────
 
@@ -183,7 +130,6 @@ def _r_upgrade(phone: str) -> list[dict]:
     Formato sugerido: "BCP · Ahorro · 123-456789-0-12 · Nombre · CCI: 002..."
     """
     from messages import MSG
-    from datetime import datetime, timezone
 
     bank_info = os.environ.get("BANK_TRANSFER_INFO", "").strip()
 
@@ -202,7 +148,6 @@ def _notify_ceo_upgrade(phone: str) -> None:
     """Notifica al CEO vía PipeAssist cuando alguien toca 'Plan completo'."""
     import httpx
     from messages import MSG
-    from datetime import datetime, timezone
 
     token_int = os.environ.get("TELEGRAM_BOT_TOKEN_INTERNO", "")
     admin_ids  = [
@@ -267,9 +212,6 @@ def _r_contacto() -> list[dict]:
         "🤖 Telegram: t.me/Pipeline_X_bot (respuesta inmediata)"
     )]
 
-def _r_ya_registrado() -> list[dict]:
-    return [_t(_YA_REGISTRADO + "\n\nElige:\n1. 🔄 Nuevo reporte\n2. 💰 Ver planes")]
-
 def _r_garantia() -> list[dict]:
     return [_t(
         "😔 Lamento que no quedara cómo esperabas.\n\n"
@@ -332,12 +274,6 @@ def _detect_intent(text: str) -> str | None:
     return None
 
 
-def _extract_email(text: str) -> str | None:
-    """Extrae el primer email válido del texto, o None."""
-    m = _EMAIL_RE.search(text.strip())
-    return m.group(0).lower() if m else None
-
-
 # ─── Sesiones ─────────────────────────────────────────────────────────────────
 # Persistencia delegada a db.py (PostgreSQL) con fallback a archivo JSON.
 
@@ -372,87 +308,16 @@ def _set_session(phone: str, session: dict) -> None:
     db.set_session(phone, session)
 
 
-# ─── Persistencia de leads ────────────────────────────────────────────────────
-
-def _save_lead(phone: str, email: str) -> bool:
-    """
-    Guarda el lead en el store compartido con la API y el bot de Telegram.
-    Deduplica por email. Devuelve True si se guardó, False si ya existía.
-    """
-    try:
-        records = json.loads(_DEMO_STORE.read_text(encoding="utf-8")) if _DEMO_STORE.exists() else []
-    except Exception:
-        records = []
-
-    if any(r.get("email", "").lower() == email.lower() for r in records):
-        return False   # ya registrado
-
-    records.append({
-        "nombre":    "",
-        "empresa":   "",
-        "ruc":       "",
-        "email":     email,
-        "industria": "",
-        "ciudad":    "",
-        "ip":        f"whatsapp:{phone}",
-        "ts":        datetime.now(timezone.utc).isoformat(),
-        "status":    "demo_whatsapp",
-    })
-    _DEMO_STORE.parent.mkdir(parents=True, exist_ok=True)
-    _DEMO_STORE.write_text(json.dumps(records, ensure_ascii=False, indent=2), encoding="utf-8")
-    log.info("Lead WA guardado: phone=%s email=%s", phone, email)
-    return True
-
-
-# ─── Notificación al admin vía Telegram ──────────────────────────────────────
-
-def _notify_admin_telegram(phone: str, email: str) -> None:
-    """
-    Envía un mensaje al ADMIN_CHAT_ID usando la Bot API de Telegram directamente
-    (sin necesidad de tener el objeto Application disponible en este contexto síncrono).
-    """
-    import httpx
-
-    token    = os.environ.get("TELEGRAM_BOT_TOKEN", "")
-    admin_id = os.environ.get("ADMIN_CHAT_ID", "")
-    if not token or not admin_id:
-        log.warning("TELEGRAM_BOT_TOKEN o ADMIN_CHAT_ID no configurados — notificación omitida")
-        return
-
-    text = (
-        f"📲 *Nuevo lead WhatsApp*\n\n"
-        f"Email : `{email}`\n"
-        f"Tel   : `{phone}`"
-    )
-    try:
-        httpx.post(
-            f"https://api.telegram.org/bot{token}/sendMessage",
-            json={"chat_id": admin_id, "text": text, "parse_mode": "Markdown"},
-            timeout=8,
-        )
-        log.info("Admin notificado en Telegram: %s", email)
-    except Exception as exc:
-        log.warning("No se pudo notificar al admin: %s", exc)
-
-
 # ─── Motor principal ──────────────────────────────────────────────────────────
 
 def handle_message(phone: str, text: str) -> list[dict]:
     """
     Procesa un mensaje entrante de WhatsApp y devuelve la lista de mensajes
-    a enviar (cada uno es un dict con "type" y campos adicionales).
-
-    Serializa mensajes del mismo número con un lock para evitar race conditions.
-
-    Args:
-        phone: Número del remitente sin '+' ni '@c.us' (ej: "51987654321").
-        text:  Texto del mensaje recibido.
+    a enviar. Serializa por número con lock para evitar race conditions.
 
     Returns:
-        Lista de dicts de mensajes. Tipos posibles:
-          {"type": "text",    "text": str}
-          {"type": "buttons", "body": str, "buttons": [...], "header": str, "footer": str}
-          {"type": "list",    "body": str, "button_text": str, "sections": [...], "footer": str}
+        Lista de dicts: {"type": "text", "text": str}
+                     o  {"type": "pipeline_request", "target": str}
     """
     with _get_lock(phone):
         return _handle_message_locked(phone, text)

@@ -35,7 +35,8 @@ import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 import threading
-import uuid
+import time as _time
+import traceback
 from datetime import datetime, timezone, timedelta
 from typing import Any, Literal, Optional
 
@@ -43,7 +44,7 @@ import httpx
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.docs import get_swagger_ui_html
-from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -406,7 +407,6 @@ app.mount("/reports", StaticFiles(directory=str(REPORTS_DIR)), name="reports")
 @app.get("/r/{token}", include_in_schema=False)
 async def short_report_redirect(token: str):
     """Redirect corto: /r/TOKEN → /reports/TOKEN.pdf"""
-    from fastapi.responses import RedirectResponse
     path = REPORTS_DIR / f"{token}.pdf"
     if not path.exists():
         raise HTTPException(status_code=404, detail="Reporte no encontrado o expirado")
@@ -890,7 +890,6 @@ def root():
 @app.get("/health", tags=["Sistema"])
 async def health():
     """Estado del servicio — incluye checks de Groq y PostgreSQL."""
-    import time as _time
 
     checks: dict[str, str] = {}
 
@@ -974,52 +973,6 @@ async def debug_claude():
             "error_str": str(e),
             "body": str(body)[:500] if body else None,
         }
-
-
-@app.get("/debug/wa-pipeline", tags=["Sistema"], include_in_schema=False)
-async def debug_wa_pipeline(target: str = "Textiles Arequipa", phone: str = "51903176598"):
-    """Simula el flujo WA pipeline para diagnóstico."""
-    import traceback
-    import db as _db
-    steps = []
-    try:
-        # Step 1: subscriber
-        subscriber = await asyncio.to_thread(_db.get_subscriber, phone)
-        steps.append({"step": "get_subscriber", "result": str(subscriber)[:200]})
-
-        _active = (
-            subscriber and subscriber.get("status") == "active" and (
-                not subscriber.get("expires_at") or
-                subscriber.get("expires_at") > datetime.now(timezone.utc).isoformat()
-            )
-        )
-        plan_name = subscriber.get("plan", "free") if _active else "free"
-        plan_cfg_local = cfg.PLANS.get(plan_name, cfg.PLANS["free"])
-        leads_limit = plan_cfg_local.get("leads_limit", 10)
-        steps.append({"step": "plan_resolve", "plan": plan_name, "limit": leads_limit, "active": _active})
-
-        # Step 2: pipeline
-        req = PipelineRequest(
-            query=target, limit=leads_limit, channel="whatsapp",
-            enrich_web=True, enrich_sunat=False,
-            qualify=True, enrich_contacts=False,
-        )
-        import time as _time
-        t0 = _time.monotonic()
-        result = await asyncio.to_thread(_run_pipeline, req)
-        elapsed = _time.monotonic() - t0
-        leads = result.get("leads", [])
-        steps.append({"step": "pipeline", "elapsed_s": round(elapsed, 1), "leads": len(leads)})
-
-        # Step 3: PDF
-        from pdf_report import build_demo_pdf
-        pdf_bytes = await asyncio.to_thread(build_demo_pdf, target, leads)
-        steps.append({"step": "pdf", "size_bytes": len(pdf_bytes)})
-
-        return {"ok": True, "steps": steps}
-    except Exception as exc:
-        steps.append({"step": "ERROR", "type": type(exc).__name__, "msg": str(exc)[:300], "tb": traceback.format_exc()[-500:]})
-        return {"ok": False, "steps": steps}
 
 
 @app.get("/plans", tags=["Sistema"])
@@ -1195,10 +1148,6 @@ def _set_bot_state(chat_id: int, data: dict) -> None:
 def _del_bot_state(chat_id: int) -> None:
     _db.delete_bot_state(chat_id)
 
-
-def _save_bot_states() -> None:
-    """No-op — compatibilidad con código que aún llama a esta función."""
-    pass
 
 
 def _get_admin_ids() -> list[str]:
@@ -1395,7 +1344,6 @@ async def _deliver_and_notify_wa(phone: str, target: str) -> None:
       - Suscriptor activo  → 30 leads, PDF completo (build_full_pdf), sin botones de upgrade
       - Usuario free       → 10 leads, PDF demo (build_demo_pdf), botones de upgrade al final
     """
-    import traceback
     import wa_sender
     import wa_bot
     import db as _db
@@ -1440,7 +1388,6 @@ async def _deliver_and_notify_wa(phone: str, target: str) -> None:
             30, MSG["qualify_progress"]
         ))
 
-        import time as _time
         _t0 = _time.monotonic()
         log.info("WA pipeline START: phone=%s target=%s limit=%d", phone, target, leads_limit)
         try:
@@ -1454,12 +1401,6 @@ async def _deliver_and_notify_wa(phone: str, target: str) -> None:
         t1.cancel()
         leads  = result.get("leads", [])
         total  = result.get("total", len(leads))
-
-        # Debug: log first 5 leads
-        sample = []
-        for l in leads[:5]:
-            sample.append({"empresa": l.get("empresa", "-"), "score": l.get("lead_score", 0)})
-        log.info("Pipeline result: total=%d leads_sample=%s", total, sample)
 
         qualified = sorted(
             [l for l in leads if _int_score(l) >= 60],
@@ -2036,7 +1977,6 @@ async def telegram_webhook(request: Request):
 
 
 # ─── Anti-loop: deduplicación y rate-limit por número ────────────────────────
-import time as _time
 _seen_ids: set[str]       = set()          # idMessages ya procesados
 _phone_ts: dict[str, list] = {}            # phone → lista de timestamps recientes
 _MAX_MSG_PER_MIN = 6                       # máx mensajes por número por minuto
