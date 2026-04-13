@@ -356,6 +356,52 @@ async def _digest_scheduler() -> None:
         await asyncio.sleep(60)  # evitar doble disparo dentro del mismo minuto
 
 
+async def _green_api_monitor_loop() -> None:
+    """
+    Cada 5 minutos verifica que la sesión de Green API esté 'authorized'.
+    Si no lo está, alerta al CEO y reintenta cada minuto durante 10 minutos.
+    Si sigue caída, alerta cada hora para no saturar de notificaciones.
+    """
+    import wa_sender
+    await asyncio.sleep(60)   # esperar que la app arranque
+    last_state  = "authorized"
+    alert_count = 0
+
+    while True:
+        try:
+            state = await asyncio.to_thread(wa_sender.get_state)
+        except Exception as exc:
+            state = f"error: {exc}"
+
+        if state != "authorized":
+            # Primer alerta o cada 10 alertas (≈ cada hora si poll cada 5 min)
+            if last_state == "authorized" or alert_count % 10 == 0:
+                await _notify_pipeassist(
+                    f"🚨 *Green API DESCONECTADA*\n\n"
+                    f"Estado: `{state}`\n\n"
+                    f"El bot de WhatsApp NO puede recibir ni enviar mensajes.\n\n"
+                    f"*Acción requerida:*\n"
+                    f"1. Ve a console.green-api.com\n"
+                    f"2. Escanea el QR con el número `902126765`\n"
+                    f"3. Espera ~30s y la sesión se restaurará automáticamente\n\n"
+                    f"Alerta #{alert_count + 1}"
+                )
+            alert_count += 1
+            last_state = state
+            await asyncio.sleep(60)   # revisar cada 1 minuto mientras está caída
+        else:
+            if last_state != "authorized" and alert_count > 0:
+                # Sesión restaurada — notificar recuperación
+                await _notify_pipeassist(
+                    f"✅ *Green API reconectada*\n\n"
+                    f"La sesión de WhatsApp está activa nuevamente.\n"
+                    f"Tiempo caída: aprox {alert_count} minuto(s)."
+                )
+            alert_count = 0
+            last_state  = "authorized"
+            await asyncio.sleep(300)  # revisar cada 5 minutos cuando está OK
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     import logging_config
@@ -367,6 +413,7 @@ async def lifespan(app: FastAPI):
     asyncio.create_task(_followup_loop())
     asyncio.create_task(_followup_3d_loop())
     asyncio.create_task(_trial_expired_loop())
+    asyncio.create_task(_green_api_monitor_loop())
     asyncio.create_task(_digest_scheduler())
     yield
 
