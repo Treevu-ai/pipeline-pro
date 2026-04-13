@@ -2255,6 +2255,9 @@ async def whatsapp_webhook(request: Request):
         if id_message:
             await asyncio.to_thread(wa_sender.mark_read, phone, id_message)
 
+        # Typing indicator mientras procesa
+        await asyncio.to_thread(wa_sender.set_typing, phone, True)
+
         # Procesar y responder (handle_message devuelve list[dict])
         # Timeout de 25s para evitar bloqueos del webhook
         try:
@@ -2275,10 +2278,21 @@ async def whatsapp_webhook(request: Request):
                 if mtype == "pipeline_request":
                     # Lanzar pipeline en background — protegido de cancelación
                     _fire_and_forget(_deliver_and_notify_wa(phone, msg["target"]))
+                elif mtype == "buttons":
+                    # Enviar mensaje con botones interactivos
+                    await asyncio.to_thread(
+                        wa_sender.send_buttons,
+                        phone,
+                        msg.get("text", ""),
+                        msg.get("buttons", [])
+                    )
                 else:
                     await asyncio.to_thread(wa_sender.send_text, phone, msg["text"])
             except Exception as send_exc:
                 log.warning("send error phone=%s type=%s: %s", phone, mtype, send_exc)
+
+        # Apagar typing indicator después de enviar
+        await asyncio.to_thread(wa_sender.set_typing, phone, False)
 
     return {"ok": True}
 

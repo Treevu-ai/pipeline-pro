@@ -296,3 +296,23 @@ def get_state(timeout: int = 5) -> str:
     except Exception as exc:
         log.warning("getStateInstance falló: %s", exc)
         return "error"
+
+
+def set_typing(phone: str, typing: bool = True, timeout: int = 5) -> bool:
+    """
+    Activa/desactiva el indicador de "escribiendo...".
+    typing=True  → muestra "Pipeline_X está escribiendo..."
+    typing=False → berhenti writing indicator
+    """
+    url = f"{_base_url()}/setChatPresence/{_token()}"
+    payload = {
+        "chatId": _chat_id(phone),
+        "presence": "composing" if typing else "paused",
+    }
+    try:
+        r = httpx.post(url, json=payload, timeout=timeout)
+        r.raise_for_status()
+        return True
+    except Exception as exc:
+        log.warning("setChatPresence falló: %s", exc)
+        return False

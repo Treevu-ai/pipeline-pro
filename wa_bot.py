@@ -129,13 +129,36 @@ def _r_menu(phone: str | None = None) -> list[dict]:
                     log.warning("Auto-trial error phone=%s: %s", phone, trial_exc)
         except Exception:
             pass
-    return [_t(bienvenida + "\n\n" + "Elige una opción:\n1. 🚀 Demo gratis\n2. 💰 Precios\n3. ❓ Cómo funciona")]
+
+    return [{
+        "type": "buttons",
+        "text": bienvenida + "\n\nElige una opción:",
+        "buttons": [
+            {"id": "1", "text": "🚀 Demo gratis"},
+            {"id": "2", "text": "💰 Precios"},
+            {"id": "3", "text": "❓ Cómo funciona"},
+        ]
+    }]
 
 def _r_info() -> list[dict]:
-    return [_t(_INFO_BODY + "\n\nElige:\n1. 🚀 Probar gratis\n2. 💰 Ver precios")]
+    return [{
+        "type": "buttons",
+        "text": _INFO_BODY + "\n\nElige una opción:",
+        "buttons": [
+            {"id": "1", "text": "🚀 Probar gratis"},
+            {"id": "2", "text": "💰 Ver precios"},
+        ]
+    }]
 
 def _r_precios() -> list[dict]:
-    return [_t(_PRECIOS_BODY + "\n\nElige:\n1. 🚀 Probar gratis\n2. 💬 Hablar con alguien")]
+    return [{
+        "type": "buttons",
+        "text": _PRECIOS_BODY + "\n\nElige una opción:",
+        "buttons": [
+            {"id": "1", "text": "🚀 Probar gratis"},
+            {"id": "2", "text": "💬 Hablar con alguien"},
+        ]
+    }]
 
 def _r_pedir_target() -> list[dict]:
     return [_t(_PEDIR_TARGET)]
@@ -244,14 +267,17 @@ def _r_feedback() -> list[dict]:
         "3. 👎 Poco útil"
     )]
 
-def _r_no_entendido() -> list[dict]:
-    return [_t(
-        "No entendí eso 🤔\n\n"
-        "Elige:\n"
-        "1. 🚀 Demo gratis\n"
-        "2. 💰 Precios\n"
-        "3. ❓ Info"
-    )]
+def _r_no_entendido(state: str = "") -> list[dict]:
+    # Siempre incluir opción humano para cualquier fallback
+    return [{
+        "type": "buttons",
+        "text": "No entendí eso 🤔\n\nElige:",
+        "buttons": [
+            {"id": "human", "text": "🆘 Hablar con alguien"},
+            {"id": "1", "text": "🚀 Demo gratis"},
+            {"id": "2", "text": "💰 Precios"},
+        ]
+    }]
 
 
 # ─── Detección de intención ───────────────────────────────────────────────────
