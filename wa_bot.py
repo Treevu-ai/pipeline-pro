@@ -276,6 +276,9 @@ _KEYWORDS: dict[str, list[str]] = {
                       "que busque", "qué busqué", "repetir"],
     "unsubscribe":   ["stop", "baja", "no quiero mensajes", "cancelar mensajes", "unsubscribe",
                       "cancelar", "dar de baja", "dejar de recibir"],
+    "borrar_datos":  ["borrar mis datos", "eliminar mis datos", "borrar datos",
+                      "eliminar cuenta", "derecho al olvido", "ayuda privacidad",
+                      "privacidad", "gdpr"],
     "cancelar_plan": ["cancelar plan", "cancelar suscripcion", "cancelar suscripción",
                       "quiero cancelar", "dar de baja plan", "no quiero seguir pagando",
                       "ya no quiero el plan", "quiero darme de baja"],
@@ -726,6 +729,20 @@ def _handle_intent(phone: str, intent: str) -> list[dict]:
         except Exception:
             pass
         return [_t(_MSG("unsubscribed"))]
+
+    if intent == "borrar_datos":
+        _notify_admins(
+            f"🗑️ *Solicitud de borrado de datos*\n\n"
+            f"📱 `{phone}`\n"
+            f"Por GDPR/privacidad el usuario solicita eliminar sus datos.\n"
+            f"Ejecutar: `DELETE FROM subscribers, wa_sessions, events, user_profiles WHERE phone = '{phone}'`"
+        )
+        return [_t(
+            "✅ Recibida tu solicitud.\n\n"
+            "Eliminaremos todos tus datos en un plazo de *48 horas*.\n"
+            "Recibirás confirmación cuando esté listo.\n\n"
+            "Si tienes alguna duda: *contacto@pipelinex.app*"
+        )]
 
     if intent == "cancelar_plan":
         # Verificar si tiene plan activo
