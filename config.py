@@ -362,33 +362,13 @@ RATE_LIMITING = {
 # Estructura de planes:
 #   free      → 10 leads demo, 1 búsqueda/día — sin tarjeta
 #   trial     → 3 días full access automático al registrarse
-#   basico    → S/59/mes — 20 leads, 10 búsquedas/mes
+#   free      → S/0 — 10 leads, 1 búsqueda/día
 #   starter   → S/129/mes — 30 leads, ilimitado ⭐ RECOMENDADO
 #   pro       → S/299/mes — 50 leads, API access, enriquecimiento full
-#   reseller  → S/1,099/mes — white-label, multi-cuenta (agencias)
 #
 # El trial se activa automáticamente al signup y dura 3 días.
 
 PLANS: dict[str, dict] = {
-
-    # ── Básico ───────────────────────────────────────────────────────────────
-    "basico": {
-        "name": "Básico",
-        "price_soles": 59,
-        "price_display": "S/59/mes",
-        "leads_limit": 20,
-        "searches_per_day": None,
-        "searches_per_month": 10,
-        "full_pdf": True,
-        "description": "Para emprendedores que recién arrancan.",
-        "features": {
-            "enrich_sunat": False,
-            "api_access": False,
-            "whatsapp_delivery": True,
-        },
-        "cta": "Elegir Básico",
-        "highlight": False,
-    },
 
     # ── Free (demo) ──────────────────────────────────────────────────────────
     "free": {
@@ -464,27 +444,9 @@ PLANS: dict[str, dict] = {
         "highlight": False,
     },
 
-    # ── Reseller (agencias) ──────────────────────────────────────────────────
-    "reseller": {
-        "name": "Reseller",
-        "price_soles": 1099,
-        "price_display": "S/1,099/mes",
-        "leads_limit": 100,
-        "searches_per_day": None,
-        "searches_per_month": None,
-        "full_pdf": True,
-        "description": "White-label + multi-cuenta. Para agencias.",
-        "features": {
-            "enrich_sunat": True,
-            "api_access": True,
-            "whatsapp_delivery": True,
-            "white_label": True,
-            "multi_account": True,
-        },
-        "cta": "Contactar ventas",
-        "highlight": False,
-    },
 }
+
+
 
 # Límite de leads para el tier free en el endpoint /demo-request
 DEMO_REQUEST_LEADS_LIMIT: int = PLANS["free"]["leads_limit"]

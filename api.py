@@ -1887,9 +1887,7 @@ async def _handle_tg_callback(chat_id: int, data: str) -> None:
             "💰 *Planes Pipeline_X*\n\n"
             "• Free — S/0 · 10 leads, sin tarjeta\n"
             "• *Starter — S/129/mes · reportes ilimitados* ⭐\n"
-            "• Pro — S/299/mes · mayor volumen + API\n"
-            "• Reseller — S/1,099/mes · white-label para agencias\n\n"
-            "Menos que el costo de un vendedor por un día.\n"
+            "• Pro — S/299/mes · mayor volumen + API\n\n"
             "Sin contrato. Cancela cuando quieras.",
             [[("🚀 Probar gratis", "demo"), ("💬 Hablar con alguien", "contacto")]],
         )
@@ -2305,7 +2303,7 @@ def _check_admin_api_key(request: Request) -> None:
 
 class ActivateSubscriberRequest(BaseModel):
     phone:  str        = Field(..., description="Número sin '+' ni '@c.us', ej: 51987654321")
-    plan:   str        = Field("starter", description="Plan: starter, pro, reseller, founder")
+    plan:   str        = Field("starter", description="Plan: starter, pro, founder")
     days:   int | None = Field(30, description="Días de acceso. None = sin expiración")
     notes:  str        = Field("", description="Notas internas (ref. transferencia, nombre)")
 

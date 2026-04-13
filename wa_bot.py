@@ -75,10 +75,8 @@ _INFO_BODY = (
 _PRECIOS_BODY = (
     "💰 *Planes Pipeline_X*\n\n"
     "• Free — S/0 · 1 búsqueda/día, 10 leads demo\n"
-    "• Básico — S/59/mes · 10 reportes/mes, 20 leads full\n"
     "• *Starter — S/129/mes · ilimitado, 30 leads* ⭐\n"
-    "• Pro — S/299/mes · 50 leads + API REST\n"
-    "• Reseller — S/1,099/mes · white-label para agencias\n\n"
+    "• Pro — S/299/mes · 50 leads + API REST\n\n"
     "Sin contrato. Cancela cuando quieras.\n"
     "¿Quieres probar 3 días gratis con acceso completo?"
 )

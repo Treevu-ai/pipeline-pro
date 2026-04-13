@@ -352,17 +352,16 @@ def _page_cta(pdf: _PipelineXPDF) -> None:
 
     pdf.ln(8)
 
-    # ── Planes (4 columnas) ──────────────────────────────────────────────────
+    # ── Planes (3 columnas) ──────────────────────────────────────────────────
     plans = [
-        ("Free",     "S/0",         "10 leads de prueba\nSin tarjeta",                     _GRAY,   False),
-        ("Starter",  "S/129/mes",   "Reportes ilimitados\nPDF + WhatsApp + SUNAT",         _PURPLE, True),
-        ("Pro",      "S/299/mes",   "Mayor volumen\nAPI REST + soporte prioritario",        _GREEN,  False),
-        ("Reseller", "S/1,099/mes", "White-label\nMulti-cuenta + SLA garantizado",         _AMBER,  False),
+        ("Free",    "S/0",       "10 leads de prueba\nSin tarjeta",               _GRAY,   False),
+        ("Starter", "S/129/mes", "Reportes ilimitados\nPDF + WhatsApp + SUNAT",   _PURPLE, True),
+        ("Pro",     "S/299/mes", "Mayor volumen\nAPI REST + soporte prioritario",  _GREEN,  False),
     ]
 
-    col_w  = 44
-    gap    = 3
-    x0     = (210 - (col_w * 4 + gap * 3)) / 2
+    col_w  = 56
+    gap    = 4
+    x0     = (210 - (col_w * 3 + gap * 2)) / 2
     y_card = pdf.get_y()
 
     for i, (name, price, desc, color, popular) in enumerate(plans):
