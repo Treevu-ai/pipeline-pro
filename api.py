@@ -130,28 +130,9 @@ def _enforce_plan(tier: str, leads_requested: int, wants_sunat: bool) -> tuple[i
 
 
 def _start_bot_interno() -> None:
-    """Arranca bot_interno en un hilo de fondo con su propio event loop.
-    Usa run_async() para evitar el registro de signal handlers (solo permitido
-    en el hilo principal), que es lo que hace run_polling() y causaba el fallo silencioso."""
-    if not (os.environ.get("TELEGRAM_BOT_TOKEN_INTERNO") and os.environ.get("ADMIN_CHAT_ID")):
-        return
-
-    def _run():
-        import asyncio
-        # python-telegram-bot v21 requiere un event loop en el hilo.
-        # El hilo principal ya tiene uno (uvicorn), pero este hilo no.
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            import bot_interno
-            log.info("PipeAssist iniciando en hilo de fondo...")
-            bot_interno.main(embedded=True)
-        except Exception as e:
-            log.error("PipeAssist falló: %s", e, exc_info=True)
-        finally:
-            loop.close()
-
-    threading.Thread(target=_run, daemon=True, name="pipeassist-bot").start()
+    """Deshabilitado: Telegram polling causa Conflict en Railway con múltiples workers.
+    Usar webhook en su lugar (/webhook/telegram para el bot principal)."""
+    return  # Bot interno deshabilitado para evitar Conflict en Railway
 
 
 def _register_whatsapp_webhook() -> None:
