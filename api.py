@@ -1482,11 +1482,21 @@ async def _deliver_and_notify_wa(phone: str, target: str) -> None:
             token = _save_report_bytes(pdf_bytes)
             short_url = f"{API_PUBLIC_URL}/r/{token}"
             n_qualified = len(qualified)
+            if is_paid:
+                # Paid: muestra todos
+                visible = len(leads)
+                visible_q = n_qualified
+            else:
+                # Free demo: top 3 completos + hasta 9 censurados
+                top3 = min(n_qualified, 3)
+                rest_count = n_qualified - top3 + (total - n_qualified)
+                visible = top3 + min(rest_count, 9)
+                visible_q = min(n_qualified, 3 + 9)
             await asyncio.to_thread(
                 wa_sender.send_text,
                 phone,
                 f"✅ *Reporte listo: {target}*\n"
-                f"_{total} leads · {n_qualified} calificados_\n\n"
+                f"_{visible} leads en tu reporte · {visible_q} calificados_\n\n"
                 f"📄 Descárgalo aquí 👇\n{short_url}",
             )
             log.info("PDF guardado: %s (token=%s)", safe_name, token)
