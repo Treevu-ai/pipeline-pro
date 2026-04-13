@@ -2185,6 +2185,12 @@ async def whatsapp_webhook(request: Request):
         return {"ok": True}   # ignorar eventos que no son mensajes de texto
 
     phone, text, sender_name = parsed
+
+    # Validar teléfono peruano (51xxx) - rechazar estrangeiros
+    if not phone.startswith("51"):
+        log.info("Teléfono rechazado (no es Perú): %s", phone)
+        return {"ok": True}
+
     id_message  = (payload.get("idMessage") or
                    payload.get("messageData", {}).get("idMessage", ""))
 
@@ -2218,8 +2224,15 @@ async def whatsapp_webhook(request: Request):
             await asyncio.to_thread(wa_sender.mark_read, phone, id_message)
 
         # Procesar y responder (handle_message devuelve list[dict])
+        # Timeout de 25s para evitar bloqueos del webhook
         try:
-            messages = await asyncio.to_thread(wa_bot.handle_message, phone, text)
+            messages = await asyncio.wait_for(
+                asyncio.to_thread(wa_bot.handle_message, phone, text),
+                timeout=25.0
+            )
+        except asyncio.TimeoutError:
+            log.error("handle_message timeout para %s", phone)
+            return {"ok": True}
         except Exception as exc:
             log.error("handle_message error phone=%s: %s", phone, exc)
             return {"ok": True}
