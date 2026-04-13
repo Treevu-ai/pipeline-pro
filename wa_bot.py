@@ -405,13 +405,18 @@ def _handle_message_locked(phone: str, text: str) -> list[dict]:
         _set_session(phone, {"state": "menu_shown"})
         return _r_menu(phone)
 
-    # ── Mapeo directo de opciones numéricas del menú ─────────────────────────
-    # Interceptar ANTES de cualquier estado para que "1","2","3" siempre funcionen
-    # cuando el menú está activo (menu_shown o idle post-saludo)
-    if state in ("menu_shown", "idle", "done", "post_pdf_options") and text.strip() in ("1", "2", "3"):
-        _menu_map = {"1": "demo", "2": "precios", "3": "info"}
-        intent = _menu_map[text.strip()]
-        return _handle_intent(phone, intent)
+    # ── Mapeo directo de opciones del menú ───────────────────────────
+    # Soporta números (1,2,3) Y letras (A/B/C o a/b/c) cuando el menú está activo
+    if state in ("menu_shown", "idle", "done", "post_pdf_options"):
+        t = text.strip().lower()
+        # Mapeo: 1->demo, 2->precios, 3->info / a->demo, b->precios, c->info
+        _menu_map = {
+            "1": "demo", "2": "precios", "3": "info",
+            "a": "demo", "b": "precios", "c": "info",
+        }
+        if t in _menu_map:
+            intent = _menu_map[t]
+            return _handle_intent(phone, intent)
 
     # ── Esperando nombre ──────────────────────────────────────────────────────
     if state == "collecting_name":
