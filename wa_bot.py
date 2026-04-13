@@ -55,6 +55,7 @@ def _get_lock(phone: str) -> threading.Lock:
 # post_pdf_options  → usuario en menú post-PDF (A/B/C/D)
 # upgrade_prompted  → se le ofreció upgrade
 # feedback_prompted → esperando feedback
+# canceling_plan    → esperando confirmación de baja
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -114,6 +115,18 @@ def _r_menu(phone: str | None = None) -> list[dict]:
             name = profile.get("name")
             if name:
                 bienvenida = f"Hola {name}! 👋\n\n" + _BIENVENIDA.split("\n\n", 1)[-1]
+
+            # ── Trial automático al primer contacto ──────────────────────────
+            # Si es usuario nuevo (nunca tuvo trial y no es suscriptor activo),
+            # activar 3 días de trial sin que tenga que escribir "upgrade"
+            if not _db.has_trialed(phone) and not _db.is_active_subscriber(phone):
+                try:
+                    _db.upsert_subscriber(phone, plan="trial", days=3, notes="auto-trial-first-contact")
+                    _db.log_event(phone, _db.EventType.SUBSCRIBER_ACTIVATED, {"plan": "trial"})
+                    _notify_ceo_upgrade(phone)
+                    log.info("Auto-trial activado: phone=%s", phone)
+                except Exception as trial_exc:
+                    log.warning("Auto-trial error phone=%s: %s", phone, trial_exc)
         except Exception:
             pass
     return [_t(bienvenida + "\n\n" + "Elige una opción:\n1. 🚀 Demo gratis\n2. 💰 Precios\n3. ❓ Cómo funciona")]
@@ -263,6 +276,11 @@ _KEYWORDS: dict[str, list[str]] = {
                       "que busque", "qué busqué", "repetir"],
     "unsubscribe":   ["stop", "baja", "no quiero mensajes", "cancelar mensajes", "unsubscribe",
                       "cancelar", "dar de baja", "dejar de recibir"],
+    "cancelar_plan": ["cancelar plan", "cancelar suscripcion", "cancelar suscripción",
+                      "quiero cancelar", "dar de baja plan", "no quiero seguir pagando",
+                      "ya no quiero el plan", "quiero darme de baja"],
+    "confirmar_baja": ["sí cancelar", "si cancelar", "confirmo", "sí confirmo",
+                       "cancelar ahora", "sí, cancelar"],
     # Nuevos intents para opciones post-PDF
     "post_pdf_a":     ["cómo usar", "como usar", "instrucciones", "guía", "usar la lista"],
     "post_pdf_b":     ["buscar otra", "cambiar"],
@@ -499,6 +517,36 @@ def _handle_message_locked(phone: str, text: str) -> list[dict]:
             return _handle_intent(phone, intent)
         return _r_no_entendido()
 
+    # ── Confirmando cancelación de plan ───────────────────────────────────────
+    if state == "canceling_plan":
+        t_lower = text.lower().strip()
+        confirms = {"sí cancelar", "si cancelar", "confirmo", "sí confirmo",
+                    "cancelar ahora", "sí, cancelar", "si, cancelar"}
+        if t_lower in confirms or intent == "confirmar_baja":
+            try:
+                import db as _db
+                _db.upsert_subscriber(phone, plan="free", days=0, notes="cancelado-wa")
+                _db.log_event(phone, _db.EventType.SUBSCRIBER_CANCELLED)
+                profile = _db.get_user_profile(phone)
+                name = profile.get("name", "") or "amigo"
+                subscriber = _db.get_subscriber(phone)
+                expires = subscriber.get("expires_at", "")
+                if expires:
+                    try:
+                        from datetime import datetime, timezone
+                        exp_dt = datetime.fromisoformat(str(expires).replace(" ", "T"))
+                        expires = exp_dt.strftime("%d/%m/%Y")
+                    except Exception:
+                        pass
+            except Exception:
+                name, expires = "amigo", "—"
+            _set_session(phone, {"state": "menu_shown"})
+            return [_t(_MSG("cancelar_plan_done", name=name, expires=expires))]
+        else:
+            # No confirmó — mantener plan, volver al menú
+            _set_session(phone, {"state": "menu_shown"})
+            return [_t("Perfecto, tu plan sigue activo 👍 ¿En qué te puedo ayudar?")]
+
     # ── Ya entregado — mostrar opciones post-PDF ────────────────────────────
     if state == "post_pdf_options":
         # Si el usuario responde con A/B/C/D, manejar como intent
@@ -678,6 +726,33 @@ def _handle_intent(phone: str, intent: str) -> list[dict]:
         except Exception:
             pass
         return [_t(_MSG("unsubscribed"))]
+
+    if intent == "cancelar_plan":
+        # Verificar si tiene plan activo
+        try:
+            import db as _db
+            subscriber = _db.get_subscriber(phone)
+            is_active  = (
+                subscriber and subscriber.get("status") == "active"
+                and subscriber.get("plan", "free") not in ("free", "trial")
+            )
+            profile = _db.get_user_profile(phone)
+            name = profile.get("name", "") or "amigo"
+            plan = subscriber.get("plan", "free").capitalize() if subscriber else "free"
+            expires = subscriber.get("expires_at", "") if subscriber else ""
+            if expires:
+                try:
+                    from datetime import datetime
+                    exp_dt = datetime.fromisoformat(str(expires).replace(" ", "T"))
+                    expires = exp_dt.strftime("%d/%m/%Y")
+                except Exception:
+                    pass
+        except Exception:
+            is_active, name, plan, expires = False, "amigo", "free", "—"
+        if not is_active:
+            return [_t(_MSG("cancelar_plan_no_activo", name=name))]
+        _set_session(phone, {"state": "canceling_plan"})
+        return [_t(_MSG("cancelar_plan_confirm", name=name, plan=plan, expires=expires))]
 
     # ── Opciones post-PDF ───────────────────────────────────────────────────
     if intent in ("post_pdf_a", "post_pdf_b", "post_pdf_c", "post_pdf_d"):

@@ -224,6 +224,23 @@ MSG: dict[str, str] = {
         "Si algún día quieres volver, solo escríbeme *hola* 👋"
     ),
 
+    # ── Cancelación de plan ───────────────────────────────────────────────────
+    "cancelar_plan_confirm": (
+        "Entendido, {name}. Antes de confirmar la baja, ¿estás seguro?\n\n"
+        "Tu plan *{plan}* estará activo hasta el *{expires}*.\n"
+        "Después de esa fecha no se renovará automáticamente.\n\n"
+        "Escribe *sí, cancelar* para confirmar, o cualquier otra cosa para mantener tu plan."
+    ),
+    "cancelar_plan_done": (
+        "✅ Tu plan ha sido cancelado, {name}.\n\n"
+        "Seguirás teniendo acceso hasta el *{expires}*.\n"
+        "Cuando quieras volver, escríbeme y te reactivamos en minutos 👋"
+    ),
+    "cancelar_plan_no_activo": (
+        "No tienes un plan activo en este momento, {name}.\n\n"
+        "Si quieres probar Pipeline_X, escribe *upgrade* para ver los planes."
+    ),
+
     # ── Error recovery de pipeline ────────────────────────────────────────────
     "pipeline_error_retry": (
         "⚠️ Hubo un problema con esa búsqueda.\n"

@@ -93,6 +93,30 @@ def _plan_limits(tier: str) -> dict:
     return cfg.PLANS.get(tier, cfg.PLANS[const.PlanTier.FREE])
 
 
+def _require_api_access(request: Request) -> str:
+    """
+    Verifica que el usuario tiene acceso API (plan Pro o admin).
+    Devuelve el tier resuelto.
+    Lanza HTTP 403 si el plan no incluye api_access.
+    Admins (X-Admin-Key) siempre pasan.
+    """
+    admin_key = os.environ.get("ADMIN_API_KEY", "")
+    if admin_key and request.headers.get("X-Admin-Key", "") == admin_key:
+        return "admin"
+    tier = _resolve_tier(request)
+    plan = cfg.PLANS.get(tier, {})
+    if not plan.get("features", {}).get("api_access", False):
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                f"El plan '{tier}' no incluye acceso API REST. "
+                "Actualiza al plan Pro para usar estos endpoints. "
+                "Escríbenos por WhatsApp: wa.me/51902126765"
+            ),
+        )
+    return tier
+
+
 def _enforce_plan(tier: str, leads_requested: int, wants_sunat: bool) -> tuple[int, bool]:
     """
     Aplica los límites del plan sobre los parámetros de la petición.
@@ -1061,10 +1085,10 @@ async def scrape(req: ScrapeRequest, request: Request):
 @app.post("/qualify", tags=["Leads"])
 async def qualify(req: QualifyRequest, request: Request):
     """
-    Califica una lista de leads usando Groq.
-    Requiere header X-Admin-Key para evitar abuso de quota LLM.
+    Califica una lista de leads usando IA.
+    Requiere plan Pro o X-Admin-Key.
     """
-    _check_admin_api_key(request)
+    _require_api_access(request)
     if not req.leads:
         raise HTTPException(status_code=422, detail="La lista de leads está vacía")
     try:
@@ -1077,10 +1101,10 @@ async def qualify(req: QualifyRequest, request: Request):
 @app.post("/enrich", tags=["Leads"])
 async def enrich(req: EnrichRequest, request: Request):
     """
-    Enriquece los contactos de una lista de leads.
-    Requiere header X-Admin-Key.
+    Enriquece contactos de una lista de leads.
+    Requiere plan Pro o X-Admin-Key.
     """
-    _check_admin_api_key(request)
+    _require_api_access(request)
     if not req.leads:
         raise HTTPException(status_code=422, detail="La lista de leads está vacía")
     try:
@@ -1094,15 +1118,12 @@ async def enrich(req: EnrichRequest, request: Request):
 async def pipeline(req: PipelineRequest, request: Request):
     """
     Pipeline completo síncrono: scrape → califica → enriquece.
-    Requiere header X-Admin-Key o X-User-Phone con token válido.
-    Sin header válido → tier free (10 leads, sin SUNAT).
+    - Plan Pro o X-Admin-Key: sin restricciones
+    - Otros planes con X-User-Phone: límites según plan
+    - Sin header: tier free (10 leads, sin SUNAT)
     """
-    # Si viene con X-Admin-Key válida, permitir sin restricción de plan
-    admin_key = os.environ.get("ADMIN_API_KEY", "")
-    if admin_key and request.headers.get("X-Admin-Key", "") == admin_key:
-        pass  # admin bypass
-    else:
-        tier = _resolve_tier(request)
+    tier = _require_api_access(request)
+    if tier != "admin":
         effective_limit, effective_sunat = _enforce_plan(tier, req.limit, req.enrich_sunat)
         req = req.model_copy(update={"limit": effective_limit, "enrich_sunat": effective_sunat})
     try:
