@@ -166,8 +166,15 @@ async def _followup_loop() -> None:
                     await asyncio.sleep(2)
                     continue
                 try:
+                    # Obtener nombre para personalización
+                    try:
+                        profile = await asyncio.to_thread(_db.get_user_profile, phone)
+                        user_name = profile.get("name", "") or "amigo"
+                    except Exception:
+                        user_name = "amigo"
                     await asyncio.to_thread(
-                        wa_sender.send_text, phone, MSG["followup_24h"]
+                        wa_sender.send_text, phone,
+                        MSG["followup_24h"].format(name=user_name)
                     )
                     _db.log_event(phone, _db.EventType.WA_FOLLOWUP_SENT)
                     log.info("Followup enviado: phone=%s", phone)
@@ -1050,12 +1057,12 @@ async def scrape(req: ScrapeRequest, request: Request):
 
 
 @app.post("/qualify", tags=["Leads"])
-async def qualify(req: QualifyRequest):
+async def qualify(req: QualifyRequest, request: Request):
     """
     Califica una lista de leads usando Groq.
-    Devuelve los leads con score, etapa CRM y borrador de mensaje.
-    No requiere autenticación — es una operación de solo lectura.
+    Requiere header X-Admin-Key para evitar abuso de quota LLM.
     """
+    _check_admin_api_key(request)
     if not req.leads:
         raise HTTPException(status_code=422, detail="La lista de leads está vacía")
     try:
@@ -1066,10 +1073,12 @@ async def qualify(req: QualifyRequest):
 
 
 @app.post("/enrich", tags=["Leads"])
-async def enrich(req: EnrichRequest):
+async def enrich(req: EnrichRequest, request: Request):
     """
-    Enriquece los contactos de una lista de leads (emails, teléfonos, redes sociales).
+    Enriquece los contactos de una lista de leads.
+    Requiere header X-Admin-Key.
     """
+    _check_admin_api_key(request)
     if not req.leads:
         raise HTTPException(status_code=422, detail="La lista de leads está vacía")
     try:
@@ -1083,19 +1092,22 @@ async def enrich(req: EnrichRequest):
 async def pipeline(req: PipelineRequest, request: Request):
     """
     Pipeline completo síncrono: scrape → califica → enriquece.
-    Para limite > 20 leads se recomienda usar /jobs/pipeline.
-
-    El header `X-User-Phone` identifica al usuario para resolver su plan.
-    Sin header → tier free (10 leads, sin SUNAT).
+    Requiere header X-Admin-Key o X-User-Phone con token válido.
+    Sin header válido → tier free (10 leads, sin SUNAT).
     """
-    tier = _resolve_tier(request)
-    effective_limit, effective_sunat = _enforce_plan(tier, req.limit, req.enrich_sunat)
-    enforced = req.model_copy(update={"limit": effective_limit, "enrich_sunat": effective_sunat})
+    # Si viene con X-Admin-Key válida, permitir sin restricción de plan
+    admin_key = os.environ.get("ADMIN_API_KEY", "")
+    if admin_key and request.headers.get("X-Admin-Key", "") == admin_key:
+        pass  # admin bypass
+    else:
+        tier = _resolve_tier(request)
+        effective_limit, effective_sunat = _enforce_plan(tier, req.limit, req.enrich_sunat)
+        req = req.model_copy(update={"limit": effective_limit, "enrich_sunat": effective_sunat})
     try:
-        result = await asyncio.to_thread(_run_pipeline, enforced)
+        result = await asyncio.to_thread(_run_pipeline, req)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-    return {**result, "plan_tier": tier, "applied_limit": effective_limit}
+    return result
 
 
 # ─── Jobs ────────────────────────────────────────────────────────────────────
@@ -1430,8 +1442,17 @@ async def _deliver_and_notify_wa(phone: str, target: str) -> None:
 
         _t0 = _time.monotonic()
         log.info("WA pipeline START: phone=%s target=%s limit=%d", phone, target, leads_limit)
+        _PIPELINE_TIMEOUT = 8 * 60  # 8 minutos máximo
+
         try:
-            result = await asyncio.to_thread(_run_pipeline, req)
+            result = await asyncio.wait_for(
+                asyncio.to_thread(_run_pipeline, req),
+                timeout=_PIPELINE_TIMEOUT,
+            )
+        except asyncio.TimeoutError:
+            _elapsed = _time.monotonic() - _t0
+            log.error("WA pipeline TIMEOUT after %.1fs: phone=%s target=%s", _elapsed, phone, target)
+            raise asyncio.TimeoutError(f"Pipeline excedió {_PIPELINE_TIMEOUT}s — target: {target}")
         except Exception as pipe_exc:
             _elapsed = _time.monotonic() - _t0
             log.error("WA pipeline FAILED after %.1fs: %s\n%s", _elapsed, pipe_exc, traceback.format_exc())
@@ -1542,9 +1563,10 @@ async def _deliver_and_notify_wa(phone: str, target: str) -> None:
         asyncio.create_task(_send_feedback_delayed())
 
     except BaseException as exc:
-        # Cancelar mensajes de progreso pendientes
+        # Cancelar mensajes de progreso pendientes (t1 puede no estar definido si el error
+        # ocurrió antes de asyncio.create_task)
         try:
-            t1.cancel()
+            t1.cancel()  # type: ignore[name-defined]
         except Exception:
             pass
         tb = traceback.format_exc()
@@ -1748,11 +1770,12 @@ class DeliverRequest(BaseModel):
 
 
 @app.post("/deliver", tags=["Pipeline"], status_code=202)
-async def deliver(req: DeliverRequest):
+async def deliver(req: DeliverRequest, request: Request):
     """
     Lanza el pipeline completo en background y entrega el CSV al chat_id de Telegram.
-    No bloquea — devuelve job_id inmediatamente.
+    Requiere header X-Admin-Key.
     """
+    _check_admin_api_key(request)
     job_id = _new_job("deliver", req.model_dump())
 
     async def _bg() -> None:

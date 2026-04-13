@@ -167,11 +167,17 @@ def _create_tables() -> None:
                     code        TEXT PRIMARY KEY,
                     phone       TEXT NOT NULL,
                     plan        TEXT NOT NULL,
+                    status      TEXT NOT NULL DEFAULT 'active',
                     max_referrals INTEGER DEFAULT 5,
                     used_count  INTEGER DEFAULT 0,
                     created_at  TIMESTAMPTZ DEFAULT now(),
                     expires_at  TIMESTAMPTZ DEFAULT now() + INTERVAL '90 days'
                 );
+            """)
+            # Migración: agregar columna status si la tabla ya existía sin ella
+            cur.execute("""
+                ALTER TABLE referral_codes
+                ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active';
             """)
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS referral_rewards (

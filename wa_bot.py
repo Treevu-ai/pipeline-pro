@@ -667,13 +667,19 @@ def _handle_intent(phone: str, intent: str) -> list[dict]:
     # ── Opciones post-PDF ───────────────────────────────────────────────────
     if intent in ("post_pdf_a", "post_pdf_b", "post_pdf_c", "post_pdf_d"):
         _set_session(phone, {"state": "menu_shown"})
+        session = _get_session(phone)
+        name = session.get("name", "") or "amigo"
         key_map = {
             "post_pdf_a": "post_pdf_option_a",
             "post_pdf_b": "post_pdf_option_b",
             "post_pdf_c": "post_pdf_option_c",
             "post_pdf_d": "post_pdf_option_d",
         }
-        return [_t(_MSG(key_map[intent]))]
+        msg_key = key_map[intent]
+        # post_pdf_option_d usa {name}, los demás no
+        if intent == "post_pdf_d":
+            return [_t(_MSG(msg_key, name=name))]
+        return [_t(_MSG(msg_key))]
 
     # ── Objeciones ─────────────────────────────────────────────────────────
     if intent in ("objecion_caro", "objecion_sirve", "objecion_tengo"):
