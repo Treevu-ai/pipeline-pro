@@ -735,36 +735,40 @@ async def get_token(request: Request):
 @app.post("/auth/payment-link", response_model=PaymentLinkResponse, tags=["Auth"])
 async def payment_link(req: PaymentLinkRequest, request: Request):
     """
-    Genera un link de pago (Yape/Plin) para el plan seleccionado.
-    Requiere header X-User-Phone.
+    Devuelve instrucciones de pago por Yape/BCP para el plan seleccionado.
+    El número Yape viene de YAPE_PHONE env var (default: 902126765).
     """
     phone = request.headers.get("X-User-Phone", "").strip()
     if not phone:
         raise HTTPException(status_code=401, detail="X-User-Phone requerido")
-    
+
     phone = phone.replace("+51", "51").replace(" ", "").replace("-", "")
-    
+
     plan = req.plan.lower()
     plan_config = cfg.PLANS.get(plan)
     if not plan_config:
         raise HTTPException(status_code=400, detail="Plan no válido")
-    
+
     amount = plan_config.get("price_soles", 0)
     if amount == 0:
         raise HTTPException(status_code=400, detail="Plan gratuito, no requiere pago")
-    
-    payment_id = f"pay_{phone[:6]}_{int(time.time())}"
-    payment_url = f"https://yape.com.pe/{payment_id}"
-    
+
+    yape_phone = os.environ.get("YAPE_PHONE", "902126765")
+    yape_name  = os.environ.get("YAPE_NAME",  "Ricardo Cuba")
+
+    # Link directo a Yape con monto pre-llenado (deep link oficial de Yape)
+    payment_url = f"https://yapeperu.app.link/pay?phone={yape_phone}&amount={amount}&description=PipelineX+{plan.title()}"
+
+    payment_id = f"pay_{phone[:6]}_{int(_time.time())}"
     _db.save_payment_link(phone, payment_id, plan, amount)
-    
+
     expires = datetime.now(timezone.utc) + timedelta(hours=24)
-    
+
     return PaymentLinkResponse(
         payment_url=payment_url,
         plan=plan,
         amount_soles=amount,
-        expires_at=expires.isoformat()
+        expires_at=expires.isoformat(),
     )
 
 
