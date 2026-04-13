@@ -2633,3 +2633,29 @@ async def admin_broadcast(req: BroadcastRequest, request: Request):
     return {"sent": sent, "failed": failed, "total_candidates": len(candidates)}
 
 
+@app.delete("/admin/subscriber/{phone}", tags=["Admin"], status_code=200,
+            summary="Eliminar suscriptor y todos sus datos")
+async def admin_delete_subscriber(phone: str, request: Request):
+    """Elimina todos los datos de un número de teléfono."""
+    import db as _db
+    _check_admin_api_key(request)
+
+    phone = phone.strip().replace("-", "")
+    deleted = {"wa_sessions": 0, "user_profiles": 0, "events": 0, "subscribers": 0}
+
+    with _db._conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM wa_sessions WHERE phone = %s", (phone,))
+            deleted["wa_sessions"] = cur.rowcount
+            cur.execute("DELETE FROM user_profiles WHERE phone = %s", (phone,))
+            deleted["user_profiles"] = cur.rowcount
+            cur.execute("DELETE FROM events WHERE phone = %s", (phone,))
+            deleted["events"] = cur.rowcount
+            cur.execute("DELETE FROM subscribers WHERE phone = %s", (phone,))
+            deleted["subscribers"] = cur.rowcount
+    conn.commit()
+
+    log.info("Deleted phone %s: %s", phone, deleted)
+    return {"phone": phone, "deleted": deleted}
+
+
