@@ -260,7 +260,6 @@ def _next_lima_occurrence(hour: int) -> float:
     Devuelve los segundos hasta la próxima vez que sean `hour`:00 en Lima (UTC-5).
     Siempre devuelve un valor > 0 (mínimo 60s para evitar disparos dobles).
     """
-    from datetime import datetime, timezone, timedelta
     LIMA = timezone(timedelta(hours=-5))
     now  = datetime.now(LIMA)
     target = now.replace(hour=hour, minute=0, second=0, microsecond=0)
@@ -1000,30 +999,6 @@ async def health():
     }
 
 
-@app.get("/debug/claude", tags=["Sistema"], include_in_schema=False)
-async def debug_claude():
-    """Test mínimo de la API de Anthropic — diagnóstico."""
-    import anthropic as _anthropic
-    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
-    if not api_key:
-        return {"error": "ANTHROPIC_API_KEY no configurada"}
-    try:
-        client = _anthropic.Anthropic(api_key=api_key)
-        msg = client.messages.create(
-            model=cfg.CLAUDE["model"],
-            max_tokens=20,
-            messages=[{"role": "user", "content": "Di 'ok'"}],
-        )
-        return {"ok": True, "model": cfg.CLAUDE["model"], "response": msg.content[0].text}
-    except Exception as e:
-        body = getattr(e, "body", None) or getattr(e, "response", None)
-        return {
-            "ok": False,
-            "error_type": type(e).__name__,
-            "error_str": str(e),
-            "body": str(body)[:500] if body else None,
-        }
-
 
 @app.get("/plans", tags=["Sistema"])
 def plans():
@@ -1534,7 +1509,7 @@ async def _deliver_and_notify_wa(phone: str, target: str) -> None:
         try:
             import db as _db
             profile = _db.get_user_profile(phone)
-            name = profile.get("name", "") or session.get("name", "")
+            name = profile.get("name", "") or ""
         except Exception:
             name = ""
         if not name:
@@ -2149,11 +2124,6 @@ async def whatsapp_webhook(request: Request):
                 if mtype == "pipeline_request":
                     # Lanzar pipeline en background — protegido de cancelación
                     _fire_and_forget(_deliver_and_notify_wa(phone, msg["target"]))
-                elif mtype in ("buttons", "list"):
-                    # Botones/listas ya no se usan — enviar como texto plano
-                    body = msg.get("body", "") or msg.get("text", "")
-                    if body:
-                        await asyncio.to_thread(wa_sender.send_text, phone, body)
                 else:
                     await asyncio.to_thread(wa_sender.send_text, phone, msg["text"])
             except Exception as send_exc:

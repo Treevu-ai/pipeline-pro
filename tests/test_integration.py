@@ -358,11 +358,11 @@ class TestExceptionsIntegration:
 class TestConfigIntegration:
     """Tests de integración de configuración."""
 
-    def test_config_has_ollama(self) -> None:
-        """Prueba que config tiene configuración de Ollama."""
-        assert "url" in cfg.OLLAMA
-        assert "model" in cfg.OLLAMA
-        assert "timeout_s" in cfg.OLLAMA
+    def test_config_has_claude(self) -> None:
+        """Prueba que config tiene configuración de Claude (LLM de producción)."""
+        assert "model" in cfg.CLAUDE
+        assert "max_tokens" in cfg.CLAUDE
+        assert "temperature" in cfg.CLAUDE
 
     def test_config_has_product(self) -> None:
         """Prueba que config tiene configuración de producto."""
@@ -464,7 +464,7 @@ class TestPipelineIntegration:
 
         score = pre_score(sample_lead_data)
 
-        assert 0 <= score <= 65
+        assert 0 <= score <= cfg.QUALIFICATION["max_pre_score"]
         assert score > 0  # Debe tener al menos el score base
 
     def test_pre_score_industry_match(self, sample_lead_data: dict) -> None:
@@ -483,12 +483,12 @@ class TestPipelineIntegration:
 
         # Crear lead mínimo sin industria objetivo
         minimal_lead = {
-            const.ColumnNames.EMPRESA: "Test",
+            const.ColumnNames.EMPRESA: "Servicios",  # nombre genérico → no suma real_business_name
             const.ColumnNames.INDUSTRIA: "Industria Desconocida",
         }
         score = pre_score(minimal_lead)
 
-        # Solo debe tener el score base
+        # Solo debe tener el score base (sin industria ni señales adicionales)
         assert score == cfg.ICP["score_weights"]["base"]
 
     def test_should_skip_processed(self, sample_lead_data: dict) -> None:

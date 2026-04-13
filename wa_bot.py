@@ -13,12 +13,10 @@ Tipos de mensaje devueltos (list[dict]):
 """
 from __future__ import annotations
 
-import json
 import logging
 import os
 import threading
 from datetime import datetime, timezone
-from pathlib import Path
 
 log = logging.getLogger("wa_bot")
 
@@ -134,19 +132,6 @@ def _r_pedir_target() -> list[dict]:
 def _r_procesando(target: str = "") -> list[dict]:
     return [_t(_PROCESANDO.format(target=target or "tu búsqueda"))]
 
-def _r_post_demo() -> list[dict]:
-    return [_t(
-        "Esto es solo una muestra 👆\n\n"
-        "Con el plan *Starter (S/129/mes)* tienes:\n"
-        "✅ Reportes ilimitados\n"
-        "✅ Todos los datos sin censura\n"
-        "✅ Validación SUNAT incluida\n\n"
-        "¿Qué quieres hacer?\n"
-        "1. 🚀 Quiero el plan completo\n"
-        "2. 🔍 Nueva búsqueda"
-    )]
-
-
 def _r_post_pdf_options(name: str = "") -> list[dict]:
     if not name:
         name = "amigo"
@@ -175,11 +160,9 @@ def _r_upgrade(phone: str) -> list[dict]:
     return [_t(texto)]
 
 
-def _notify_ceo_upgrade(phone: str) -> None:
-    """Notifica al CEO vía PipeAssist cuando alguien toca 'Plan completo'."""
+def _notify_admins(msg: str) -> None:
+    """Envía un mensaje de texto a todos los admins via Telegram PipeAssist."""
     import httpx
-    from messages import MSG
-
     token_int = os.environ.get("TELEGRAM_BOT_TOKEN_INTERNO", "")
     admin_ids  = [
         aid.strip()
@@ -189,11 +172,6 @@ def _notify_ceo_upgrade(phone: str) -> None:
     ]
     if not token_int or not admin_ids:
         return
-
-    msg = MSG["upgrade_ceo_alert"].format(
-        phone=phone,
-        time=datetime.now(timezone.utc).strftime("%H:%M UTC"),
-    )
     for aid in admin_ids:
         try:
             httpx.post(
@@ -204,18 +182,19 @@ def _notify_ceo_upgrade(phone: str) -> None:
         except Exception:
             pass
 
+
+def _notify_ceo_upgrade(phone: str) -> None:
+    """Notifica al CEO vía PipeAssist cuando alguien toca 'Plan completo'."""
+    from messages import MSG
+    msg = MSG["upgrade_ceo_alert"].format(
+        phone=phone,
+        time=datetime.now(timezone.utc).strftime("%H:%M UTC"),
+    )
+    _notify_admins(msg)
+
+
 def _notify_feedback(phone: str, rating: str) -> None:
     """Notifica al CEO via PipeAssist cuando llega un feedback."""
-    import httpx
-    token_int = os.environ.get("TELEGRAM_BOT_TOKEN_INTERNO", "")
-    admin_ids  = [
-        aid.strip()
-        for aid in os.environ.get("ADMIN_TELEGRAM_IDS",
-                   os.environ.get("ADMIN_CHAT_ID", "")).split(",")
-        if aid.strip()
-    ]
-    if not token_int or not admin_ids:
-        return
     emoji_map = {
         "feedback_good": "👍 Muy útil",
         "feedback_ok":   "😐 Regular",
@@ -226,15 +205,7 @@ def _notify_feedback(phone: str, rating: str) -> None:
         f"📱 `{phone}`\n"
         f"⭐ {emoji_map.get(rating, rating)}"
     )
-    for aid in admin_ids:
-        try:
-            httpx.post(
-                f"https://api.telegram.org/bot{token_int}/sendMessage",
-                json={"chat_id": aid, "text": msg, "parse_mode": "Markdown"},
-                timeout=6,
-            )
-        except Exception:
-            pass
+    _notify_admins(msg)
 
 
 def _r_contacto() -> list[dict]:
@@ -403,7 +374,7 @@ def _handle_message_locked(phone: str, text: str) -> list[dict]:
         name = text.strip().title()
         try:
             import db as _db
-            _db.set_user_profile(phone, name=name)
+            _db.save_user_profile(phone, name=name)
         except Exception:
             pass
         session["name"] = name
@@ -610,7 +581,7 @@ def _launch_pipeline(phone: str, target: str, session: dict) -> list[dict]:
         elif "," in target:
             city = target.split(",")[-1].strip().title()
         if city:
-            _db.set_user_profile(phone, default_city=city)
+            _db.save_user_profile(phone, default_city=city)
             session = {**session, "default_city": city}
     except Exception:
         pass
@@ -630,11 +601,7 @@ def _handle_intent(phone: str, intent: str) -> list[dict]:
         _set_session(phone, {"state": "menu_shown"})
         return _r_menu(phone)
 
-    if intent == "buscar":
-        _set_session(phone, {"state": "collecting_target"})
-        return _r_pedir_target()
-    
-    if intent == "demo":
+    if intent in ("buscar", "demo"):
         _set_session(phone, {"state": "collecting_target"})
         return _r_pedir_target()
 
@@ -698,30 +665,27 @@ def _handle_intent(phone: str, intent: str) -> list[dict]:
         return [_t(_MSG("unsubscribed"))]
 
     # ── Opciones post-PDF ───────────────────────────────────────────────────
-    if intent in ("post_pdf_a", "post_pdf_b", "post_pdf_c"):
+    if intent in ("post_pdf_a", "post_pdf_b", "post_pdf_c", "post_pdf_d"):
         _set_session(phone, {"state": "menu_shown"})
-        if intent == "post_pdf_a":
-            return [_t(_MSG("post_pdf_option_a"))]
-        if intent == "post_pdf_b":
-            return [_t(_MSG("post_pdf_option_b"))]
-        if intent == "post_pdf_c":
-            return [_t(_MSG("post_pdf_option_c"))]
-        return _r_no_entendido()
-
-    if intent == "post_pdf_d":
-        return [_t(_MSG("post_pdf_option_d"))]
+        key_map = {
+            "post_pdf_a": "post_pdf_option_a",
+            "post_pdf_b": "post_pdf_option_b",
+            "post_pdf_c": "post_pdf_option_c",
+            "post_pdf_d": "post_pdf_option_d",
+        }
+        return [_t(_MSG(key_map[intent]))]
 
     # ── Objeciones ─────────────────────────────────────────────────────────
-    if intent == "objecion_caro":
-        name = session.get("name", "")
-        return [_t(_MSG("objecion_es_caro").format(name=name or "amigo"))]
-
-    if intent == "objecion_tengo":
-        return [_t(_MSG("objecion_ya_tengo"))]
-
-    if intent == "objecion_sirve":
-        name = session.get("name", "")
-        return [_t(_MSG("objecion_no_me_sirve").format(name=name or "amigo"))]
+    if intent in ("objecion_caro", "objecion_sirve", "objecion_tengo"):
+        session = _get_session(phone)
+        name = session.get("name", "") or "amigo"
+        key_map = {
+            "objecion_caro":  "objecion_es_caro",
+            "objecion_sirve": "objecion_no_me_sirve",
+        }
+        if intent == "objecion_tengo":
+            return [_t(_MSG("objecion_ya_tengo"))]
+        return [_t(_MSG(key_map[intent]).format(name=name))]
 
     _set_session(phone, {"state": "menu_shown"})
     return _r_no_entendido()

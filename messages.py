@@ -53,11 +53,6 @@ MSG: dict[str, str] = {
         "Escribe industria + ciudad:\n"
         "_\"Ferreterías en Trujillo\"_ · _\"Clínicas en Lima\"_"
     ),
-    "ask_target_new": (
-        "¿Qué tipo de empresas buscas ahora? 🔍\n\n"
-        "Escribe industria + ciudad:\n"
-        "_\"Restaurantes en San Isidro\"_ · _\"Clínicas en Trujillo\"_"
-    ),
 
     # ── Errores ───────────────────────────────────────────────────────────────
     "error_no_results": (
@@ -86,20 +81,6 @@ MSG: dict[str, str] = {
         "Si prefieres activar ahora mismo, puedes pagar por:\n\n"
         "{bank_info}\n\n"
         "📸 Envia tu comprobante aqui y activamos tu acceso al instante."
-    ),
-    "upgrade_no_bank": (
-        "¡Perfecto! 🙌\n\n"
-        "Un agente de *Pipeline_X* se pondra en contacto contigo "
-        "en los proximos minutos para ayudarte con la activacion.\n\n"
-        "Tambien puedes escribirnos directamente a:\n"
-        "📧 contacto@pipelinex.app"
-    ),
-    "upgrade_ceo_alert": (
-        "🔔 *Usuario quiere hacer upgrade*\n\n"
-        "📱 Tel: `{phone}`\n"
-        "💰 Plan solicitado: Starter (S/129/mes)\n"
-        "🕐 Hora: {time}\n\n"
-        "Contactalo en los proximos minutos."
     ),
     "upgrade_no_bank": (
         "¡Perfecto! 🙌\n\n"
@@ -138,11 +119,6 @@ MSG: dict[str, str] = {
         "✅ Validación SUNAT incluida\n"
         "✅ Acceso por *{days}*\n\n"
         "Escríbeme el rubro y ciudad que quieres prospectar y empezamos ahora mismo 🚀"
-    ),
-    "subscriber_next_search": (
-        "¿Qué buscamos ahora? 🔍\n\n"
-        "Escribe rubro + ciudad:\n"
-        "_\"Restaurantes en San Isidro\"_ · _\"Clínicas en Trujillo\"_"
     ),
 
     # ── Feedback ─────────────────────────────────────────────────────────────
@@ -202,10 +178,6 @@ MSG: dict[str, str] = {
         "Con *Starter (S/129/mes)* tienes reportes ilimitados 🚀\n\n"
         "¿Quieres hacer el upgrade?"
     ),
-
-    # ── Genérico ──────────────────────────────────────────────────────────────
-    "not_understood": "No entendí eso 🤔 ¿En qué puedo ayudarte?",
-    "already_running": "⏳ Tu reporte está en proceso, ya casi está listo...",
 
     # ── Captura de nombre ─────────────────────────────────────────────────────
     "ask_name": (

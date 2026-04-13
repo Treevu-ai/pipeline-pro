@@ -19,7 +19,7 @@ import os
 import time
 import uuid
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -391,51 +391,6 @@ def delete_bot_state(chat_id: int) -> None:
         _bot_states_mem.pop(chat_id, None)
 
 
-def get_bot_states() -> list[dict]:
-    """Lee todos los estados del bot (debug)."""
-    if not _USE_DB:
-        return [{"chat_id": k, "data": v} for k, v in _bot_states_mem.items()]
-    try:
-        with _conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute("SELECT chat_id, data FROM bot_states")
-                return [{"chat_id": row[0], "data": row[1]} for row in cur.fetchall()]
-    except Exception as exc:
-        log.error("get_bot_states: %s", exc)
-        return [{"chat_id": k, "data": v} for k, v in _bot_states_mem.items()]
-
-
-def clear_test_data(test_phone: str = "") -> dict:
-    """Limpia datos de prueba. Si test_phone especificado, limpia ese suscriptor."""
-    results = {}
-    if not _USE_DB:
-        results["error"] = "No hay DB"
-        return results
-
-    try:
-        with _conn() as conn:
-            with conn.cursor() as cur:
-                if test_phone:
-                    cur.execute("DELETE FROM subscribers WHERE phone = %s", (test_phone,))
-                    results["deleted_subscribers"] = cur.rowcount
-                    cur.execute("DELETE FROM wa_sessions WHERE phone = %s", (test_phone,))
-                    results["deleted_wa_sessions"] = cur.rowcount
-                    cur.execute("DELETE FROM events WHERE phone = %s", (test_phone,))
-                    results["deleted_events"] = cur.rowcount
-                    cur.execute("DELETE FROM user_profiles WHERE phone = %s", (test_phone,))
-                    results["deleted_profiles"] = cur.rowcount
-                    cur.execute("DELETE FROM api_tokens WHERE phone = %s", (test_phone,))
-                    results["deleted_tokens"] = cur.rowcount
-                else:
-                    cur.execute("DELETE FROM subscribers WHERE notes ILIKE '%test%'")
-                    results["deleted_subscribers"] = cur.rowcount
-                conn.commit()
-    except Exception as exc:
-        log.error("clear_test_data: %s", exc)
-        results["error"] = str(exc)
-
-    return results
-
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Fallbacks en memoria / archivo
@@ -792,7 +747,7 @@ def get_followup_3d_candidates() -> list[str]:
                       )
                 """, (
                     EventType.WA_REPORT_DELIVERED,
-                    "wa_followup_3d_sent",
+                    EventType.WA_FOLLOWUP_3D_SENT,
                 ))
                 return [row[0] for row in cur.fetchall()]
     except Exception as exc:
@@ -839,7 +794,6 @@ def get_daily_search_count(phone: str) -> int:
     if not _USE_DB:
         return 0
     try:
-        from datetime import timedelta
         lima_tz = timezone(timedelta(hours=-5))
         lima_today_start = datetime.now(lima_tz).replace(
             hour=0, minute=0, second=0, microsecond=0
@@ -866,7 +820,6 @@ def get_monthly_search_count(phone: str) -> int:
     if not _USE_DB:
         return 0
     try:
-        from datetime import timedelta
         lima_tz = timezone(timedelta(hours=-5))
         now_lima = datetime.now(lima_tz)
         month_start = now_lima.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
@@ -980,7 +933,6 @@ def get_search_history(phone: str, limit: int = 3) -> list[dict]:
     if not _USE_DB:
         return []
     try:
-        from datetime import timedelta
         lima_tz = timezone(timedelta(hours=-5))
         with _conn() as conn:
             with conn.cursor() as cur:
@@ -1279,7 +1231,6 @@ def apply_referral(code: str, referred_phone: str) -> dict | None:
     if not _USE_DB:
         return None
     try:
-        import uuid
         reward_id = str(uuid.uuid4())[:8]
         with _conn() as conn:
             with conn.cursor() as cur:

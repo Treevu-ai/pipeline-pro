@@ -199,10 +199,11 @@ class TestResponseBuilders:
         msgs = wa_bot._r_upgrade(PHONE)
         assert any("contacto@pipelinex" in m.get("text", "") for m in msgs)
 
-    def test_post_demo_tiene_upgrade_option(self):
-        msgs = wa_bot._r_post_demo()
+    def test_post_pdf_options_tiene_opciones(self, mock_db):
+        msgs = wa_bot._r_post_pdf_options("Ricardo")
         text = msgs[0]["text"]
-        assert "plan completo" in text.lower() or "1." in text
+        assert "Ricardo" in text
+        assert any(opt in text for opt in ["A.", "B.", "C.", "D."])
 
 
 # ─── Rate limiting ────────────────────────────────────────────────────────────

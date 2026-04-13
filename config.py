@@ -5,18 +5,7 @@ from __future__ import annotations
 import os
 
 
-
-# ─── Conexión a Ollama (legacy — solo para uso local) ─────────────────────────
-OLLAMA = {
-    "url": "http://127.0.0.1:11434/api/chat",
-    "model": "mistral:7b-instruct-q4_0",
-    "timeout_s": 180,
-    "temperature": 0,   # 0 = determinista — mismos datos → mismo score siempre
-    "retries": 3,
-    "backoff_s": 2,
-}
-
-# ─── Claude API (producción — prioridad sobre Groq) ──────────────────────────
+# ─── Claude API (producción) ──────────────────────────────────────────────────
 # Requiere variable de entorno: ANTHROPIC_API_KEY
 CLAUDE = {
     "model": "claude-3-5-haiku-20241022",  # rápido y barato (~$0.01/lead)
@@ -480,7 +469,7 @@ PLANS: dict[str, dict] = {
         "name": "Reseller",
         "price_soles": 1099,
         "price_display": "S/1,099/mes",
-        "leads_limit": 30,
+        "leads_limit": 100,
         "searches_per_day": None,
         "searches_per_month": None,
         "full_pdf": True,
