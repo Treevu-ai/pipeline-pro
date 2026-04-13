@@ -2067,12 +2067,19 @@ def _rate_limited(phone: str) -> bool:
 # ─── WhatsApp webhook (Green API) ─────────────────────────────────────────────
 
 _wa_phone_locks: dict[str, asyncio.Lock] = {}
+_background_tasks: set[asyncio.Task] = set()  # evita garbage collection de tasks
 
 def _get_wa_lock(phone: str) -> asyncio.Lock:
     """Lock async por teléfono — serializa webhooks del mismo usuario."""
     if phone not in _wa_phone_locks:
         _wa_phone_locks[phone] = asyncio.Lock()
     return _wa_phone_locks[phone]
+
+def _fire_and_forget(coro) -> None:
+    """Lanza una corutina en background protegida de cancelación."""
+    task = asyncio.create_task(coro)
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
 
 @app.post("/webhook/whatsapp", include_in_schema=False)
 async def whatsapp_webhook(request: Request):
@@ -2125,8 +2132,8 @@ async def whatsapp_webhook(request: Request):
             mtype = msg.get("type", "text")
             try:
                 if mtype == "pipeline_request":
-                    # Lanzar pipeline en background — responde inmediatamente con "procesando"
-                    asyncio.create_task(_deliver_and_notify_wa(phone, msg["target"]))
+                    # Lanzar pipeline en background — protegido de cancelación
+                    _fire_and_forget(_deliver_and_notify_wa(phone, msg["target"]))
                 elif mtype in ("buttons", "list"):
                     # Botones/listas ya no se usan — enviar como texto plano
                     body = msg.get("body", "") or msg.get("text", "")
