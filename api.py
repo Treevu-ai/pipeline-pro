@@ -2203,7 +2203,7 @@ async def whatsapp_webhook(request: Request):
     if parsed is None:
         return {"ok": True}   # ignorar eventos que no son mensajes de texto
 
-    phone, text = parsed
+    phone, text, sender_name = parsed
     id_message  = (payload.get("idMessage") or
                    payload.get("messageData", {}).get("idMessage", ""))
 
@@ -2215,6 +2215,20 @@ async def whatsapp_webhook(request: Request):
     # Rate-limit — cortar loops de bots
     if _rate_limited(phone):
         return {"ok": True}
+
+    # Guardar nombre del perfil de WhatsApp automáticamente si no lo tenemos
+    if sender_name:
+        try:
+            profile = await asyncio.to_thread(_db.get_user_profile, phone)
+            if not profile.get("name"):
+                await asyncio.to_thread(_db.save_user_profile, phone, name=sender_name)
+                log.info("Nombre WA guardado: phone=%s name=%s", phone, sender_name)
+                # Actualizar sesión en memoria también
+                session = wa_bot._get_session(phone)
+                if not session.get("name"):
+                    wa_bot._set_session(phone, {**session, "name": sender_name})
+        except Exception as exc:
+            log.debug("No se pudo guardar nombre WA: %s", exc)
 
     # Serializar mensajes del mismo teléfono
     async with _get_wa_lock(phone):

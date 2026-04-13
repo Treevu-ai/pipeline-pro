@@ -604,10 +604,10 @@ def _handle_message_locked(phone: str, text: str) -> list[dict]:
     if intent:
         return _handle_intent(phone, intent)
 
-    # Sin intención detectada: primera vez → preguntar nombre; después → no entendido
+    # Sin intención detectada: primera vez → mostrar menú directamente (nombre ya viene del perfil WA)
     if state == "idle":
-        _set_session(phone, {"state": "collecting_name"})
-        return [_t(_MSG("ask_name"))]
+        _set_session(phone, {"state": "menu_shown"})
+        return _r_menu(phone)
 
     if state == "menu_shown":
         return _r_no_entendido()
@@ -829,12 +829,21 @@ def parse_green_api_payload(payload: dict) -> tuple[str, str] | None:
     if payload.get("typeWebhook") != "incomingMessageReceived":
         return None
 
-    chat_id = payload.get("senderData", {}).get("chatId", "")
+    sender_data = payload.get("senderData", {})
+    chat_id     = sender_data.get("chatId", "")
 
     if "@g.us" in chat_id:
         return None   # ignorar mensajes de grupos
 
-    phone    = chat_id.replace("@c.us", "")
+    phone       = chat_id.replace("@c.us", "")
+    # Green API provee el nombre del perfil de WhatsApp del remitente
+    sender_name = (
+        sender_data.get("senderName") or
+        sender_data.get("pushname") or
+        sender_data.get("senderContactName") or
+        ""
+    ).strip()
+
     msg_data = payload.get("messageData", {})
     msg_type = msg_data.get("typeMessage", "")
 
@@ -878,4 +887,4 @@ def parse_green_api_payload(payload: dict) -> tuple[str, str] | None:
     if not text or not phone:
         return None
 
-    return phone, text
+    return phone, text, sender_name
