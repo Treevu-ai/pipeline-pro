@@ -814,10 +814,11 @@ def _handle_intent(phone: str, intent: str) -> list[dict]:
 
 # ─── Utilidad: extraer teléfono del payload de Green API ─────────────────────
 
-def parse_green_api_payload(payload: dict) -> tuple[str, str] | None:
+def parse_green_api_payload(payload: dict) -> tuple[str, str, str] | None:
     """
-    Extrae (phone, text) del payload que manda Green API al webhook.
+    Extrae (phone, text, sender_name) del payload que manda Green API al webhook.
     Devuelve None si el mensaje no es de texto o no es entrante.
+    sender_name puede ser cadena vacía si WhatsApp no lo provee.
 
     Tipos soportados:
       - textMessage          → mensaje de texto simple
@@ -875,11 +876,11 @@ def parse_green_api_payload(payload: dict) -> tuple[str, str] | None:
 
     # Imagen o documento (comprobante de pago u otro)
     elif msg_type in ("imageMessage", "documentMessage"):
-        return phone, "__IMAGE__"
+        return phone, "__IMAGE__", sender_name
 
     # Audio / voz
     elif msg_type in ("audioMessage", "pttMessage"):
-        return phone, "__AUDIO__"
+        return phone, "__AUDIO__", sender_name
 
     else:
         return None   # sticker, video, etc.
