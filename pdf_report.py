@@ -69,6 +69,21 @@ def _censor_phone(phone: str) -> str:
     return "*" * max(len(p) - 2, 6) + visible
 
 
+def _wa_me_link(phone: str, message: str = "") -> str:
+    """Genera link wa.me para abrir chat de WhatsApp con mensaje pre-escrito."""
+    import urllib.parse
+    p = re.sub(r"[\s\-\(\)\+]", "", phone or "")
+    if not p:
+        return ""
+    # Asegurar código de país
+    if not p.startswith("51") and len(p) <= 9:
+        p = "51" + p
+    url = f"https://wa.me/{p}"
+    if message:
+        url += f"?text={urllib.parse.quote(message)}"
+    return url
+
+
 # ─── Clase PDF ────────────────────────────────────────────────────────────────
 
 class _PipelineXPDF(FPDF):
@@ -191,7 +206,7 @@ def _lead_card_full(pdf: _PipelineXPDF, lead: dict, index: int) -> None:
     pdf.set_text_color(*_GRAY)
     pdf.cell(160, 4, tag, ln=1)
 
-    # Telefono + indicador fijo/movil
+    # Telefono + indicador fijo/movil + link WA
     pdf.set_xy(27, y0 + 15)
     pdf.set_font(_FONT_FAMILY, "", 8)
     pdf.set_text_color(*_GRAY)
@@ -205,9 +220,13 @@ def _lead_card_full(pdf: _PipelineXPDF, lead: dict, index: int) -> None:
             pdf.set_text_color(*_GRAY)
             pdf.cell(0, 4, " Fijo - no disponible en WA", ln=1)
         else:
+            wa_link = _wa_me_link(phone, msg)
             pdf.set_font(_FONT_FAMILY, "B", 9)
-            pdf.set_text_color(*_BLACK)
-            pdf.cell(60, 4, phone[:22], ln=1)
+            pdf.set_text_color(*_DBLUE)
+            pdf.cell(60, 4, phone[:22], link=wa_link, ln=0)
+            pdf.set_font(_FONT_FAMILY, "I", 7)
+            pdf.set_text_color(*_GREEN)
+            pdf.cell(0, 4, "  Abrir chat en WhatsApp ->", link=wa_link, ln=1)
     else:
         pdf.set_font(_FONT_FAMILY, "I", 8)
         pdf.set_text_color(*_GRAY)

@@ -334,7 +334,16 @@ def qualify_row(row: dict[str, Any], channel: str, base_score: int) -> dict[str,
 
     channel_note = {
         "email": "Genera draft_subject (asunto) y draft_message (cuerpo del email, máximo 100 palabras).",
-        "whatsapp": "draft_subject debe ser string vacío. draft_message es para WhatsApp: máximo 80 palabras, sin saludos formales, tono directo.",
+        "whatsapp": (
+            "draft_subject debe ser string vacío.\n"
+            "draft_message es para WhatsApp (≤80 palabras). REGLAS:\n"
+            "- Menciona el NOMBRE de la empresa\n"
+            "- Menciona algo específico (rubro, ubicación, rating, reseñas)\n"
+            "- Propuesta de valor concreta\n"
+            "- Cierra con pregunta que invite a responder\n"
+            "- Tono cercano, sin formalidades\n"
+            "- NO uses frases genéricas como 'agendar 20 minutos'"
+        ),
         "both": "Genera draft_subject para email y draft_message que sirva tanto para email como WhatsApp.",
     }.get(channel, "")
 
@@ -441,7 +450,19 @@ def qualify_batch(rows: list[dict], channel: str) -> list[dict]:
 
     channel_note = {
         "email":     "draft_subject: asunto. draft_message: cuerpo email ≤100 palabras.",
-        "whatsapp":  "draft_subject: string vacío. draft_message: WhatsApp ≤80 palabras, tono directo.",
+        "whatsapp":  (
+            "draft_subject: string vacío.\n"
+            "draft_message: mensaje de WhatsApp listo para enviar (≤80 palabras). REGLAS:\n"
+            "  - Menciona el NOMBRE de la empresa del lead\n"
+            "  - Menciona algo específico del lead (su rubro, ubicación, rating o reseñas)\n"
+            "  - Propuesta de valor concreta: qué le ofreces y por qué le conviene\n"
+            "  - Cierra con una pregunta que invite a responder\n"
+            "  - Tono cercano y profesional, sin saludos formales ('Estimado Sr.')\n"
+            "  - NO uses frases genéricas como 'agendar 20 minutos' o 'mostrar cómo funciona'\n"
+            "  - Ejemplo bueno: 'Hola! Vi que Ferretería Sol tiene 4.8 en Google con 50 reseñas. "
+            "Tenemos clientes ferreteros en Lima que aumentaron sus ventas 30%% con prospección automatizada. "
+            "¿Te interesa que te muestre cómo lo hacen?'"
+        ),
         "both":      "draft_subject: asunto email. draft_message: sirve para email y WhatsApp.",
     }.get(channel, "")
 
