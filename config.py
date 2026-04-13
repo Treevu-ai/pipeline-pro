@@ -370,16 +370,36 @@ RATE_LIMITING = {
 # ─── Planes de precios ────────────────────────────────────────────────────────
 # Fuente única de verdad para límites, precios y features por tier.
 #
-# Estructura simplificada (3 planes de pago):
+# Estructura de planes:
 #   free      → 10 leads demo, 1 búsqueda/día — sin tarjeta
 #   trial     → 3 días full access automático al registrarse
-#   starter   → S/149/mes — 30 leads, reportes ilimitados ⭐ RECOMENDADO
+#   basico    → S/59/mes — 20 leads, 10 búsquedas/mes
+#   starter   → S/129/mes — 30 leads, ilimitado ⭐ RECOMENDADO
 #   pro       → S/299/mes — 50 leads, API access, enriquecimiento full
 #   reseller  → S/1,099/mes — white-label, multi-cuenta (agencias)
 #
 # El trial se activa automáticamente al signup y dura 3 días.
 
 PLANS: dict[str, dict] = {
+
+    # ── Básico ───────────────────────────────────────────────────────────────
+    "basico": {
+        "name": "Básico",
+        "price_soles": 59,
+        "price_display": "S/59/mes",
+        "leads_limit": 20,
+        "searches_per_day": None,
+        "searches_per_month": 10,
+        "full_pdf": True,
+        "description": "Para emprendedores que recién arrancan.",
+        "features": {
+            "enrich_sunat": False,
+            "api_access": False,
+            "whatsapp_delivery": True,
+        },
+        "cta": "Elegir Básico",
+        "highlight": False,
+    },
 
     # ── Free (demo) ──────────────────────────────────────────────────────────
     "free": {
@@ -420,8 +440,8 @@ PLANS: dict[str, dict] = {
     # ── Starter (plan principal) ────────────────────────────────────────────
     "starter": {
         "name": "Starter",
-        "price_soles": 149,
-        "price_display": "S/149/mes",
+        "price_soles": 129,
+        "price_display": "S/129/mes",
         "leads_limit": 30,
         "searches_per_day": None,
         "searches_per_month": None,
@@ -429,7 +449,7 @@ PLANS: dict[str, dict] = {
         "description": "Reportes ilimitados. Ideal para equipos de ventas.",
         "features": {
             "enrich_sunat": True,
-            "api_access": False,
+            "api_access": True,
             "whatsapp_delivery": True,
         },
         "cta": "Empezar con Starter",
@@ -460,7 +480,7 @@ PLANS: dict[str, dict] = {
         "name": "Reseller",
         "price_soles": 1099,
         "price_display": "S/1,099/mes",
-        "leads_limit": 100,
+        "leads_limit": 30,
         "searches_per_day": None,
         "searches_per_month": None,
         "full_pdf": True,

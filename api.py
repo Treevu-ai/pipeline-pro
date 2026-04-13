@@ -75,8 +75,15 @@ def _resolve_tier(request: Request) -> str:
         return const.PlanTier.FREE
     
     expires_at = subscriber.get("expires_at")
-    if expires_at and expires_at < datetime.now(timezone.utc).isoformat():
-        return const.PlanTier.FREE
+    if expires_at:
+        try:
+            exp_dt = datetime.fromisoformat(str(expires_at).replace(" ", "T"))
+            if exp_dt.tzinfo is None:
+                exp_dt = exp_dt.replace(tzinfo=timezone.utc)
+            if exp_dt < datetime.now(timezone.utc):
+                return const.PlanTier.FREE
+        except (ValueError, TypeError):
+            return const.PlanTier.FREE
     
     return subscriber.get("plan", const.PlanTier.FREE)
 
@@ -170,6 +177,48 @@ async def _followup_loop() -> None:
         except Exception as exc:
             log.warning("followup_loop error: %s", exc)
         await asyncio.sleep(3600)   # revisar cada hora
+
+
+async def _followup_3d_loop() -> None:
+    """
+    Cada 6 horas busca usuarios que recibieron un reporte hace 3-4 días
+    y les envía un mensaje de seguimiento adicional.
+    """
+    import wa_sender
+    from messages import MSG
+    await asyncio.sleep(300)   # esperar arranque completo
+    while True:
+        try:
+            candidates = await asyncio.to_thread(_db.get_followup_3d_candidates)
+            if candidates:
+                log.info("Followup 3d: %d candidatos", len(candidates))
+            unsubscribed = await asyncio.to_thread(_db.get_unsubscribed_phones)
+            for phone in candidates:
+                if phone in unsubscribed:
+                    log.info("Followup 3d omitido (unsubscribed): phone=%s", phone)
+                    await asyncio.sleep(2)
+                    continue
+                try:
+                    # Obtener nombre para personalización
+                    try:
+                        profile = await asyncio.to_thread(_db.get_user_profile, phone)
+                        user_name = profile.get("name", "") or ""
+                    except Exception:
+                        user_name = ""
+                    if not user_name:
+                        user_name = "amigo"
+
+                    await asyncio.to_thread(
+                        wa_sender.send_text, phone, MSG["followup_3d"].format(name=user_name)
+                    )
+                    _db.log_event(phone, _db.EventType.WA_FOLLOWUP_3D_SENT)
+                    log.info("Followup 3d enviado: phone=%s", phone)
+                except Exception as send_exc:
+                    log.warning("Followup 3d error phone=%s: %s", phone, send_exc)
+                await asyncio.sleep(2)
+        except Exception as exc:
+            log.warning("followup_3d_loop error: %s", exc)
+        await asyncio.sleep(21600)   # revisar cada 6 horas
 
 
 async def _trial_expired_loop() -> None:
@@ -284,6 +333,7 @@ async def lifespan(app: FastAPI):
     _start_bot_interno()
     await asyncio.to_thread(_register_whatsapp_webhook)
     asyncio.create_task(_followup_loop())
+    asyncio.create_task(_followup_3d_loop())
     asyncio.create_task(_trial_expired_loop())
     asyncio.create_task(_digest_scheduler())
     yield
@@ -1368,6 +1418,16 @@ async def _deliver_and_notify_wa(phone: str, target: str) -> None:
         plan_cfg    = cfg.PLANS.get(plan_name, cfg.PLANS["free"])
         is_paid     = plan_name != "free"
         leads_limit = plan_cfg.get("leads_limit", 10)
+
+        # Obtener nombre para mensaje personalizado
+        try:
+            profile = await asyncio.to_thread(_db.get_user_profile, phone)
+            user_name = profile.get("name", "") or ""
+        except Exception:
+            user_name = ""
+        if not user_name:
+            user_name = "amigo"
+
         log.info("WA deliver: phone=%s plan=%s active=%s limit=%d", phone, plan_name, _active, leads_limit)
         # Nota: el mensaje "Buscando..." ya se envió desde wa_bot._r_procesando()
         asyncio.create_task(_notify_pipeassist(
@@ -1377,15 +1437,16 @@ async def _deliver_and_notify_wa(phone: str, target: str) -> None:
             f"{'💎 Suscriptor' if is_paid else '🆓 Free'}"
         ))
 
+        enrich_sunat = plan_cfg.get("features", {}).get("enrich_sunat", False)
         req = PipelineRequest(
             query=target, limit=leads_limit, channel="whatsapp",
-            enrich_web=True, enrich_sunat=False,
+            enrich_web=True, enrich_sunat=enrich_sunat,
             qualify=True, enrich_contacts=False,
         )
 
         # Mensajes de progreso intermedios (cancelados si el pipeline termina antes)
         t1 = asyncio.create_task(_progress_msg(
-            30, MSG["qualify_progress"]
+            45, MSG["qualify_progress"].format(name=user_name)
         ))
 
         _t0 = _time.monotonic()
@@ -1468,21 +1529,30 @@ async def _deliver_and_notify_wa(phone: str, target: str) -> None:
         log.info("Admins notificados via PipeAssist: %d leads para '%s' (paid=%s)",
                  n_qualified, target, is_paid)
 
-        # ── Post-entrega: upgrade CTA solo para free ───────────────────────
-        if not is_paid:
-            for msg in wa_bot._r_post_demo():
-                await asyncio.to_thread(wa_sender.send_text, phone, msg["text"])
-        else:
-            # Suscriptor: ofrecer nueva búsqueda directamente
-            await asyncio.to_thread(
-                wa_sender.send_text, phone,
-                MSG["subscriber_next_search"],
-            )
+        # ── Post-entrega: mostrar opciones A/B/C/D ────────────────────────────
+        # Primero: mostrar opciones post-PDF
+        try:
+            import db as _db
+            profile = _db.get_user_profile(phone)
+            name = profile.get("name", "") or session.get("name", "")
+        except Exception:
+            name = ""
+        if not name:
+            name = "amigo"
+
+        wa_bot._set_session(phone, {"state": "post_pdf_options", "target": target, "name": name})
+        for msg in wa_bot._r_post_pdf_options(name):
+            await asyncio.to_thread(wa_sender.send_text, phone, msg["text"])
 
         # ── Feedback (todos los usuarios, 90s después para no saturar) ───────
         async def _send_feedback_delayed() -> None:
             await asyncio.sleep(90)
             try:
+                # Solo enviar si el usuario sigue en estado "done" — no interrumpir flujos nuevos
+                current = wa_bot._get_session(phone)
+                if current.get("state") != "done":
+                    log.info("feedback skip: phone=%s state=%s (ya cambió)", phone, current.get("state"))
+                    return
                 fb_msgs = wa_bot._r_feedback()
                 for fb in fb_msgs:
                     await asyncio.to_thread(wa_sender.send_text, phone, fb["text"])
@@ -1584,7 +1654,7 @@ async def _demo_deliver_and_capture(target: str, chat_id: int) -> None:
 
         await _tg_menu(chat_id,
             "Esto es solo una muestra.\n\n"
-            "Con el plan Starter (S/149/mes):\n"
+            "Con el plan Starter (S/129/mes):\n"
             "• Reportes ilimitados en vez de 10 leads\n"
             "• Validación SUNAT (capacidad de pago real)\n"
             "• PDF con mensajes personalizados por industria\n\n"
@@ -1812,7 +1882,7 @@ async def _handle_tg_callback(chat_id: int, data: str) -> None:
         await _tg_menu(chat_id,
             "💰 *Planes Pipeline_X*\n\n"
             "• Free — S/0 · 10 leads, sin tarjeta\n"
-            "• *Starter — S/149/mes · reportes ilimitados* ⭐\n"
+            "• *Starter — S/129/mes · reportes ilimitados* ⭐\n"
             "• Pro — S/299/mes · mayor volumen + API\n"
             "• Reseller — S/1,099/mes · white-label para agencias\n\n"
             "Menos que el costo de un vendedor por un día.\n"
@@ -1977,19 +2047,24 @@ async def telegram_webhook(request: Request):
 
 
 # ─── Anti-loop: deduplicación y rate-limit por número ────────────────────────
-_seen_ids: set[str]       = set()          # idMessages ya procesados
-_phone_ts: dict[str, list] = {}            # phone → lista de timestamps recientes
-_MAX_MSG_PER_MIN = 6                       # máx mensajes por número por minuto
+from collections import deque as _deque
+_seen_ids_deque: _deque = _deque(maxlen=2000)  # LRU fijo — no pierde historial al limpiar
+_seen_ids_set:  set[str] = set()               # lookup O(1)
+_phone_ts: dict[str, list] = {}                # phone → lista de timestamps recientes
+_MAX_MSG_PER_MIN = 6                           # máx mensajes por número por minuto
 
 
 def _is_duplicate(id_message: str) -> bool:
     if not id_message:
         return False
-    if id_message in _seen_ids:
+    if id_message in _seen_ids_set:
         return True
-    _seen_ids.add(id_message)
-    if len(_seen_ids) > 2000:              # evitar crecimiento infinito
-        _seen_ids.clear()
+    # Si el deque está lleno, expulsa el más antiguo del set también
+    if len(_seen_ids_deque) == _seen_ids_deque.maxlen:
+        oldest = _seen_ids_deque[0]
+        _seen_ids_set.discard(oldest)
+    _seen_ids_deque.append(id_message)
+    _seen_ids_set.add(id_message)
     return False
 
 
@@ -2373,3 +2448,5 @@ async def admin_broadcast(req: BroadcastRequest, request: Request):
 
     log.info("Broadcast completado: sent=%d failed=%d", sent, failed)
     return {"sent": sent, "failed": failed, "total_candidates": len(candidates)}
+
+

@@ -22,6 +22,21 @@ from pathlib import Path
 
 log = logging.getLogger("wa_bot")
 
+# ─── Helper: comparar fechas de expiración de forma segura ──────────────────
+def _is_not_expired(expires_at) -> bool:
+    """Devuelve True si la fecha aún no ha expirado. Acepta str o datetime."""
+    if not expires_at:
+        return True
+    try:
+        dt = expires_at if isinstance(expires_at, datetime) else \
+             datetime.fromisoformat(str(expires_at).replace(" ", "T"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt > datetime.now(timezone.utc)
+    except (ValueError, TypeError):
+        return False
+
+
 # ─── Lock por número — evita race condition con mensajes simultáneos ──────────
 _phone_locks: dict[str, threading.Lock] = {}
 _locks_mutex = threading.Lock()
@@ -39,6 +54,7 @@ def _get_lock(phone: str) -> threading.Lock:
 # collecting_target → esperando rubro + ciudad
 # running_pipeline  → pipeline en ejecución
 # done              → reporte entregado
+# post_pdf_options  → usuario en menú post-PDF (A/B/C/D)
 # upgrade_prompted  → se le ofreció upgrade
 # feedback_prompted → esperando feedback
 
@@ -62,7 +78,7 @@ _PRECIOS_BODY = (
     "💰 *Planes Pipeline_X*\n\n"
     "• Free — S/0 · 1 búsqueda/día, 10 leads demo\n"
     "• Básico — S/59/mes · 10 reportes/mes, 20 leads full\n"
-    "• *Starter — S/149/mes · ilimitado, 30 leads* ⭐\n"
+    "• *Starter — S/129/mes · ilimitado, 30 leads* ⭐\n"
     "• Pro — S/299/mes · 50 leads + API REST\n"
     "• Reseller — S/1,099/mes · white-label para agencias\n\n"
     "Sin contrato. Cancela cuando quieras.\n"
@@ -71,12 +87,21 @@ _PRECIOS_BODY = (
 
 _PEDIR_TARGET = "Solo escribeme: rubro + ciudad\n\nEj: restaurantes Lima"
 
-_PROCESANDO = "⏳ Buscando *\"{target}\"* en Google Maps... te aviso en breve ☕"
+_PROCESANDO = "⏳ Buscando *\"{target}\"* en Google Maps... te aviso en este chat cuando esté listo ☕"
 
 # strings centralizados en messages.py — importar lazy para no crear ciclos
 def _MSG(key: str, **kwargs) -> str:
     from messages import MSG
-    return MSG[key].format(**kwargs) if kwargs else MSG[key]
+    try:
+        text = MSG[key]
+    except KeyError:
+        log.error("_MSG: key '%s' no existe en messages.py", key)
+        return f"[{key}]"
+    try:
+        return text.format(**kwargs) if kwargs else text
+    except (KeyError, IndexError) as exc:
+        log.error("_MSG: error formateando key '%s': %s", key, exc)
+        return text
 
 _BIENVENIDA = """👋 Hola, soy Pipeline_X.
 
@@ -112,7 +137,7 @@ def _r_procesando(target: str = "") -> list[dict]:
 def _r_post_demo() -> list[dict]:
     return [_t(
         "Esto es solo una muestra 👆\n\n"
-        "Con el plan *Starter (S/149/mes)* tienes:\n"
+        "Con el plan *Starter (S/129/mes)* tienes:\n"
         "✅ Reportes ilimitados\n"
         "✅ Todos los datos sin censura\n"
         "✅ Validación SUNAT incluida\n\n"
@@ -120,6 +145,12 @@ def _r_post_demo() -> list[dict]:
         "1. 🚀 Quiero el plan completo\n"
         "2. 🔍 Nueva búsqueda"
     )]
+
+
+def _r_post_pdf_options(name: str = "") -> list[dict]:
+    if not name:
+        name = "amigo"
+    return [_t(_MSG("post_pdf_options", name=name))]
 
 
 def _r_upgrade(phone: str) -> list[dict]:
@@ -248,21 +279,30 @@ _KEYWORDS: dict[str, list[str]] = {
                   "hey", "hi", "hello", "buen dia", "buen día", "saludos", "iniciar", "empezar", "empezamos"],
     "buscar":    ["buscar", "busqueda", "búsqueda", "prospectar", "lead", "leads", "encontrar",
                   "busco", "necesito", "quiero buscar", "dame leads", "darme leads"],
-    "demo":      ["demo", "gratis", "probar", "prueba", "leads", "reporte", "ver", "🚀", "1", "nuevo reporte", "nuevo", "test"],
+    "demo":      ["demo", "gratis", "probar", "prueba", "leads", "reporte", "ver", "🚀", "nuevo reporte", "nuevo", "test", "ejemplo", "ver ejemplo"],
     "precios":   ["precio", "precios", "costo", "plan", "planes", "cuanto", "cuánto", "tarifa", "💰", "2"],
     "info":      ["info", "que es", "qué es", "como funciona", "cómo funciona", "información", "❓", "3"],
-    "contacto":  ["contacto", "hablar", "humano", "soporte", "ayuda", "llamar", "💬", "4"],
-    "upgrade":   ["upgrade", "plan completo", "quiero plan", "starter", "acceso", "comprar", "🚀 quiero"],
-    "preguntas": ["pregunta", "preguntas", "duda", "dudas", "💬 tengo"],
+    "contacto":  ["contacto", "hablar con alguien", "soporte", "ayuda humana", "llamar", "💬", "4", "escribir"],
+    "upgrade":   ["upgrade", "plan completo", "quiero plan", "starter", "acceso", "comprar", "🚀 quiero", "activar", "activar plan"],
+    "preguntas": ["pregunta", "preguntas", "duda", "dudas", "tengo una pregunta"],
     "garantia":  ["garantia", "garantía", "reembolso", "devolucion", "devolución", "devolver", "no funciono",
                   "no funcionó", "no sirve", "mal reporte", "quiero mi dinero", "reembolsar"],
-    "feedback_good": ["feedback_good", "muy útil", "muy util", "excelente", "genial", "perfecto"],
-    "feedback_ok":   ["feedback_ok",   "regular", "normal", "mas o menos", "más o menos", "ok"],
+    "feedback_good": ["feedback_good", "muy útil", "muy util", "excelente", "genial", "perfecto", "bueno", "bien", "me gusto", "me gustó"],
+    "feedback_ok":   ["feedback_ok",   "regular", "normal", "mas o menos", "más o menos"],
     "feedback_bad":  ["feedback_bad", "poco útil", "poco util", "malo", "mal", "no sirvió", "no sirvio"],
     "historial":     ["mis reportes", "historial", "mis busquedas", "mis búsquedas",
                       "que busque", "qué busqué", "repetir"],
     "unsubscribe":   ["stop", "baja", "no quiero mensajes", "cancelar mensajes", "unsubscribe",
                       "cancelar", "dar de baja", "dejar de recibir"],
+    # Nuevos intents para opciones post-PDF
+    "post_pdf_a":     ["cómo usar", "como usar", "instrucciones", "guía", "usar la lista"],
+    "post_pdf_b":     ["buscar otra", "cambiar"],
+    "post_pdf_c":     ["ver precios", "ver ejemplo", "ejemplo"],
+    "post_pdf_d":     ["nada", "nada por ahora", "nada gracias"],
+    # Objeciones
+    "objecion_caro":  ["es caro", "muy caro", "caro", "no tengo dinero", "no puedo pagar"],
+    "objecion_tengo": ["ya tengo", "ya tengo clientes", "ya tengo prospects", "ya tengo leads", "ya estoy bien", "no necesito"],
+    "objecion_sirve": ["no me sirve", "no me funciona", "no me sirve para nada"],
 }
 
 def _detect_intent(text: str) -> str | None:
@@ -421,25 +461,40 @@ def _handle_message_locked(phone: str, text: str) -> list[dict]:
 
     # ── Pipeline corriendo — no interrumpir ───────────────────────────────────
     if state == "running_pipeline":
-        return [_t(_MSG("pipeline_running"))]
+        name = session.get("name", "")
+        return [_t(_MSG("pipeline_running", name=name or "amigo"))]
 
     # ── Esperando comprobante de pago ─────────────────────────────────────────
     if state == "upgrade_prompted":
-        # El usuario puede estar enviando texto de confirmación.
-        # Si fuera imagen ya se manejó arriba.
-        _set_session(phone, {"state": "menu_shown"})
-        _notify_ceo_upgrade(phone)   # segunda notificación con el mensaje que mandó
+        # Solo confirmar si el usuario envía palabras que indican pago real
+        _PAYMENT_KEYWORDS = {"listo", "pagué", "pague", "hice", "realice", "realicé",
+                              "transferí", "transferi", "yape", "plin", "transferencia",
+                              "deposité", "deposite", "confirmo", "confirmar", "ya pagué",
+                              "ya pague", "ya transferi", "ya transferí", "ya hice"}
+        t_lower = text.strip().lower()
+        if any(kw in t_lower for kw in _PAYMENT_KEYWORDS):
+            _set_session(phone, {"state": "menu_shown"})
+            _notify_ceo_upgrade(phone)
+            return [_t(
+                "Gracias, recibido ✅\n\n"
+                "Estamos verificando tu pago. En minutos te confirmamos "
+                "y activamos tu acceso al plan Starter.\n\n"
+                "Si tienes alguna duda escríbenos a *contacto@pipelinex.app*"
+            )]
+        # Texto no relacionado con pago — recordar instrucciones
         return [_t(
-            "Gracias, recibido ✅\n\n"
-            "Estamos verificando tu pago. En minutos te confirmamos "
-            "y activamos tu acceso al plan Starter.\n\n"
-            "Si tienes alguna duda escríbenos a *contacto@pipelinex.app*"
+            "Cuando hayas realizado el pago, escríbeme *listo* o envíame "
+            "una captura del comprobante y lo verificamos al instante 🙌"
         )]
 
     # ── Esperando feedback del reporte ───────────────────────────────────────
     if state == "feedback_prompted":
         _set_session(phone, {"state": "done"})
-        fb_intent = intent if intent in ("feedback_good", "feedback_ok", "feedback_bad") else None
+        # Mapear "1"/"2"/"3" directamente, antes de que _detect_intent los capture como demo/precios
+        _feedback_map = {"1": "feedback_good", "2": "feedback_ok", "3": "feedback_bad"}
+        fb_intent = _feedback_map.get(text.strip()) or (
+            intent if intent in ("feedback_good", "feedback_ok", "feedback_bad") else None
+        )
         if fb_intent:
             try:
                 import db as _db
@@ -458,16 +513,41 @@ def _handle_message_locked(phone: str, text: str) -> list[dict]:
             return _handle_intent(phone, intent)
         return _r_no_entendido()
 
-    # ── Ya entregado — ofrecer nuevo reporte o info ───────────────────────────
-    if state == "done":
-        if intent:
+    # ── Ya entregado — mostrar opciones post-PDF ────────────────────────────
+    if state == "post_pdf_options":
+        # Si el usuario responde con A/B/C/D, manejar como intent
+        if intent in ("post_pdf_a", "post_pdf_b", "post_pdf_c", "post_pdf_d"):
             return _handle_intent(phone, intent)
-        # Cualquier texto libre lo tratamos como un nuevo target directamente
+        # Si escribe algo con ciudad/rubro, iniciar nueva búsqueda
         if len(text) >= 5:
             words = [w for w in text.split() if len(w) > 2]
             has_location = " en " in text.lower() or "," in text or len(words) >= 2
             if has_location:
                 return _launch_pipeline(phone, text, session)
+        # Si dice que le gustó → upsell
+        if intent == "feedback_good":
+            name = session.get("name", "")
+            return [_t(_MSG("me_gusto_upfront", name=name or "amigo"))]
+        # Otros casos → seguir en el menú
+        _set_session(phone, {"state": "collecting_target"})
+        return [_t(
+            "¿Qué tipo de empresas buscas ahora? 🔍\n\n"
+            "Escribe industria + ciudad:\n"
+            "_\"Restaurantes en San Isidro\"_ · _\"Clínicas en Trujillo\"_"
+        )]
+
+    # ── Estado done (legacy) ─────────────────────────────────────────────────
+    if state == "done":
+        # Primero: verificar si es texto libre con ubicación (rubro + ciudad)
+        if len(text) >= 5:
+            words = [w for w in text.split() if len(w) > 2]
+            has_location = " en " in text.lower() or "," in text or len(words) >= 2
+            if has_location:
+                return _launch_pipeline(phone, text, session)
+        # Después: detectar intención
+        if intent:
+            return _handle_intent(phone, intent)
+        # Fallback
         _set_session(phone, {"state": "collecting_target"})
         return [_t(
             "¿Qué tipo de empresas buscas ahora? 🔍\n\n"
@@ -504,7 +584,7 @@ def _launch_pipeline(phone: str, target: str, session: dict) -> list[dict]:
             sub.get("plan", "free")
             if sub and sub.get("status") == "active" and (
                 not sub.get("expires_at") or
-                sub.get("expires_at") > datetime.now(timezone.utc).isoformat()
+                _is_not_expired(sub.get("expires_at"))
             )
             else "free"
         )
@@ -616,6 +696,32 @@ def _handle_intent(phone: str, intent: str) -> list[dict]:
         except Exception:
             pass
         return [_t(_MSG("unsubscribed"))]
+
+    # ── Opciones post-PDF ───────────────────────────────────────────────────
+    if intent in ("post_pdf_a", "post_pdf_b", "post_pdf_c"):
+        _set_session(phone, {"state": "menu_shown"})
+        if intent == "post_pdf_a":
+            return [_t(_MSG("post_pdf_option_a"))]
+        if intent == "post_pdf_b":
+            return [_t(_MSG("post_pdf_option_b"))]
+        if intent == "post_pdf_c":
+            return [_t(_MSG("post_pdf_option_c"))]
+        return _r_no_entendido()
+
+    if intent == "post_pdf_d":
+        return [_t(_MSG("post_pdf_option_d"))]
+
+    # ── Objeciones ─────────────────────────────────────────────────────────
+    if intent == "objecion_caro":
+        name = session.get("name", "")
+        return [_t(_MSG("objecion_es_caro").format(name=name or "amigo"))]
+
+    if intent == "objecion_tengo":
+        return [_t(_MSG("objecion_ya_tengo"))]
+
+    if intent == "objecion_sirve":
+        name = session.get("name", "")
+        return [_t(_MSG("objecion_no_me_sirve").format(name=name or "amigo"))]
 
     _set_session(phone, {"state": "menu_shown"})
     return _r_no_entendido()

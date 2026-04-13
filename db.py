@@ -391,9 +391,55 @@ def delete_bot_state(chat_id: int) -> None:
         _bot_states_mem.pop(chat_id, None)
 
 
+def get_bot_states() -> list[dict]:
+    """Lee todos los estados del bot (debug)."""
+    if not _USE_DB:
+        return [{"chat_id": k, "data": v} for k, v in _bot_states_mem.items()]
+    try:
+        with _conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT chat_id, data FROM bot_states")
+                return [{"chat_id": row[0], "data": row[1]} for row in cur.fetchall()]
+    except Exception as exc:
+        log.error("get_bot_states: %s", exc)
+        return [{"chat_id": k, "data": v} for k, v in _bot_states_mem.items()]
+
+
+def clear_test_data(test_phone: str = "") -> dict:
+    """Limpia datos de prueba. Si test_phone especificado, limpia ese suscriptor."""
+    results = {}
+    if not _USE_DB:
+        results["error"] = "No hay DB"
+        return results
+
+    try:
+        with _conn() as conn:
+            with conn.cursor() as cur:
+                if test_phone:
+                    cur.execute("DELETE FROM subscribers WHERE phone = %s", (test_phone,))
+                    results["deleted_subscribers"] = cur.rowcount
+                    cur.execute("DELETE FROM wa_sessions WHERE phone = %s", (test_phone,))
+                    results["deleted_wa_sessions"] = cur.rowcount
+                    cur.execute("DELETE FROM events WHERE phone = %s", (test_phone,))
+                    results["deleted_events"] = cur.rowcount
+                    cur.execute("DELETE FROM user_profiles WHERE phone = %s", (test_phone,))
+                    results["deleted_profiles"] = cur.rowcount
+                    cur.execute("DELETE FROM api_tokens WHERE phone = %s", (test_phone,))
+                    results["deleted_tokens"] = cur.rowcount
+                else:
+                    cur.execute("DELETE FROM subscribers WHERE notes ILIKE '%test%'")
+                    results["deleted_subscribers"] = cur.rowcount
+                conn.commit()
+    except Exception as exc:
+        log.error("clear_test_data: %s", exc)
+        results["error"] = str(exc)
+
+    return results
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # Fallbacks en memoria / archivo
-# ═══════════════════════════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════════════════════════════
 
 _mem_jobs:       dict[str, dict] = {}
 _bot_states_mem: dict[int, dict] = {}
@@ -601,7 +647,7 @@ def confirm_payment(payment_id: str) -> dict | None:
                 if not row:
                     return None
                 phone, plan, amount = row
-                _db.upsert_subscriber(phone, plan=plan, days=30)
+                upsert_subscriber(phone, plan=plan, days=30)
                 return {"phone": phone, "plan": plan, "amount": amount}
     except Exception as exc:
         log.error("confirm_payment(%s): %s", payment_id, exc)
@@ -665,6 +711,7 @@ class EventType:
     WA_UPGRADE_CLICK      = "wa_upgrade_click"
     WA_FEEDBACK           = "wa_feedback"
     WA_FOLLOWUP_SENT      = "wa_followup_sent"
+    WA_FOLLOWUP_3D_SENT   = "wa_followup_3d_sent"
     WA_TRIAL_EXPIRED      = "wa_trial_expired"
     SUBSCRIBER_ACTIVATED  = "subscriber_activated"
     SUBSCRIBER_CANCELLED  = "subscriber_cancelled"
@@ -710,6 +757,46 @@ def get_followup_candidates(hours_min: int = 23, hours_max: int = 25) -> list[st
                 return [row[0] for row in cur.fetchall()]
     except Exception as exc:
         log.error("get_followup_candidates: %s", exc)
+        return []
+
+
+def get_followup_3d_candidates() -> list[str]:
+    """
+    Devuelve teléfonos de usuarios que:
+      - Recibieron un reporte hace entre 72 y 96 horas (3-4 días)
+      - NO son suscriptores activos
+      - NO recibieron ya un followup de 3 días
+    """
+    if not _USE_DB:
+        return []
+    try:
+        with _conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT DISTINCT e.phone
+                    FROM events e
+                    WHERE e.event_type = %s
+                      AND e.phone IS NOT NULL
+                      AND e.created_at BETWEEN now() - INTERVAL '96 hours' AND now() - INTERVAL '72 hours'
+                      AND NOT EXISTS (
+                          SELECT 1 FROM subscribers s
+                          WHERE s.phone = e.phone
+                            AND s.status = 'active'
+                            AND (s.expires_at IS NULL OR s.expires_at > now())
+                      )
+                      AND NOT EXISTS (
+                          SELECT 1 FROM events f
+                          WHERE f.phone = e.phone
+                            AND f.event_type = %s
+                            AND f.created_at > now() - INTERVAL '72 hours'
+                      )
+                """, (
+                    EventType.WA_REPORT_DELIVERED,
+                    "wa_followup_3d_sent",
+                ))
+                return [row[0] for row in cur.fetchall()]
+    except Exception as exc:
+        log.error("get_followup_3d_candidates: %s", exc)
         return []
 
 
@@ -1192,41 +1279,52 @@ def apply_referral(code: str, referred_phone: str) -> dict | None:
     if not _USE_DB:
         return None
     try:
-        code_info = validate_referral_code(code)
-        if not code_info:
-            return None
-        
-        referrer_phone = code_info["referrer_phone"]
-        
-        # Verificar que no se refiera a sí mismo
-        if referrer_phone == referred_phone:
-            return None
-        
+        import uuid
+        reward_id = str(uuid.uuid4())[:8]
         with _conn() as conn:
             with conn.cursor() as cur:
-                # Incrementar contador del código
+                # SELECT FOR UPDATE — evita TOCTOU con requests concurrentes
+                cur.execute("""
+                    SELECT referrer_phone, used_count, max_referrals
+                    FROM referral_codes
+                    WHERE code = %s AND status = 'active'
+                      AND expires_at > now()
+                    FOR UPDATE
+                """, (code.upper(),))
+                row = cur.fetchone()
+                if not row:
+                    return None
+                referrer_phone, used_count, max_referrals = row
+
+                # Verificar que no se refiera a sí mismo
+                if referrer_phone == referred_phone:
+                    return None
+
+                # Verificar cupo dentro de la misma transacción
+                if used_count >= max_referrals:
+                    return None
+
+                # Incrementar contador
                 cur.execute("""
                     UPDATE referral_codes
                     SET used_count = used_count + 1
                     WHERE code = %s
                 """, (code.upper(),))
-                
+
                 # Crear reward pendiente
-                import uuid
-                reward_id = str(uuid.uuid4())[:8]
                 cur.execute("""
                     INSERT INTO referral_rewards (id, referrer_phone, referred_phone, referral_code, status)
                     VALUES (%s, %s, %s, %s, 'pending')
                     RETURNING id, referrer_phone, referred_phone, referral_code, status
                 """, (reward_id, referrer_phone, referred_phone, code.upper()))
-                row = cur.fetchone()
-                
+                result = cur.fetchone()
+
                 return {
-                    "reward_id": row[0],
-                    "referrer_phone": row[1],
-                    "referred_phone": row[2],
-                    "referral_code": row[3],
-                    "status": row[4],
+                    "reward_id":      result[0],
+                    "referrer_phone": result[1],
+                    "referred_phone": result[2],
+                    "referral_code":  result[3],
+                    "status":         result[4],
                 }
     except Exception as exc:
         log.error("apply_referral(%s, %s): %s", code, referred_phone, exc)

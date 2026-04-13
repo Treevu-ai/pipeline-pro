@@ -110,7 +110,7 @@ class TestStateMachine:
                           "_ts": __import__("time").time()}
         msgs = handle(PHONE, "cualquier cosa")
         assert all(m.get("type") == "text" for m in msgs)
-        assert "proceso" in first_text(msgs).lower() or "listo" in first_text(msgs).lower()
+        assert "proceso" in first_text(msgs).lower() or "revisando" in first_text(msgs).lower()
 
     def test_done_texto_libre_como_target(self, mock_db):
         mock_db[PHONE] = {"state": "done", "_ts": __import__("time").time()}
@@ -118,10 +118,18 @@ class TestStateMachine:
         assert any(m.get("type") == "pipeline_request" for m in msgs)
 
     def test_upgrade_prompted_gracias(self, mock_db):
+        # Con keyword de pago → confirma
         mock_db[PHONE] = {"state": "upgrade_prompted", "_ts": __import__("time").time()}
-        msgs = handle(PHONE, "aquí va mi comprobante")
+        msgs = handle(PHONE, "listo, ya pagué")
         texto = first_text(msgs).lower()
         assert "gracias" in texto or "recibido" in texto
+
+    def test_upgrade_prompted_texto_irrelevante(self, mock_db):
+        # Sin keyword de pago → recuerda instrucciones, NO notifica CEO
+        mock_db[PHONE] = {"state": "upgrade_prompted", "_ts": __import__("time").time()}
+        msgs = handle(PHONE, "cuándo me activan")
+        texto = first_text(msgs).lower()
+        assert "listo" in texto or "pago" in texto or "comprobante" in texto
 
     def test_feedback_good_logueado(self, mock_db):
         mock_db[PHONE] = {"state": "feedback_prompted", "_ts": __import__("time").time()}

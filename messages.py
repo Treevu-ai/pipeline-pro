@@ -16,14 +16,19 @@ from __future__ import annotations
 MSG: dict[str, str] = {
     # ── Flujo de búsqueda ─────────────────────────────────────────────────────
     "search_start": (
-        "🔍 Buscando *{target}*...\n"
-        "No cierres el chat, te aviso en breve."
+        "🔍 Buscando *{target}*...\n\n"
+        "Esto suele tomar unos *2 minutos* ⏱️\n"
+        "Mientras tanto, la mayoría de usuarios que usan este servicio "
+        "consiguen contactar varios prospectos el mismo día o al siguiente.\n\n"
+        "¿Te incluyo *mensajes sugeridos* listos para copiar y enviar por WhatsApp? (Sí / No)"
     ),
     "qualify_progress": (
-        "🤖 Calificando leads con IA... ya casi termina."
+        "🔎 *{name}*, ya estoy revisando las fuentes actualizadas...\n"
+        "Estoy seleccionando solo negocios reales y verificados para ti."
     ),
     "pipeline_running": (
-        "⏳ Tu reporte está en proceso, ya casi está listo..."
+        "⏳ *{name}*, ya estoy revisando las fuentes actualizadas...\n"
+        "Estoy seleccionando solo negocios reales y verificados para ti."
     ),
     "pdf_attaching": (
         "\n📎 Adjuntando tu reporte en PDF..."
@@ -76,11 +81,25 @@ MSG: dict[str, str] = {
     # ── Upgrade / planes ─────────────────────────────────────────────────────
     "upgrade_intro": (
         "¡Perfecto! 🙌\n\n"
-        "Un agente de *Pipeline_X* se pondrá en contacto contigo "
-        "en los próximos minutos.\n\n"
+        "Un agente de *Pipeline_X* se pondra en contacto contigo "
+        "en los proximos minutos.\n\n"
         "Si prefieres activar ahora mismo, puedes pagar por:\n\n"
         "{bank_info}\n\n"
-        "📸 Envía tu comprobante aquí y activamos tu acceso al instante."
+        "📸 Envia tu comprobante aqui y activamos tu acceso al instante."
+    ),
+    "upgrade_no_bank": (
+        "¡Perfecto! 🙌\n\n"
+        "Un agente de *Pipeline_X* se pondra en contacto contigo "
+        "en los proximos minutos para ayudarte con la activacion.\n\n"
+        "Tambien puedes escribirnos directamente a:\n"
+        "📧 contacto@pipelinex.app"
+    ),
+    "upgrade_ceo_alert": (
+        "🔔 *Usuario quiere hacer upgrade*\n\n"
+        "📱 Tel: `{phone}`\n"
+        "💰 Plan solicitado: Starter (S/129/mes)\n"
+        "🕐 Hora: {time}\n\n"
+        "Contactalo en los proximos minutos."
     ),
     "upgrade_no_bank": (
         "¡Perfecto! 🙌\n\n"
@@ -92,7 +111,7 @@ MSG: dict[str, str] = {
     "upgrade_ceo_alert": (
         "🔔 *Usuario quiere hacer upgrade*\n\n"
         "📱 Tel: `{phone}`\n"
-        "💰 Plan solicitado: Starter (S/149/mes)\n"
+        "💰 Plan solicitado: Starter (S/129/mes)\n"
         "🕐 Hora: {time}\n\n"
         "Contáctalo en los próximos minutos."
     ),
@@ -135,22 +154,31 @@ MSG: dict[str, str] = {
         "Cuando quieras otro reporte, solo dime rubro y ciudad."
     ),
     "feedback_thanks_ok": (
-        "Gracias por el feedback 👍\n"
-        "Seguimos mejorando. ¿Qué podría haber sido mejor?"
+        "Gracias por el feedback 👍 Seguimos mejorando.\n\n"
+        "Cuando quieras otro reporte, solo dime rubro y ciudad."
     ),
     "feedback_thanks_bad": (
-        "Gracias por ser honesto 🙏\n"
-        "¿Qué le faltó al reporte? Tu feedback nos ayuda a mejorar."
+        "Gracias por ser honesto 🙏 Tomamos nota.\n\n"
+        "Cuando quieras otro reporte, dime rubro y ciudad y lo mejoramos."
     ),
 
     # ── Followup 24h ─────────────────────────────────────────────────────────
     "followup_24h": (
-        "👋 Hola, soy Pipeline_X de nuevo.\n\n"
+        "👋 Hola {name}, soy Pipeline_X de nuevo.\n\n"
         "¿Pudiste contactar a los leads del reporte de ayer?\n\n"
-        "Si quieres más prospectos o probar con otro rubro, "
-        "con el plan *Starter (S/149/mes)* tienes reportes ilimitados 🚀\n\n"
-        "Responde *demo* para una nueva búsqueda gratis "
+        "Si quieres mas prospectos o probar con otro rubro, "
+        "con el plan *Starter (S/129/mes)* tienes reportes ilimitados 🚀\n\n"
+        "Responde *demo* para una nueva busqueda gratis "
         "o *upgrade* para activar tu plan."
+    ),
+
+    # ── Followup día 3 ─────────────────────────────────────────────────────────
+    "followup_3d": (
+        "Hola {name}, queria saber si la lista que te prepare te fue util.\n\n"
+        "Muchos-duenos de negocios como tu empiezan a ver resultados concretos durante la primera semana.\n\n"
+        "Si deseas, puedo generarte otra lista gratuita en una zona o rubro diferente, "
+        "o explicarte los beneficios del Plan Starter para que tengas acceso ilimitado.\n\n"
+        "¿En qué te puedo apoyar hoy?"
     ),
 
     # ── Trial expirado ───────────────────────────────────────────────────────
@@ -158,7 +186,7 @@ MSG: dict[str, str] = {
         "⏳ Tu trial de 3 días terminó. Esperamos que hayas comprobado el potencial.\n\n"
         "Hoy tienes *1 búsqueda gratis* disponible 👇\n\n"
         "Para seguir sin límites:\n"
-        "• *Starter S/149/mes* — reportes ilimitados ⭐\n"
+        "• *Starter S/129/mes* — reportes ilimitados ⭐\n"
         "• *Pro S/299/mes* — 50 leads + API\n\n"
         "Responde *upgrade* para activar o escribe rubro + ciudad para tu búsqueda gratis."
     ),
@@ -166,12 +194,12 @@ MSG: dict[str, str] = {
     # ── Rate limiting ────────────────────────────────────────────────────────
     "daily_limit_reached": (
         "⏳ Ya usaste tu búsqueda gratuita de hoy.\n\n"
-        "Con *Starter (S/149/mes)* tienes reportes ilimitados 🚀\n\n"
+        "Con *Starter (S/129/mes)* tienes reportes ilimitados 🚀\n\n"
         "¿Quieres activar tu acceso?"
     ),
     "monthly_limit_reached": (
         "📊 Llegaste al límite mensual.\n\n"
-        "Con *Starter (S/149/mes)* tienes reportes ilimitados 🚀\n\n"
+        "Con *Starter (S/129/mes)* tienes reportes ilimitados 🚀\n\n"
         "¿Quieres hacer el upgrade?"
     ),
 
@@ -237,5 +265,76 @@ MSG: dict[str, str] = {
     "confirm_default_city": (
         "¿Buscamos en *{city}* otra vez, o prefieres otra ciudad?\n\n"
         "Responde *sí* para {city} o escribe otra ciudad."
+    ),
+
+    # ── Opciones post-PDF ───────────────────────────────────────────────────
+    "post_pdf_options": (
+        "¿En qué te puedo ayudar en este momento, {name}?\n\n"
+        "A. Cómo usar la lista de manera efectiva\n"
+        "B. Buscar otra ciudad o rubro\n"
+        "C. Ver los planes y precios\n"
+        "D. Nada por ahora, gracias"
+    ),
+    "post_pdf_option_a": (
+        "📋 *Cómo usar la lista:*\n\n"
+        "1. Abre el PDF que te/envié\n"
+        "2. Copia el mensaje sugerido de cada empresa\n"
+        "3. Envíalo por WhatsApp directo al negocio\n"
+        "4. Repite con los que te interesen\n\n"
+        "💡 *Tip:* Los primeros 5 contactos suelen ser los más importantes. "
+        "Dedica tiempo a personalizar el mensaje si puedes.\n\n"
+        "¿Quieres hacer algo más? (nueva búsqueda / precios / nada)"
+    ),
+    "post_pdf_option_b": (
+        "Entendido. Solo dime el nuevo rubro y ciudad que buscas 👇\n\n"
+        "Ejemplos:\n"
+        "• Restaurantes en Miraflores\n"
+        "• Talleres mecánicos en Arequipa\n"
+        "• Clínicas dentales en Lima"
+    ),
+    "post_pdf_option_c": (
+        "💰 *Planes Pipeline_X*\n\n"
+        "• Free — S/0 · 10 leads demo\n"
+        "• *Starter — S/129/mes* · ilimitado ⭐\n"
+        "• Pro — S/299/mes · 50 leads + API\n\n"
+        "Tienes 7 días de prueba sin tarjeta. ¿Quieres activar el plan Starter?"
+    ),
+    "post_pdf_option_d": (
+        "Perfecto, {name} 👋\n\n"
+        "Gracias por probar Pipeline_X. Cuando quieras más prospectos, "
+        "solo escríbeme.\n\n"
+        "Que te vaya muy bien con tus ventas! 🚀"
+    ),
+
+    # ── Upsell post-gusto ───────────────────────────────────────────────────
+    "me_gusto_upfront": (
+        "¡Qué bueno saberlo, {name}! Me alegra mucho que la lista te haya sido útil. 👍\n\n"
+        "Eso es exactamente lo que buscamos: ahorrarte tiempo y darte contactos reales "
+        "para que puedas enfocarte en vender.\n\n"
+        "Si te gustaría seguir recibiendo listas de forma ilimitada y con más volumen, "
+        "el *Plan Starter a S/129/mes* es la opción que más recomiendo para la mayoría "
+        "de micro y pequeñas empresas.\n\n"
+        "¿Quieres que te active el plan o prefieres probar primero con una búsqueda adicional?"
+    ),
+
+    # ── Objeciones ───────────────────────────────────────────────────────────
+    "objecion_es_caro": (
+        "Entiendo perfectamente tu preocupación, {name}.\n\n"
+        "La realidad es que el tiempo que ahorras buscando manualmente vale mucho más. "
+        "Con Pipeline_X obtienes contactos listos para usar en minutos, no horas.\n\n"
+        "Además, puedes probar con *7 días sin tarjeta* y ver si te funciona antes de pagar.\n\n"
+        "¿Qué te parece si activamos el trial y lo pruebas?"
+    ),
+    "objecion_ya_tengo": (
+        "¡Excelente! Entonces ya sabes lo importante que es tener buenos prospectos. 👍\n\n"
+        "La diferencia con Pipeline_X es que *te ahorras todo el trabajo manual* de buscar, "
+        "validar y organizar los datos. En minutos tienes una lista limpia y lista para usar.\n\n"
+        "¿Usas algún método en particular hoy? Quizás te puedo mostrar cómo sería con nosotros."
+    ),
+    "objecion_no_me_sirve": (
+        "Lamento mucho que no cumpla con lo que necesitas, {name}. 🙁\n\n"
+        "¿Me podrías contar qué esperabas o qué te faltó? Tu feedback nos ayuda a mejorar.\n\n"
+        "Mientras tanto, si hay algo específico que pueda hacer por ti ahora, "
+        "dime y con gusto te ayudo."
     ),
 }

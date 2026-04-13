@@ -355,7 +355,7 @@ def _page_cta(pdf: _PipelineXPDF) -> None:
     # ── Planes (4 columnas) ──────────────────────────────────────────────────
     plans = [
         ("Free",     "S/0",         "10 leads de prueba\nSin tarjeta",                     _GRAY,   False),
-        ("Starter",  "S/149/mes",   "Reportes ilimitados\nPDF + WhatsApp + SUNAT",         _PURPLE, True),
+        ("Starter",  "S/129/mes",   "Reportes ilimitados\nPDF + WhatsApp + SUNAT",         _PURPLE, True),
         ("Pro",      "S/299/mes",   "Mayor volumen\nAPI REST + soporte prioritario",        _GREEN,  False),
         ("Reseller", "S/1,099/mes", "White-label\nMulti-cuenta + SLA garantizado",         _AMBER,  False),
     ]
