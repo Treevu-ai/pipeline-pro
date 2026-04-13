@@ -183,9 +183,12 @@ class TestResponseBuilders:
 
     def test_feedback_has_3_options(self):
         msgs = wa_bot._r_feedback()
-        assert msgs[0]["type"] == "text"
-        text = msgs[0]["text"]
-        assert "1." in text and "2." in text and "3." in text
+        assert msgs[0]["type"] == "buttons"
+        assert len(msgs[0]["buttons"]) == 3
+        btn_ids = [b["id"] for b in msgs[0]["buttons"]]
+        assert "fb_positive" in btn_ids
+        assert "fb_neutral" in btn_ids
+        assert "fb_negative" in btn_ids
 
     def test_upgrade_env_con_bank_info(self, monkeypatch):
         monkeypatch.setenv("BANK_TRANSFER_INFO", "BCP · 1234567890")

@@ -260,12 +260,15 @@ def _r_garantia() -> list[dict]:
     )]
 
 def _r_feedback() -> list[dict]:
-    return [_t(
-        _MSG("feedback_ask") + "\n\n"
-        "1. 👍 Muy útil\n"
-        "2. 😐 Regular\n"
-        "3. 👎 Poco útil"
-    )]
+    return [{
+        "type": "buttons",
+        "text": _MSG("feedback_ask"),
+        "buttons": [
+            {"id": "fb_positive", "text": "⭐ Útil"},
+            {"id": "fb_neutral", "text": "😐 Regular"},
+            {"id": "fb_negative", "text": "❌ Malo"},
+        ]
+    }]
 
 def _r_no_entendido(state: str = "") -> list[dict]:
     # Siempre incluir opción humano para cualquier fallback
@@ -536,8 +539,15 @@ def _handle_message_locked(phone: str, text: str) -> list[dict]:
     # ── Esperando feedback del reporte ───────────────────────────────────────
     if state == "feedback_prompted":
         _set_session(phone, {"state": "done"})
-        # Mapear "1"/"2"/"3" directamente, antes de que _detect_intent los capture como demo/precios
-        _feedback_map = {"1": "feedback_good", "2": "feedback_ok", "3": "feedback_bad"}
+        # Mapear IDs de botones (fb_positive, fb_neutral, fb_negative) y números "1"/"2"/"3"
+        _feedback_map = {
+            "1": "feedback_good",
+            "2": "feedback_ok",
+            "3": "feedback_bad",
+            "fb_positive": "feedback_good",
+            "fb_neutral": "feedback_ok",
+            "fb_negative": "feedback_bad",
+        }
         fb_intent = _feedback_map.get(text.strip()) or (
             intent if intent in ("feedback_good", "feedback_ok", "feedback_bad") else None
         )
