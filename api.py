@@ -997,11 +997,6 @@ async def custom_docs():
     return HTMLResponse(body)
 
 
-@app.get("/", include_in_schema=False)
-def root():
-    return RedirectResponse(url="/docs")
-
-
 @app.get("/live", tags=["Sistema"])
 async def live():
     """Liveness probe — solo confirma que la app está corriendo."""
