@@ -61,8 +61,6 @@ node_modules/
 dist/
 .vite/
 
-# Landing build (generado en Railway durante el build, no se versiona)
-landing/
 
 # Environment variables
 .env
