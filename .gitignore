@@ -55,10 +55,11 @@ output/
 .coverage
 htmlcov/
 
-# Node / Frontend
-pipeline-x-landing/node_modules/
-pipeline-x-landing/.vite/
-# NOTE: pipeline-x-landing/dist is NOT ignored - served by FastAPI
+# Node / Frontend (landing vive en su propio repo: Treevu-ai/pipeline-x-landing)
+pipeline-x-landing/
+node_modules/
+dist/
+.vite/
 
 # Environment variables
 .env
