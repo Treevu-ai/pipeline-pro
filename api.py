@@ -742,7 +742,6 @@ async def signup(req: SignupRequest, request: Request):
             # Apply referral - creates pending reward
             result = await asyncio.to_thread(_db.apply_referral, req.referral_code, phone)
             if result:
-                referral_applied = True
                 utm_data["referral_code"] = req.referral_code
                 utm_data["referrer_phone"] = code_info["referrer_phone"]
                 referral_message = " ¡Usaste un código de referido!"
@@ -878,7 +877,6 @@ async def payment_link(req: PaymentLinkRequest, request: Request):
         raise HTTPException(status_code=400, detail="Plan gratuito, no requiere pago")
 
     yape_phone = os.environ.get("YAPE_PHONE", "902126765")
-    yape_name  = os.environ.get("YAPE_NAME",  "Ricardo Cuba")
 
     # Link directo a Yape con monto pre-llenado (deep link oficial de Yape)
     payment_url = f"https://yapeperu.app.link/pay?phone={yape_phone}&amount={amount}&description=PipelineX+{plan.title()}"

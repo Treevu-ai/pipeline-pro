@@ -52,7 +52,6 @@ def qualify_leads(leads: list[dict[str, Any]], channel: str, delay: float = 0.3,
 
     total = len(leads)
     results: dict[int, dict[str, Any]] = {}
-    write_lock = threading.Lock()
 
     def _process(idx: int, base: dict[str, Any]) -> tuple[int, dict[str, Any]]:
         """Califica un lead y devuelve (idx, merged)."""

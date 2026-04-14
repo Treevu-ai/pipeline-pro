@@ -454,8 +454,8 @@ async def cmd_reset(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     _conversations[user_id] = []
     _demo_states.pop(user_id, None)
     await update.message.reply_text(
-        "Conversación reiniciada. ¡Hola de nuevo! ¿En qué industria trabaja tu empresa?",
-        reply_markup=kb_industrias(),
+        "Conversación reiniciada. ¡Hola de nuevo! ¿En qué te puedo ayudar?",
+        reply_markup=kb_start(),
     )
 
 

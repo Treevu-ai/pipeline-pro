@@ -18,6 +18,7 @@ import asyncio
 import csv
 import json
 import logging
+import os
 import random
 import sys
 import time
@@ -210,7 +211,7 @@ def enrich_sunat(ruc: str) -> dict[str, Any]:
             data = json.loads(resp.read().decode("utf-8"))
         distrito  = data.get("distrito", "")
         provincia = data.get("provincia", "")
-        dpto      = data.get("departamento", "")
+        _dpto     = data.get("departamento", "")  # noqa: F841 — capturado pero no expuesto aún
         direccion = " ".join(filter(None, [
             data.get("viaTipo", ""), data.get("viaNombre", ""),
             data.get("numero", ""), data.get("interior", ""),

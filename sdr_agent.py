@@ -511,9 +511,8 @@ Cada objeto debe tener EXACTAMENTE estas claves:
 Responde SOLO el JSON array, sin texto adicional."""
 
     try:
-        raw = llm_client.call(cfg.PLAYBOOK, user_prompt)
-        # llm_client.call devuelve dict; en batch esperamos lista en raw["_raw_list"] o similar
-        # Pero call() parsea JSON → si el LLM devuelve array, raw será el primer elemento.
+        _raw = llm_client.call(cfg.PLAYBOOK, user_prompt)  # noqa: F841 — no usado; batch llama groq directo
+        # llm_client.call parsea JSON → si el LLM devuelve array, sería el primer elemento.
         # Necesitamos el texto raw. Usamos _call_groq directamente.
         import llm_client as _lc
         import groq as _groq_lib

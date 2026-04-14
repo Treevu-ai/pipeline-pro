@@ -50,9 +50,8 @@ def _post_with_retry(url: str, retries: int = 3, **kwargs) -> httpx.Response:
 # ─── Helpers internos ─────────────────────────────────────────────────────────
 
 def _base_url() -> str:
-    url    = cfg.GREEN_API["api_url"].rstrip("/")
-    inst   = cfg.GREEN_API["id_instance"]
-    token  = cfg.GREEN_API["token"]
+    url  = cfg.GREEN_API["api_url"].rstrip("/")
+    inst = cfg.GREEN_API["id_instance"]
     return f"{url}/waInstance{inst}"
 
 
