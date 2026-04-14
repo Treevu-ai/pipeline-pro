@@ -512,7 +512,7 @@ app = FastAPI(
 )
 
 app.mount("/reports", StaticFiles(directory=str(REPORTS_DIR)), name="reports")
-app.mount("/landing", StaticFiles(directory="pipeline-x-landing/dist", html=True), name="landing")
+app.mount("/", StaticFiles(directory="landing", html=True))
 
 
 @app.get("/r/{token}", include_in_schema=False)
