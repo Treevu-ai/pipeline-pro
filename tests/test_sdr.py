@@ -14,6 +14,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 import pytest
 import sdr_agent as sdr
 import utils
+import config as cfg
+
+_MAX_PRE = cfg.QUALIFICATION["max_pre_score"]
 
 
 # ─── utils.normalize ─────────────────────────────────────────────────────────
@@ -155,7 +158,7 @@ class TestPreScore:
         lead = {**self._lead_completo(), "telefono": "51987654321.0"}
         score = sdr.pre_score(lead)
         assert isinstance(score, int)
-        assert 0 <= score <= 65
+        assert 0 <= score <= _MAX_PRE
 
 
 # ─── should_auto_discard ─────────────────────────────────────────────────────
@@ -303,7 +306,7 @@ class TestEdgeCases:
         }
         score = sdr.pre_score(lead)
         assert isinstance(score, int)
-        assert 0 <= score <= 65
+        assert 0 <= score <= _MAX_PRE
 
     def test_pre_score_none_fields_no_crash(self):
         """Campos con None no deben romper pre_score."""
@@ -317,7 +320,7 @@ class TestEdgeCases:
         }
         score = sdr.pre_score(lead)
         assert isinstance(score, int)
-        assert 0 <= score <= 65
+        assert 0 <= score <= _MAX_PRE
 
     def test_qualify_row_llm_exception_propagates(self, monkeypatch):
         """Si el LLM lanza excepción, qualify_row la propaga (el pipeline la captura)."""
