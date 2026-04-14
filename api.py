@@ -131,8 +131,39 @@ def _enforce_plan(tier: str, leads_requested: int, wants_sunat: bool) -> tuple[i
 
 def _start_bot_interno() -> None:
     """Deshabilitado: Telegram polling causa Conflict en Railway con múltiples workers.
-    Usar webhook en su lugar (/webhook/telegram para el bot principal)."""
-    return  # Bot interno deshabilitado para evitar Conflict en Railway
+    El bot principal opera en modo webhook (/webhook/telegram)."""
+    return  # Polling deshabilitado — se usa webhook
+
+
+async def _register_telegram_webhook() -> None:
+    """Registra el webhook del bot de Telegram al arrancar la app.
+
+    Llama a setWebhook apuntando a {API_PUBLIC_URL}/webhook/telegram.
+    Si TELEGRAM_WEBHOOK_SECRET está definido lo incluye como secret_token
+    para que el endpoint valide la autenticidad de cada update.
+    """
+    token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+    if not token:
+        log.warning("TELEGRAM_BOT_TOKEN no configurado — webhook de Telegram no registrado")
+        return
+    webhook_url = f"{API_PUBLIC_URL}/webhook/telegram"
+    payload: dict = {"url": webhook_url, "allowed_updates": ["message", "callback_query"]}
+    secret = os.environ.get("TELEGRAM_WEBHOOK_SECRET", "")
+    if secret:
+        payload["secret_token"] = secret
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.post(
+                f"https://api.telegram.org/bot{token}/setWebhook",
+                json=payload,
+            )
+            data = resp.json()
+            if data.get("ok"):
+                log.info("Telegram webhook registrado: %s", webhook_url)
+            else:
+                log.warning("Error registrando webhook de Telegram: %s", data)
+    except Exception as exc:
+        log.warning("No se pudo registrar webhook de Telegram: %s", exc)
 
 
 def _register_whatsapp_webhook() -> None:
@@ -390,6 +421,7 @@ async def lifespan(app: FastAPI):
     # Inicializar PostgreSQL primero (sesiones, jobs, bot_states)
     await asyncio.to_thread(_db.init)
     _start_bot_interno()
+    asyncio.create_task(_register_telegram_webhook())
     await asyncio.to_thread(_register_whatsapp_webhook)
     asyncio.create_task(_followup_loop())
     asyncio.create_task(_followup_3d_loop())

@@ -54,10 +54,34 @@ def init() -> None:
         _pool = pg_pool.ThreadedConnectionPool(1, 8, _DATABASE_URL)
         _create_tables()
         _USE_DB = True
+        _recover_stale_jobs()
         log.info("db: PostgreSQL conectado y tablas verificadas")
     except Exception as exc:
         log.error("db: no se pudo conectar a PostgreSQL (%s) — usando fallback", exc)
         _USE_DB = False
+
+
+def _recover_stale_jobs() -> None:
+    """Marca como 'failed' cualquier job en estado 'running' o 'pending' al reiniciar.
+
+    Un job 'running' en DB pero sin proceso activo significa que el servidor
+    se reinició mientras estaba en curso — no tiene recovery, se notifica el fallo.
+    """
+    try:
+        with _conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    UPDATE jobs
+                       SET status = 'failed',
+                           error  = 'Proceso interrumpido por reinicio del servidor',
+                           finished_at = NOW()
+                     WHERE status IN ('running', 'pending')
+                """)
+                affected = cur.rowcount
+                if affected:
+                    log.warning("db: %d job(s) huérfanos marcados como failed al reiniciar", affected)
+    except Exception as exc:
+        log.warning("db: no se pudo limpiar jobs huérfanos: %s", exc)
 
 
 @contextmanager
