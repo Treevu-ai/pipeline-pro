@@ -47,6 +47,9 @@ output/
 *.html
 *.log
 
+# Excepción: landing/ se versiona directamente en este repo
+!landing/*.html
+
 # Old files
 *_old.py
 
