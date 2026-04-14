@@ -143,10 +143,11 @@ class TestPreScore:
         assert sdr.pre_score(lead_con) > sdr.pre_score(lead_sin)
 
     def test_resenas_altas_suman_mas(self):
-        # facturas_pendientes ya no es una señal del scorecard.
-        # La señal correcta son las reseñas de Google Maps.
-        lead_bajo = {**self._lead_completo(), "num_resenas": "2"}
-        lead_alto = {**self._lead_completo(), "num_resenas": "80"}
+        # Usa un lead mínimo (sin industria target ni contacto completo) para que
+        # el score base quede lejos del cap y la señal de reseñas sea visible.
+        lead_base = {"empresa": "Test SAC"}
+        lead_bajo = {**lead_base, "num_resenas": "2"}
+        lead_alto = {**lead_base, "num_resenas": "80"}
         assert sdr.pre_score(lead_alto) > sdr.pre_score(lead_bajo)
 
     def test_telefono_como_float_string_no_rompe(self):
