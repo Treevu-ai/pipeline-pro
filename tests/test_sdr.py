@@ -109,10 +109,12 @@ class TestPreScore:
         score = sdr.pre_score(self._lead_completo())
         assert score > 40, f"Lead completo debería puntuar >40, obtuvo {score}"
 
-    def test_lead_completo_no_supera_65(self):
-        # El pre-score está capeado en 65 para dejar margen al LLM
+    def test_lead_completo_no_supera_max(self):
+        # El pre-score está capeado en cfg.QUALIFICATION["max_pre_score"] (actualmente 70)
         score = sdr.pre_score(self._lead_completo())
-        assert score <= 65, f"Pre-score no debe superar 65, obtuvo {score}"
+        import config as cfg
+        max_pre = cfg.QUALIFICATION["max_pre_score"]
+        assert score <= max_pre, f"Pre-score no debe superar {max_pre}, obtuvo {score}"
 
     def test_lead_vacio_score_minimo(self):
         score = sdr.pre_score({})
