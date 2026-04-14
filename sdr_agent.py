@@ -439,12 +439,16 @@ Devuelve EXACTAMENTE estas claves en el JSON:
 
 
 def qualify_batch(rows: list[dict], channel: str) -> list[dict]:
+    """DEPRECATED — experimental, sin endpoint activo ni tests. Usar qualify_row().
+
+    Califica todos los leads en una sola llamada al LLM. Pendiente de eliminación.
     """
-    Califica TODOS los leads en una sola llamada al LLM.
-    Mucho más rápido que qualify_row × N (1 call vs N calls).
-    Retorna lista de resultados en el mismo orden que rows.
-    Si el batch falla, hace fallback a qualify_row individual.
-    """
+    import warnings
+    warnings.warn(
+        "qualify_batch() está deprecated y será eliminada — usar qualify_row() por lead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     if not rows:
         return []
 

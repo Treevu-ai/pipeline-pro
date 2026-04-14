@@ -18,7 +18,10 @@ jobs:
           python-version: '3.11'
       
       - name: Install dependencies
-        run: pip install -r requirements.txt pytest
+        run: pip install -r requirements.txt pytest ruff
+
+      - name: Lint (critical errors only)
+        run: ruff check --select E9,F8,F82,F84 --output-format=github .
 
       - name: Run tests
         run: pytest tests/ -x --ignore=tests/test_admin_api.py --tb=short

@@ -25,21 +25,8 @@ GROQ = {
 }
 
 # ─── Google Places API ───────────────────────────────────────────────────────
-# Requiere variable de entorno: GOOGLE_PLACES_API_KEY
-# Habilitar en: console.cloud.google.com → APIs → "Places API (New)"
-GOOGLE_PLACES_API_KEY: str = os.environ.get("GOOGLE_PLACES_API_KEY", "")
-
 # ─── Apify (Google Maps scraper sin GCP) ─────────────────────────────────────
-# Requiere variable de entorno: APIFY_API_KEY
-# Obtener en: apify.com → Settings → Integrations
-APIFY_API_KEY: str = os.environ.get("APIFY_API_KEY", "")
-
 # ─── SerpApi (Google Maps scraper, alternativa a Apify) ──────────────────────
-# Requiere variable de entorno: SERPAPI_API_KEY
-# Obtener en: serpapi.com → Dashboard → API Key
-# Precio: pay-as-you-go ~$0.015/búsqueda (hasta 100 resultados)
-SERPAPI_API_KEY: str = os.environ.get("SERPAPI_API_KEY", "")
-
 # ─── Tu producto ─────────────────────────────────────────────────────────────
 PRODUCT = {
     "name": "Pipeline_X",

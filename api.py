@@ -166,19 +166,32 @@ async def _register_telegram_webhook() -> None:
         log.warning("No se pudo registrar webhook de Telegram: %s", exc)
 
 
-def _register_whatsapp_webhook() -> None:
-    """Registra el webhook de WhatsApp en Green API al arrancar la app."""
+async def _register_whatsapp_webhook() -> None:
+    """Registra el webhook de WhatsApp en Green API con reintentos (3 intentos, backoff 5s/10s).
+
+    Si los 3 intentos fallan, el canal de WhatsApp quedará mudo hasta el próximo
+    reinicio — se loguea ERROR para que sea visible en Railway.
+    """
     webhook_url = cfg.GREEN_API.get("webhook_url", "")
     instance    = cfg.GREEN_API.get("id_instance", "")
     if not webhook_url or not instance:
         return   # Green API no configurada, omitir silenciosamente
-    try:
-        import wa_sender
-        ok = wa_sender.set_webhook(webhook_url)
-        if ok:
-            log.info("WhatsApp webhook registrado: %s", webhook_url)
-    except Exception as exc:
-        log.warning("No se pudo registrar webhook de WhatsApp: %s", exc)
+    import wa_sender
+    for attempt in range(1, 4):
+        try:
+            ok = await asyncio.to_thread(wa_sender.set_webhook, webhook_url)
+            if ok:
+                log.info("WhatsApp webhook registrado: %s", webhook_url)
+                return
+            log.warning("Green API rechazó registro de webhook (intento %d/3)", attempt)
+        except Exception as exc:
+            log.warning("Error registrando webhook WhatsApp (intento %d/3): %s", attempt, exc)
+        if attempt < 3:
+            await asyncio.sleep(5 * attempt)  # 5 s → 10 s
+    log.error(
+        "WhatsApp webhook NO registrado tras 3 intentos — canal WhatsApp puede estar mudo. "
+        "Verificar GREEN_API_URL, GREEN_API_INSTANCE y GREEN_API_TOKEN."
+    )
 
 
 async def _followup_loop() -> None:
@@ -414,6 +427,22 @@ async def _green_api_monitor_loop() -> None:
             await asyncio.sleep(300)  # revisar cada 5 minutos cuando está OK
 
 
+async def _cleanup_reports_loop() -> None:
+    """Elimina PDFs con más de 7 días en output/reports/ — corre cada 24 h."""
+    while True:
+        await asyncio.sleep(86_400)   # primera ejecución al día siguiente del deploy
+        try:
+            cutoff = _time.time() - 7 * 86_400
+            deleted = sum(
+                1 for f in REPORTS_DIR.glob("*.pdf")
+                if f.stat().st_mtime < cutoff and not f.unlink()
+            )
+            if deleted:
+                log.info("cleanup_reports: %d PDF(s) eliminados (antigüedad > 7 días)", deleted)
+        except Exception as exc:
+            log.warning("cleanup_reports: error en limpieza de PDFs: %s", exc)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     import logging_config
@@ -422,12 +451,13 @@ async def lifespan(app: FastAPI):
     await asyncio.to_thread(_db.init)
     _start_bot_interno()
     asyncio.create_task(_register_telegram_webhook())
-    await asyncio.to_thread(_register_whatsapp_webhook)
+    asyncio.create_task(_register_whatsapp_webhook())
     asyncio.create_task(_followup_loop())
     asyncio.create_task(_followup_3d_loop())
     asyncio.create_task(_trial_expired_loop())
     asyncio.create_task(_green_api_monitor_loop())
     asyncio.create_task(_digest_scheduler())
+    asyncio.create_task(_cleanup_reports_loop())
     yield
 
 
