@@ -734,7 +734,6 @@ async def signup(req: SignupRequest, request: Request):
         utm_data["utm_medium"] = req.utm_medium
     
     # Apply referral code if provided
-    referral_applied = False
     referral_message = ""
     if req.referral_code:
         code_info = await asyncio.to_thread(_db.validate_referral_code, req.referral_code)
