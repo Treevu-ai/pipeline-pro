@@ -1582,6 +1582,7 @@ async def _deliver_and_notify_wa(phone: str, target: str) -> None:
                 phone,
                 f"✅ *Reporte listo: {target}*\n"
                 f"_{visible} leads en tu reporte · {visible_q} calificados_\n\n"
+                f"🔥 He puesto al frente los leads con mayor probabilidad de cierre para que empieces por ellos.\n\n"
                 f"📄 Descárgalo aquí 👇\n{short_url}",
             )
             log.info("PDF guardado: %s (token=%s)", safe_name, token)
