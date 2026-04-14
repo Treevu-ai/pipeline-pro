@@ -1,6 +1,12 @@
 [build]
 builder = "nixpacks"
-buildCommand = "pip install -r requirements.txt && playwright install chromium --with-deps"
+buildCommand = """
+pip install -r requirements.txt && \
+playwright install chromium --with-deps && \
+git clone https://github.com/Treevu-ai/pipeline-x-landing.git /tmp/landing-src && \
+cd /tmp/landing-src && npm install && npx vite build && \
+cp -r /tmp/landing-src/dist /app/landing
+"""
 
 [deploy]
 startCommand = "uvicorn api:app --host 0.0.0.0 --port $PORT"
