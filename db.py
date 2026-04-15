@@ -224,6 +224,13 @@ def _create_tables() -> None:
                 CREATE INDEX IF NOT EXISTS idx_referral_rewards_referrer
                 ON referral_rewards (referrer_phone);
             """)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS wa_rate_limits (
+                    phone       TEXT PRIMARY KEY,
+                    timestamps  JSONB NOT NULL DEFAULT '[]',
+                    updated_at  TIMESTAMPTZ DEFAULT now()
+                );
+            """)
             # Limpiar sesiones WA viejas (>24h) en cada arranque
             try:
                 cur.execute("""
@@ -235,8 +242,14 @@ def _create_tables() -> None:
                     DELETE FROM pipeline_jobs
                     WHERE created_at < now() - INTERVAL '7 days';
                 """)
-            except Exception:
-                pass
+                # Rate limit entries viejos (>1h) — limpieza de fila obsoletas
+                cur.execute("""
+                    DELETE FROM wa_rate_limits
+                    WHERE updated_at < now() - INTERVAL '1 hour';
+                """)
+            except Exception as exc:
+                import logging as _log
+                _log.getLogger("db").warning("startup cleanup error: %s", exc)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1400,3 +1413,48 @@ def get_referral_stats(phone: str) -> dict:
     except Exception as exc:
         log.error("get_referral_stats(%s): %s", phone, exc)
         return {"total": 0, "activated": 0, "pending": 0}
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Rate limiting WhatsApp (persistente — sobrevive deploys)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def is_wa_rate_limited(phone: str, max_per_min: int = 3) -> bool:
+    """Devuelve True si el teléfono superó max_per_min mensajes en el último minuto.
+
+    Actualiza la ventana deslizante en DB. Falls back a False si la DB no está
+    disponible (modo degradado — permite el mensaje).
+    """
+    import time as _t
+    if not _USE_DB:
+        return False
+    now = _t.time()
+    cutoff = now - 60.0
+    try:
+        with _conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT timestamps FROM wa_rate_limits WHERE phone = %s FOR UPDATE",
+                    (phone,),
+                )
+                row = cur.fetchone()
+                ts: list[float] = row[0] if row else []
+                ts = [t for t in ts if t > cutoff]
+                limited = len(ts) >= max_per_min
+                if not limited:
+                    ts.append(now)
+                import json
+                cur.execute(
+                    """
+                    INSERT INTO wa_rate_limits (phone, timestamps, updated_at)
+                    VALUES (%s, %s::jsonb, now())
+                    ON CONFLICT (phone) DO UPDATE
+                        SET timestamps = EXCLUDED.timestamps,
+                            updated_at = EXCLUDED.updated_at
+                    """,
+                    (phone, json.dumps(ts)),
+                )
+        return limited
+    except Exception as exc:
+        log.warning("is_wa_rate_limited(%s): DB error, allowing message: %s", phone, exc)
+        return False

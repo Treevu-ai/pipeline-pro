@@ -184,7 +184,7 @@ class QualificationConstants:
 
     DEFAULT_DELAY = 0.3
     DEFAULT_WORKERS = 1
-    MAX_PRE_SCORE = 65
+    MAX_PRE_SCORE = 70
     MAX_SCORE = 100
     MIN_SCORE = 0
 
