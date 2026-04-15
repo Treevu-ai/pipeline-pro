@@ -493,6 +493,37 @@ def guess_personal_emails(nombre: str, dominio: str) -> list[str]:
     return list({p for p in patrones if p})
 
 
+# ─── Truncamiento seguro para logs ───────────────────────────────────────────
+
+def trunc(s: str | None, n: int = 2000) -> str:
+    """
+    Trunca la cadena s a n caracteres, preservando el inicio y añadiendo una
+    marca de truncamiento. Usa str() defensivamente.
+
+    Args:
+        s: Cadena a truncar (None se trata como cadena vacía).
+        n: Longitud máxima de la cadena resultante (antes del sufijo).
+
+    Returns:
+        Cadena truncada con sufijo si fue recortada.
+
+    Examples:
+        >>> trunc("lorem ipsum", 5)
+        'lorem...[truncated]'
+        >>> trunc(None)
+        ''
+    """
+    if s is None:
+        return ""
+    try:
+        text = str(s)
+    except Exception:
+        return "[unrepresentable content]"
+    if len(text) <= n:
+        return text
+    return text[:n] + "...[truncated]"
+
+
 # ─── Formateo ─────────────────────────────────────────────────────────────────
 
 def format_currency(amount: float, currency: str = "PEN") -> str:
