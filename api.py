@@ -469,12 +469,9 @@ async def _green_api_monitor_loop() -> None:
 
 
 def _do_cleanup_reports() -> int:
-    """Elimina PDFs con más de 7 días. Retorna cantidad eliminada."""
-    cutoff = _time.time() - 7 * 86_400
-    return sum(
-        1 for f in REPORTS_DIR.glob("*.pdf")
-        if f.stat().st_mtime < cutoff and not f.unlink()
-    )
+    """Elimina PDFs con más de 7 días vía storage (R2 o local). Retorna cantidad eliminada."""
+    import storage as _storage
+    return _storage.delete_old_reports(max_age_days=7)
 
 
 async def _cleanup_reports_loop() -> None:
@@ -645,10 +642,13 @@ app.mount("/reports", StaticFiles(directory=str(REPORTS_DIR)), name="reports")
 
 @app.get("/r/{token}", include_in_schema=False)
 async def short_report_redirect(token: str):
-    """Redirect corto: /r/TOKEN → /reports/TOKEN.pdf y loguea apertura."""
-    path = REPORTS_DIR / f"{token}.pdf"
-    if not path.exists():
+    """Redirect corto: /r/TOKEN → PDF (R2 o local) y loguea apertura."""
+    import storage as _storage
+    from fastapi.responses import Response
+
+    if not await asyncio.to_thread(_storage.report_exists, token):
         raise HTTPException(status_code=404, detail="Reporte no encontrado o expirado")
+
     # Loguear apertura en background (no bloquear el redirect)
     try:
         phone = await asyncio.to_thread(_db.get_phone_by_report_token, token)
@@ -656,7 +656,22 @@ async def short_report_redirect(token: str):
             _db.log_event(phone, _db.EventType.WA_REPORT_OPENED, {"token": token})
     except Exception:
         pass
-    return RedirectResponse(url=f"/reports/{token}.pdf")
+
+    # R2 con URL pública → redirect directo (sin pasar por Railway)
+    if _storage._USE_R2 and _storage._PUBLIC_URL:
+        return RedirectResponse(url=f"{_storage._PUBLIC_URL}/{token}.pdf")
+
+    # Fallback: servir desde local o R2 presigned URL
+    redirect_url = await asyncio.to_thread(_storage.get_report_url, token, API_PUBLIC_URL)
+    if redirect_url != f"{API_PUBLIC_URL}/r/{token}":
+        return RedirectResponse(url=redirect_url)
+
+    # Último fallback: streaming desde local
+    data = await asyncio.to_thread(_storage.get_report_bytes, token)
+    if not data:
+        raise HTTPException(status_code=404, detail="Reporte no encontrado o expirado")
+    return Response(content=data, media_type="application/pdf",
+                    headers={"Content-Disposition": f'inline; filename="{token}.pdf"'})
 
 def _get_allowed_origins() -> list[str]:
     """Lee CORS_ORIGINS desde variable de entorno, permite empty para server-to-server."""
@@ -1121,9 +1136,8 @@ def _run_pipeline(req: PipelineRequest) -> dict:
 
 
 def _save_report_bytes(data: bytes) -> str:
-    token = secrets.token_urlsafe(8)
-    path = REPORTS_DIR / f"{token}.pdf"
-    path.write_bytes(data)
+    import storage
+    token = storage.save_report(data)
     log.info("PDF saved: token=%s size=%d bytes", token, len(data))
     return token
 
@@ -1705,7 +1719,8 @@ async def _deliver_and_notify_wa(phone: str, target: str) -> None:
                 from pdf_report import build_demo_pdf
                 pdf_bytes = await asyncio.to_thread(build_demo_pdf, target, leads)
             token = _save_report_bytes(pdf_bytes)
-            short_url = f"{API_PUBLIC_URL}/r/{token}"
+            import storage as _storage
+            short_url = _storage.get_report_url(token, API_PUBLIC_URL)
             n_qualified = len(qualified)
             if is_paid:
                 # Paid: muestra todos
@@ -2737,11 +2752,9 @@ async def admin_activate_quick(phone: str, plan: str = "starter", days: int = 30
     """
     import db as _db
     import wa_sender
-    # Soporte para key por query param solo en este endpoint de conveniencia
     admin_key_env = os.environ.get("ADMIN_API_KEY", "")
     key_header    = request.headers.get("X-Admin-Key", "") if request else ""
-    key_param     = request.query_params.get("key", "") if request else ""
-    if not admin_key_env or (key_header != admin_key_env and key_param != admin_key_env):
+    if not admin_key_env or key_header != admin_key_env:
         raise HTTPException(status_code=403, detail="Clave inválida")
 
     phone = phone.replace("+", "").replace(" ", "")
