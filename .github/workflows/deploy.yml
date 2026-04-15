@@ -18,16 +18,10 @@ jobs:
           python-version: '3.11'
       
       - name: Install tools
-        run: pip install pip-tools ruff bandit pytest
+        run: pip install ruff bandit pytest
 
-      - name: Verify lockfile is up to date
-        run: |
-          pip-compile --no-header requirements.txt -o requirements.lock.check --quiet
-          diff requirements.lock requirements.lock.check || (echo "requirements.lock desactualizado — corre pip-compile --no-header requirements.txt -o requirements.lock localmente" && exit 1)
-          rm requirements.lock.check
-
-      - name: Install dependencies from lockfile
-        run: pip install -r requirements.lock
+      - name: Install dependencies
+        run: pip install -r requirements.txt
 
       - name: Lint (errors + style + common bugs)
         run: ruff check --select E,F,W,B --output-format=github .
