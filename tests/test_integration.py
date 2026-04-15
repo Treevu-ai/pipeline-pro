@@ -7,11 +7,8 @@ entre los diferentes módulos.
 from __future__ import annotations
 
 import csv
-import json
-import os
 import sys
 from pathlib import Path
-from unittest.mock import Mock, patch
 
 import pytest
 

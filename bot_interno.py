@@ -58,7 +58,6 @@ import uuid
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
-from typing import Any
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import (

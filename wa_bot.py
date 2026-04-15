@@ -585,7 +585,7 @@ def _handle_message_locked(phone: str, text: str) -> list[dict]:
                 expires = subscriber.get("expires_at", "")
                 if expires:
                     try:
-                        from datetime import datetime, timezone
+                        from datetime import datetime
                         exp_dt = datetime.fromisoformat(str(expires).replace(" ", "T"))
                         expires = exp_dt.strftime("%d/%m/%Y")
                     except Exception:
@@ -759,7 +759,6 @@ def _handle_intent(phone: str, intent: str) -> list[dict]:
     if intent == "historial":
         try:
             import db as _db
-            from datetime import timedelta
             history = _db.get_search_history(phone, limit=3)
         except Exception:
             history = []

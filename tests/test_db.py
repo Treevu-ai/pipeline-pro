@@ -7,10 +7,8 @@ Los tests de PostgreSQL real se saltan automáticamente si no hay DB.
 from __future__ import annotations
 
 import sys
-import time
 import uuid
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 
