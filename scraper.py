@@ -281,7 +281,7 @@ async def _search_via_apify(query: str, limit: int) -> list[dict[str, Any]]:
     """
     Busca negocios usando Apify Google Maps Scraper.
     Requiere APIFY_API_KEY en el entorno.
-    Retorna lista vacía si no hay key o la llamada falla.
+    Retorna lista vacía si no hay key o la llamada falla (permitiendo fallback).
     """
     api_key = cfg.APIFY_API_KEY
     if not api_key:
@@ -289,8 +289,8 @@ async def _search_via_apify(query: str, limit: int) -> list[dict[str, Any]]:
 
     try:
         import httpx
-        _APIFY_ACTOR_TIMEOUT_S  = 60    # Apify interno: abortar actor si tarda >60s
-        _APIFY_HTTP_TIMEOUT_S   = 120   # httpx: límite duro del lado cliente
+        _APIFY_ACTOR_TIMEOUT_S = cfg.APIFY_ACTOR_TIMEOUT_S
+        _APIFY_HTTP_TIMEOUT_S  = cfg.APIFY_HTTP_TIMEOUT_S
         actor_id = "compass~crawler-google-places"
         run_url  = f"https://api.apify.com/v2/acts/{actor_id}/run-sync-get-dataset-items"
         params   = {"token": api_key, "timeout": _APIFY_ACTOR_TIMEOUT_S, "memory": 512}
@@ -314,8 +314,42 @@ async def _search_via_apify(query: str, limit: int) -> list[dict[str, Any]]:
                     _APIFY_HTTP_TIMEOUT_S, query,
                 )
                 raise exc.GoogleMapsError(f"Apify timeout ({_APIFY_HTTP_TIMEOUT_S}s)") from te
-            resp.raise_for_status()
-            items = resp.json()
+
+            # Si el status es >=400, loguear detalles diagnósticos y retornar [] para fallback.
+            if resp.status_code >= 400:
+                request_id = resp.headers.get("X-Request-Id") or resp.headers.get("x-request-id") or ""
+                truncated_body = utils.trunc(resp.text, 2000)
+                log.error(
+                    "Apify HTTP %d para '%s' (request_id=%s). Body: %s",
+                    resp.status_code, query, request_id, truncated_body,
+                )
+                if resp.status_code in (401, 403):
+                    log.error("Apify auth error (401/403). Revisa APIFY_API_KEY y permisos.")
+                elif resp.status_code == 429:
+                    log.error("Apify rate-limited (429). Revisa cuotas/plan o reduce frecuencia.")
+                return []
+
+            # Intentar parsear JSON con tolerancia a errores
+            try:
+                items = resp.json()
+            except ValueError:
+                log.error(
+                    "Apify returned invalid JSON for '%s': %s",
+                    query, utils.trunc(resp.text, 2000),
+                )
+                return []
+
+        # Validar estructura esperada (lista)
+        if not isinstance(items, list):
+            log.warning(
+                "Apify returned unexpected payload for '%s' (not a list): %s",
+                query, utils.trunc(str(items), 1000),
+            )
+            return []
+
+        if not items:
+            log.info("Apify returned empty dataset for '%s' — devolviendo [] para fallback", query)
+            return []
 
         leads: list[dict[str, Any]] = []
         for place in items:
