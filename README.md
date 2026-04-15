@@ -82,6 +82,69 @@ Edita `config.py` para personalizar:
 | `draft_message` | Cuerpo del mensaje listo para copiar |
 | `qualify_error` | Error técnico si hubo fallo (vacío si OK) |
 
+## Localización en español
+
+El proyecto incluye una localización completa en español (LatAm) con playbook, prompts y plantillas listas para usar.
+
+### Archivos de localización
+
+| Archivo | Descripción |
+|---|---|
+| `playbooks/PLAYBOOK_es.md` | Guía maestra del agente: instrucciones del sistema, reglas de scoring, adaptaciones por país (Perú, Colombia, México) y 3 ejemplos few-shot |
+| `prompts/es_prompts.json` | System prompt, request_template y ejemplos few-shot en JSON, listos para inyectar al LLM |
+| `templates/messages_es.md` | Plantillas de mensajes para email formal, email informal, WhatsApp corto y WhatsApp detallado |
+
+### Cómo usar el playbook en español
+
+1. **Opción rápida** — copia el system prompt de `prompts/es_prompts.json` al campo `PLAYBOOK` en `config.py`:
+
+```python
+# config.py
+import json
+from pathlib import Path
+
+_es = json.loads(Path("prompts/es_prompts.json").read_text())
+PLAYBOOK = _es["system"].replace("{PRODUCT}", PRODUCT["name"])
+```
+
+2. **Opción por referencia** — la constante `PLAYBOOK_ES` en `config.py` apunta al archivo `playbooks/PLAYBOOK_es.md` para referencia y documentación:
+
+```python
+import config as cfg
+print(cfg.PLAYBOOK_ES)  # "playbooks/PLAYBOOK_es.md"
+```
+
+3. **Plantillas de mensaje** — usa `templates/messages_es.md` como referencia para personalizar los borradores de email y WhatsApp por sector e industria.
+
+### Selección de canal
+
+```bash
+# Email (por defecto)
+python sdr_agent.py leads.csv output.csv --channel email
+
+# WhatsApp
+python sdr_agent.py leads.csv output.csv --channel whatsapp
+
+# Ambos
+python sdr_agent.py leads.csv output.csv --channel both
+```
+
+### Adaptación por país
+
+| País | Registro fiscal | Tratamiento recomendado |
+|---|---|---|
+| Perú | RUC / SUNAT | usted (formal); tuteo en WhatsApp informal |
+| Colombia | NIT / DIAN | usted (siempre en B2B) |
+| México | RFC / SAT | usted (CDMX/centro); tuteo aceptado en norte |
+
+### Tests de localización
+
+```bash
+python -m pytest tests/test_playbook_prompts.py -v
+```
+
+---
+
 ## Estructura
 
 ```
@@ -91,9 +154,16 @@ agentepyme/
 ├── sdr_agent.py          # Calificador LLM: CSV → CSV enriquecido
 ├── config.py             # Configuración de producto, ICP y Ollama
 ├── requirements.txt
+├── playbooks/
+│   └── PLAYBOOK_es.md    # Playbook completo en español (LatAm)
+├── prompts/
+│   └── es_prompts.json   # System prompt + few-shot examples en JSON
+├── templates/
+│   └── messages_es.md    # Plantillas de email y WhatsApp en español
 ├── tests/
 │   ├── test_sdr.py       # 26 tests unitarios del agente
-│   └── test_scraper.py   # 21 tests unitarios del scraper
+│   ├── test_scraper.py   # 21 tests unitarios del scraper
+│   └── test_playbook_prompts.py  # 45 tests de localización en español
 ├── examples/
 │   └── leads_input.csv   # 10 leads de ejemplo (MIPYME Perú)
 └── output/               # CSVs, reportes y logs se guardan aquí
