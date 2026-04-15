@@ -2250,7 +2250,6 @@ async def telegram_webhook(request: Request):
 from collections import deque as _deque
 _seen_ids_deque: _deque = _deque(maxlen=2000)  # LRU fijo — no pierde historial al limpiar
 _seen_ids_set:  set[str] = set()               # lookup O(1)
-_phone_ts: dict[str, list] = {}                # phone → lista de timestamps recientes
 _MAX_MSG_PER_MIN = 3                           # máx mensajes por número por minuto
 
 
@@ -2269,14 +2268,11 @@ def _is_duplicate(id_message: str) -> bool:
 
 
 def _rate_limited(phone: str) -> bool:
-    now = _time.time()
-    ts  = _phone_ts.setdefault(phone, [])
-    ts[:] = [t for t in ts if now - t < 60]   # últimos 60 s
-    if len(ts) >= _MAX_MSG_PER_MIN:
-        log.warning("Rate-limit alcanzado para %s (%d msgs/min) — ignorando", phone, len(ts))
-        return True
-    ts.append(now)
-    return False
+    """Rate limit persistente en DB — sobrevive deploys y reinicios."""
+    limited = _db.is_wa_rate_limited(phone, max_per_min=_MAX_MSG_PER_MIN)
+    if limited:
+        log.warning("Rate-limit alcanzado para %s (%d msgs/min) — ignorando", phone, _MAX_MSG_PER_MIN)
+    return limited
 
 
 # ─── WhatsApp webhook (Green API) ─────────────────────────────────────────────
