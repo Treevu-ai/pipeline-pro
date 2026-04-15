@@ -70,7 +70,7 @@ def _recover_stale_jobs() -> None:
         with _conn() as conn:
             with conn.cursor() as cur:
                 cur.execute("""
-                    UPDATE jobs
+                    UPDATE pipeline_jobs
                        SET status = 'failed',
                            error  = 'Proceso interrumpido por reinicio del servidor',
                            finished_at = NOW()
