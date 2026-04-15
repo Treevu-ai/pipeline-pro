@@ -493,6 +493,33 @@ def guess_personal_emails(nombre: str, dominio: str) -> list[str]:
     return list({p for p in patrones if p})
 
 
+# ─── Truncado seguro ─────────────────────────────────────────────────────────
+
+def trunc(s: object, n: int = 2000) -> str:
+    """
+    Convierte *s* a cadena y trunca a *n* caracteres de forma segura.
+
+    Útil para registrar cuerpos HTTP largos en logs sin volcar secrets completos.
+
+    Args:
+        s: Objeto a convertir y truncar.
+        n: Número máximo de caracteres (default: 2000).
+
+    Returns:
+        Cadena truncada con sufijo ``…`` si se truncó.
+
+    Examples:
+        >>> trunc("abcde", 3)
+        'abc…'
+        >>> trunc("ab", 10)
+        'ab'
+    """
+    text = str(s) if not isinstance(s, str) else s
+    if len(text) <= n:
+        return text
+    return text[:n] + "…"
+
+
 # ─── Formateo ─────────────────────────────────────────────────────────────────
 
 def format_currency(amount: float, currency: str = "PEN") -> str:
