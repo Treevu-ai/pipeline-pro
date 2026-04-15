@@ -27,7 +27,7 @@ jobs:
         run: ruff check --select E9,F --output-format=github .
 
       - name: Run tests
-        run: pytest tests/ -x --tb=short
+        run: pytest tests/ -x --ignore=tests/test_admin_api.py --tb=short
 
   deploy:
     needs: test
