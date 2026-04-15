@@ -25,8 +25,27 @@ GROQ = {
 }
 
 # ─── Google Places API ───────────────────────────────────────────────────────
+# Requiere variable de entorno: GOOGLE_PLACES_API_KEY
+GOOGLE_PLACES_API_KEY: str = os.environ.get("GOOGLE_PLACES_API_KEY", "")
+
 # ─── Apify (Google Maps scraper sin GCP) ─────────────────────────────────────
+# Requiere variable de entorno: APIFY_API_KEY
+APIFY_API_KEY: str = os.environ.get("APIFY_API_KEY", "")
+
+# Timeout interno del actor Apify (segundos).  Apify abortará el run si supera
+# este valor.  Valor por defecto: 120 s.  Ajusta con la variable de entorno
+# APIFY_ACTOR_TIMEOUT_S o sobreescribiendo directamente aquí.
+APIFY_ACTOR_TIMEOUT_S: int = int(os.environ.get("APIFY_ACTOR_TIMEOUT_S", "120"))
+
+# Timeout del cliente HTTP (httpx) al esperar la respuesta de Apify (segundos).
+# Debe ser mayor que APIFY_ACTOR_TIMEOUT_S para dar tiempo al actor a finalizar.
+# Valor por defecto: 180 s.
+APIFY_HTTP_TIMEOUT_S: int = int(os.environ.get("APIFY_HTTP_TIMEOUT_S", "180"))
+
 # ─── SerpApi (Google Maps scraper, alternativa a Apify) ──────────────────────
+# Requiere variable de entorno: SERPAPI_API_KEY
+SERPAPI_API_KEY: str = os.environ.get("SERPAPI_API_KEY", "")
+
 # ─── Tu producto ─────────────────────────────────────────────────────────────
 PRODUCT = {
     "name": "Pipeline_X",

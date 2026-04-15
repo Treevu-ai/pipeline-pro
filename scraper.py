@@ -289,11 +289,9 @@ async def _search_via_apify(query: str, limit: int) -> list[dict[str, Any]]:
 
     try:
         import httpx
-        _APIFY_ACTOR_TIMEOUT_S  = 60    # Apify interno: abortar actor si tarda >60s
-        _APIFY_HTTP_TIMEOUT_S   = 120   # httpx: límite duro del lado cliente
         actor_id = "compass~crawler-google-places"
         run_url  = f"https://api.apify.com/v2/acts/{actor_id}/run-sync-get-dataset-items"
-        params   = {"token": api_key, "timeout": _APIFY_ACTOR_TIMEOUT_S, "memory": 512}
+        params   = {"token": api_key, "timeout": cfg.APIFY_ACTOR_TIMEOUT_S, "memory": 512}
         body = {
             "searchStringsArray": [query],
             "maxCrawledPlacesPerSearch": min(limit, 20),
@@ -304,18 +302,69 @@ async def _search_via_apify(query: str, limit: int) -> list[dict[str, Any]]:
             "includePeopleAlsoSearch": False,
         }
         async with httpx.AsyncClient(
-            timeout=httpx.Timeout(_APIFY_HTTP_TIMEOUT_S, connect=10)
+            timeout=httpx.Timeout(cfg.APIFY_HTTP_TIMEOUT_S, connect=10)
         ) as client:
             try:
                 resp = await client.post(run_url, params=params, json=body)
             except httpx.TimeoutException as te:
                 log.error(
                     "Apify timeout (%ds) para '%s' — intenta reducir el límite de leads",
-                    _APIFY_HTTP_TIMEOUT_S, query,
+                    cfg.APIFY_HTTP_TIMEOUT_S, query,
                 )
-                raise exc.GoogleMapsError(f"Apify timeout ({_APIFY_HTTP_TIMEOUT_S}s)") from te
-            resp.raise_for_status()
-            items = resp.json()
+                raise exc.GoogleMapsError(f"Apify timeout ({cfg.APIFY_HTTP_TIMEOUT_S}s)") from te
+
+            if not resp.is_success:
+                status = resp.status_code
+                body_snippet = utils.trunc(resp.text, 2000)
+                relevant_headers = {
+                    k: v for k, v in resp.headers.items()
+                    if k.lower() in ("content-type", "x-request-id", "retry-after", "x-apify-error-type")
+                }
+                if status == 401:
+                    log.error(
+                        "Apify HTTP 401 Unauthorized para '%s' — verifica APIFY_API_KEY. "
+                        "headers=%s body=%s",
+                        query, relevant_headers, body_snippet,
+                    )
+                elif status == 403:
+                    log.error(
+                        "Apify HTTP 403 Forbidden para '%s' — token sin permisos o actor privado. "
+                        "headers=%s body=%s",
+                        query, relevant_headers, body_snippet,
+                    )
+                elif status == 429:
+                    retry_after = resp.headers.get("retry-after", "desconocido")
+                    log.warning(
+                        "Apify HTTP 429 Too Many Requests para '%s' — cuota/rate-limit superado. "
+                        "retry-after=%s headers=%s body=%s",
+                        query, retry_after, relevant_headers, body_snippet,
+                    )
+                else:
+                    log.error(
+                        "Apify HTTP %d para '%s'. headers=%s body=%s",
+                        status, query, relevant_headers, body_snippet,
+                    )
+                resp.raise_for_status()
+
+            try:
+                items = resp.json()
+            except json.JSONDecodeError as json_err:
+                log.error(
+                    "Apify returned invalid JSON para '%s': %s — body=%s",
+                    query, json_err, utils.trunc(resp.text, 2000),
+                )
+                return []
+
+        if not isinstance(items, list):
+            log.error(
+                "Apify returned invalid JSON para '%s': esperaba list, recibió %s — body=%s",
+                query, type(items).__name__, utils.trunc(str(items), 2000),
+            )
+            return []
+
+        if not items:
+            log.info("Apify returned empty dataset para '%s'", query)
+            return []
 
         leads: list[dict[str, Any]] = []
         for place in items:
