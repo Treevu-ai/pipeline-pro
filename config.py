@@ -220,9 +220,16 @@ CRITERIOS DE CALIFICACIÓN:
 """
 
 # ─── Localización en español ─────────────────────────────────────────────────
-# Ruta al playbook en español (LatAm). Cargado opcionalmente; no modifica el
-# comportamiento por defecto si el archivo no existe o no se referencia.
+# Ruta al playbook en español (LatAm). No modifica el comportamiento por defecto;
+# úsalo solo si quieres apuntar el agente a la versión localizada del system prompt.
+# Para activarlo, carga el contenido del archivo y pásalo como system prompt al LLM:
+#   import pathlib, json
+#   PLAYBOOK_ES_CONTENT = pathlib.Path(PLAYBOOK_ES).read_text(encoding="utf-8")
 PLAYBOOK_ES = "playbooks/PLAYBOOK_es.md"
+
+# Ruta al archivo de prompts en español con estructura JSON (system, request_template,
+# few_shot_examples y country_variations). Carga con json.loads() para acceder a los campos.
+PROMPTS_ES = "prompts/es_prompts.json"
 
 # ─── Columnas de salida que el agente produce ────────────────────────────────
 OUTPUT_KEYS = (

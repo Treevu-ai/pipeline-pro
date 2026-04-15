@@ -1,146 +1,136 @@
-# Plantillas de Mensajes en Español — AgentePyme SDR
+# Plantillas de mensajes — Español LatAm
 
-Plantillas de mensajes listos para usar y adaptar en campañas de outreach B2B para mercados de Latinoamérica (Perú, Colombia, México). Usa los placeholders indicados con llaves `{placeholder}`.
+Estas plantillas son el punto de partida para los mensajes de outreach del agente SDR.
+Reemplaza los placeholders `{...}` con los valores reales antes de enviar.
 
----
-
-## Placeholders disponibles
+**Placeholders disponibles:**
 
 | Placeholder | Descripción |
 |---|---|
-| `{company}` | Nombre de la empresa prospectada |
-| `{contact_name}` | Nombre del contacto (si está disponible; usar saludo genérico si está vacío) |
-| `{product}` | Nombre de tu producto o servicio |
-| `{sector}` | Industria o sector del negocio (ej: logística, retail, construcción) |
-| `{sector_pain}` | Dolor específico del sector (ver tabla al final) |
-| `{city}` | Ciudad de la empresa |
-| `{cta}` | Llamada a la acción personalizada |
-| `{sender_name}` | Tu nombre o el nombre del remitente |
-| `{sender_company}` | Nombre de tu empresa |
+| `{company}` | Nombre de la empresa / negocio |
+| `{contact_name}` | Nombre del contacto (puede estar vacío) |
+| `{sender}` | Nombre del representante que envía el mensaje |
+| `{PRODUCT}` | Nombre del producto/servicio ofrecido |
+| `{industry}` | Sector o industria del lead |
+| `{num_resenas}` | Número de reseñas en Google |
+| `{rating}` | Rating en Google (ej. 4.5) |
+| `{city}` | Ciudad del negocio |
+| `{pain_point}` | Dolor específico del sector (completar manualmente) |
+| `{cta}` | Llamada a la acción (ej. "¿Podemos agendar 20 minutos?") |
 
 ---
 
-## 1. Email Formal (B2B, primer contacto)
+## 1. Email formal
 
-**Cuándo usar:** Lead con decisor identificado, email corporativo, sector objetivo. Tono profesional, usted.
+> **Uso:** Leads con cargo gerencial (Gerente, Director, Socio) o en mercados
+> donde el trato formal es la norma (Colombia, empresas tradicionales de México).
 
+**Asunto:**
 ```
-Asunto: {company} — cómo conseguir más clientes B2B en {city} sin esfuerzo manual
+{company} + {PRODUCT} — más clientes B2B sin esfuerzo
+```
 
+**Cuerpo:**
+```
 Estimado/a {contact_name},
 
-Mi nombre es {sender_name}, trabajo con {sender_company}.
+Mi nombre es {sender} y le escribo desde {PRODUCT}.
 
-Vi que {company} tiene una presencia activa en {city} y quería presentarles una solución que puede ser de interés para su equipo comercial.
+Trabajamos con empresas del sector {industry} en LatAm para automatizar su proceso
+de prospección B2B: identificamos negocios calificados, los contactamos y generamos
+oportunidades reales en su pipeline, sin que su equipo dedique horas a búsquedas manuales.
 
-{product} ayuda a empresas como {company} a superar el principal obstáculo en prospección B2B: {sector_pain}. Nuestro sistema automatiza la búsqueda de empresas cliente, las califica con inteligencia artificial y genera mensajes de primer contacto personalizados por sector, listos para revisar y enviar.
-
-El resultado: un pipeline B2B limpio y ordenado, con menos tiempo invertido en prospección manual.
+Vi que {company} tiene {num_resenas} reseñas con un {rating} en Google — una señal de
+negocio sólido y activo. Exactamente el perfil que buscan nuestros clientes como socios.
 
 {cta}
 
-Quedo a su disposición para cualquier consulta.
+Quedo atento/a a su respuesta.
 
-Saludos cordiales,
-{sender_name}
-{sender_company}
+Cordialmente,
+{sender}
+{PRODUCT}
 ```
 
 ---
 
-## 2. Email Informal (B2B, tono más cercano)
+## 2. Email informal
 
-**Cuándo usar:** Lead con menos de 50 reseñas, sector retail o servicios locales, contacto conocido. Tuteo opcional según región.
+> **Uso:** Leads en sectores tech, startups, agencias o cuando el tono cercano
+> está permitido (Perú digital, México startup, Colombia tech).
 
+**Asunto:**
 ```
-Asunto: Una idea rápida para {company}
+{company} — ¿automatizamos tu prospección B2B?
+```
 
+**Cuerpo:**
+```
 Hola {contact_name},
 
-Vi a {company} en Google Maps y me llamó la atención su actividad en {city}.
+Soy {sender} de {PRODUCT} 👋
 
-Trabajo con {product} y ayudamos a negocios como el tuyo a resolver un problema muy concreto: {sector_pain}.
+Vi que {company} tiene {num_resenas} reseñas en Google con un {rating} en {city} — un
+negocio muy activo en el sector {industry}.
 
-Lo hacemos de forma automatizada — en minutos, no en horas.
-
-¿Te parece si te cuento cómo funciona en una llamada de 15 minutos?
+Ayudamos a empresas como la tuya a encontrar más clientes B2B de forma automática, para
+que tu equipo solo hable con negocios que ya están listos para comprar.
 
 {cta}
 
-Gracias,
-{sender_name}
+¡Gracias por tu tiempo!
+
+{sender}
+{PRODUCT}
 ```
 
 ---
 
-## 3. WhatsApp Corto (primer contacto, menos de 80 palabras)
+## 3. WhatsApp corto
 
-**Cuándo usar:** Lead sin email pero con WhatsApp, contacto frío, sector activo con buenas reseñas. Tono directo y amigable.
+> **Uso:** Primer contacto rápido por WhatsApp. Máximo 80 palabras.
+> Tono directo y cercano. Incluye emoji de apertura.
 
 ```
-Hola {contact_name} 👋
-
-Vi {company} en Google Maps — tienen muy buenas reseñas en {city}.
-
-Trabajo con {product} y ayudamos a negocios como el suyo a conseguir más clientes B2B sin prospección manual.
-
-¿Les interesa saber cómo lo hacemos? Les puedo contar en 10 minutos.
-
+Hola {contact_name} 👋, soy {sender} de {PRODUCT}.
+Vi que {company} tiene {num_resenas} reseñas en Google — ¡buen nivel para {industry}!
+Ayudamos a negocios como el tuyo a conseguir más clientes B2B de forma automática.
 {cta}
 ```
 
 ---
 
-## 4. WhatsApp Detallado (seguimiento o segundo contacto)
+## 4. WhatsApp detallado
 
-**Cuándo usar:** Lead que ya fue contactado previamente o que tiene señales de interés pero no respondió. Máximo 80 palabras, tono cálido.
+> **Uso:** Seguimiento o cuando el lead ya mostró interés previo.
+> Menciona el pain point específico del sector. Máximo 100 palabras.
 
 ```
-Hola {contact_name}, soy {sender_name} de {sender_company}.
+Hola {contact_name} 👋, te habla {sender} de {PRODUCT}.
 
-Hace unos días les escribí sobre {product}. Entiendo que están ocupados — por eso quería ser breve:
+Vi que {company} en {city} tiene {num_resenas} reseñas con un {rating} — es un negocio
+sólido en {industry}.
 
-Ayudamos a empresas de {sector} a resolver {sector_pain} de forma automática.
+Sé que en ese sector el desafío más común es {pain_point}. En {PRODUCT} ayudamos a
+empresas de {industry} a resolverlo encontrando clientes B2B calificados de forma
+automática, sin que tu equipo pierda tiempo en prospectos fríos.
 
-Si les parece interesante, puedo compartirles un ejemplo concreto de cómo funciona para negocios similares a {company}.
-
-¿Tienen 10 minutos esta semana?
+{cta}
 ```
 
 ---
 
-## 5. Tabla de Dolores por Sector
+## Notas de uso
 
-Usa esta tabla para completar el placeholder `{sector_pain}` según la industria del lead:
-
-| Sector / Industria | Dolor principal (`{sector_pain}`) |
-|---|---|
-| Logística / Transporte | encontrar nuevos clientes B2B de forma constante sin depender de referidos |
-| Construcción / Inmobiliaria | mantener el pipeline de proyectos lleno en épocas de baja actividad |
-| Retail / Comercio | captar clientes mayoristas y distribuidores de manera sistemática |
-| Contabilidad / Estudio Contable | prospectar empresas que necesitan outsourcing contable sin gastar horas en llamadas frías |
-| Marketing / Agencia | encontrar pymes que necesitan servicios de marketing digital y tienen presupuesto real |
-| Consultoría | identificar gerentes y dueños de empresa que ya reconocen el problema que resuelves |
-| Servicios profesionales | separar prospectos calificados de los curiosos antes de invertir tiempo en reuniones |
-| Manufactura | identificar distribuidores y empresas clientes en nuevas regiones o ciudades |
-| Salud / Clínicas | captar pacientes corporativos o empresas que ofrecen beneficios de salud a empleados |
-| Tecnología / Software | filtrar leads con presupuesto y urgencia real entre cientos de contactos potenciales |
-
----
-
-## 6. Notas de Localización por País
-
-### Perú
-- Reemplaza `{cta}` con: *"¿Podemos agendar 20 minutos esta semana?"*
-- Usa **usted** en emails formales; tuteo en WhatsApp solo si el contexto es informal.
-- Menciona SUNAT o régimen MYPE solo si es relevante para el sector.
-
-### Colombia
-- Usa siempre **usted** en primer contacto B2B (incluso en WhatsApp).
-- Reemplaza `{cta}` con: *"¿Podría agendar una llamada de 20 minutos para contarle más?"*
-- Evita anglicismos innecesarios; el español colombiano es formal y cuidado.
-
-### México
-- Ciudad de México y zona centro: **usted** en email, tuteo aceptado en WhatsApp.
-- Monterrey y Guadalajara: tuteo en ambos canales es aceptado.
-- Reemplaza `{cta}` con: *"¿Le parece si agendamos una videollamada esta semana?"* (formal) o *"¿Tienes chance de hablar 15 min esta semana?"* (informal).
+- **Perú:** Usa "tú" en WhatsApp, "usted" en email formal. Menciona SUNAT o RUC solo si
+  es relevante para el contexto.
+- **Colombia:** Preferir "usted" por defecto. Adaptar vocabulario: "empresa" en lugar de
+  "negocio" en contextos formales.
+- **México:** "tú" en canales digitales y startups. "usted" en corporativos.
+  Puedes mencionar el RFC solo si estás hablando de temas de facturación.
+- **Pain points por sector:**
+  - Logística → costos operativos y tiempo de entrega
+  - Retail → rotación de inventario y captación de clientes recurrentes
+  - Construcción → flujo de caja en obra y proveedores confiables
+  - Contabilidad/Consultoría → carga administrativa y captación de nuevos clientes
+  - Transporte → ocupación de flota y contratos B2B estables

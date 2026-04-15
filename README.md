@@ -65,6 +65,60 @@ Edita `config.py` para personalizar:
 - `OLLAMA` — URL, modelo, timeouts
 - `CHANNEL` — canal por defecto (email / whatsapp / both)
 - `PLAYBOOK` — instrucciones del sistema para el agente
+- `PLAYBOOK_ES` — ruta al playbook en español LatAm (ver sección abajo)
+
+## Localización en español
+
+El repositorio incluye artefactos listos para usar en español neutro de Latinoamérica:
+
+| Archivo | Descripción |
+|---|---|
+| `playbooks/PLAYBOOK_es.md` | Instrucciones del sistema, adaptaciones por país y ejemplos few-shot |
+| `prompts/es_prompts.json` | Prompts estructurados (system, request_template, few_shot_examples) |
+| `templates/messages_es.md` | Plantillas de email formal/informal y WhatsApp corto/detallado |
+
+### Uso rápido
+
+**1. Cargar el playbook en español en el agente:**
+
+```python
+import config as cfg
+from pathlib import Path
+
+# Leer el playbook en español (si existe)
+playbook_path = Path(cfg.PLAYBOOK_ES)
+if playbook_path.exists():
+    playbook_es = playbook_path.read_text(encoding="utf-8")
+    # Pasar playbook_es como system prompt al LLM
+```
+
+**2. Seleccionar canal al calificar:**
+
+```bash
+# Email (por defecto)
+python sdr_agent.py leads.csv output/calificados.csv --channel email
+
+# WhatsApp
+python sdr_agent.py leads.csv output/calificados.csv --channel whatsapp
+
+# Ambos
+python sdr_agent.py leads.csv output/calificados.csv --channel both
+```
+
+**3. Adaptaciones por país disponibles en `playbooks/PLAYBOOK_es.md`:**
+
+| País | Registro tributario | Tratamiento recomendado |
+|---|---|---|
+| 🇵🇪 Perú | SUNAT / RUC | Usted (formal), tú (WhatsApp) |
+| 🇨🇴 Colombia | DIAN / NIT | Usted (siempre en B2B) |
+| 🇲🇽 México | SAT / RFC | Tú (tech), usted (tradicional) |
+
+**4. Ejecutar tests de localización:**
+
+```bash
+pip install -r requirements.txt
+pytest -q tests/test_playbook_prompts.py
+```
 
 ## Columnas que genera el agente
 
@@ -82,69 +136,6 @@ Edita `config.py` para personalizar:
 | `draft_message` | Cuerpo del mensaje listo para copiar |
 | `qualify_error` | Error técnico si hubo fallo (vacío si OK) |
 
-## Localización en español
-
-El proyecto incluye una localización completa en español (LatAm) con playbook, prompts y plantillas listas para usar.
-
-### Archivos de localización
-
-| Archivo | Descripción |
-|---|---|
-| `playbooks/PLAYBOOK_es.md` | Guía maestra del agente: instrucciones del sistema, reglas de scoring, adaptaciones por país (Perú, Colombia, México) y 3 ejemplos few-shot |
-| `prompts/es_prompts.json` | System prompt, request_template y ejemplos few-shot en JSON, listos para inyectar al LLM |
-| `templates/messages_es.md` | Plantillas de mensajes para email formal, email informal, WhatsApp corto y WhatsApp detallado |
-
-### Cómo usar el playbook en español
-
-1. **Opción rápida** — copia el system prompt de `prompts/es_prompts.json` al campo `PLAYBOOK` en `config.py`:
-
-```python
-# config.py
-import json
-from pathlib import Path
-
-_es = json.loads(Path("prompts/es_prompts.json").read_text())
-PLAYBOOK = _es["system"].replace("{PRODUCT}", PRODUCT["name"])
-```
-
-2. **Opción por referencia** — la constante `PLAYBOOK_ES` en `config.py` apunta al archivo `playbooks/PLAYBOOK_es.md` para referencia y documentación:
-
-```python
-import config as cfg
-print(cfg.PLAYBOOK_ES)  # "playbooks/PLAYBOOK_es.md"
-```
-
-3. **Plantillas de mensaje** — usa `templates/messages_es.md` como referencia para personalizar los borradores de email y WhatsApp por sector e industria.
-
-### Selección de canal
-
-```bash
-# Email (por defecto)
-python sdr_agent.py leads.csv output.csv --channel email
-
-# WhatsApp
-python sdr_agent.py leads.csv output.csv --channel whatsapp
-
-# Ambos
-python sdr_agent.py leads.csv output.csv --channel both
-```
-
-### Adaptación por país
-
-| País | Registro fiscal | Tratamiento recomendado |
-|---|---|---|
-| Perú | RUC / SUNAT | usted (formal); tuteo en WhatsApp informal |
-| Colombia | NIT / DIAN | usted (siempre en B2B) |
-| México | RFC / SAT | usted (CDMX/centro); tuteo aceptado en norte |
-
-### Tests de localización
-
-```bash
-python -m pytest tests/test_playbook_prompts.py -v
-```
-
----
-
 ## Estructura
 
 ```
@@ -155,16 +146,94 @@ agentepyme/
 ├── config.py             # Configuración de producto, ICP y Ollama
 ├── requirements.txt
 ├── playbooks/
-│   └── PLAYBOOK_es.md    # Playbook completo en español (LatAm)
+│   └── PLAYBOOK_es.md    # Playbook en español LatAm con few-shot y adaptaciones
 ├── prompts/
-│   └── es_prompts.json   # System prompt + few-shot examples en JSON
+│   └── es_prompts.json   # Prompts estructurados en español (system + few-shot)
 ├── templates/
-│   └── messages_es.md    # Plantillas de email y WhatsApp en español
+│   └── messages_es.md    # Plantillas email/WhatsApp formales e informales
 ├── tests/
-│   ├── test_sdr.py       # 26 tests unitarios del agente
-│   ├── test_scraper.py   # 21 tests unitarios del scraper
-│   └── test_playbook_prompts.py  # 45 tests de localización en español
+│   ├── test_sdr.py              # 26 tests unitarios del agente
+│   ├── test_scraper.py          # 21 tests unitarios del scraper
+│   └── test_playbook_prompts.py # 82 tests de localización en español
+├── playbooks/
+│   └── PLAYBOOK_es.md           # Playbook completo en español (LatAm)
+├── prompts/
+│   └── es_prompts.json          # Prompts JSON con few-shot y variantes por país
+├── templates/
+│   └── messages_es.md           # Plantillas de mensajes email/WhatsApp en español
 ├── examples/
-│   └── leads_input.csv   # 10 leads de ejemplo (MIPYME Perú)
-└── output/               # CSVs, reportes y logs se guardan aquí
+│   └── leads_input.csv          # 10 leads de ejemplo (MIPYME Perú)
+└── output/                      # CSVs, reportes y logs se guardan aquí
 ```
+
+---
+
+## Localización en español
+
+El agente incluye una localización completa en español neutro latinoamericano, lista para
+usar en Perú, Colombia y México.
+
+### Archivos de localización
+
+| Archivo | Descripción |
+|---|---|
+| `playbooks/PLAYBOOK_es.md` | Playbook completo: instrucción del sistema, adaptaciones por país, reglas de scoring y 3 ejemplos few-shot |
+| `prompts/es_prompts.json` | Prompts en JSON con system prompt, request template, few-shot examples y variantes por país |
+| `templates/messages_es.md` | Plantillas de mensajes listos para usar: email formal, email informal, WhatsApp corto y WhatsApp detallado |
+
+### Cómo usar el playbook en español
+
+1. **Cargar el system prompt desde `es_prompts.json`:**
+
+```python
+import json, pathlib
+import config as cfg
+
+prompts = json.loads(
+    pathlib.Path(cfg.PROMPTS_ES).read_text(encoding="utf-8")
+)
+system_prompt = prompts["system"].replace("{PRODUCT}", cfg.PRODUCT["name"])
+```
+
+2. **Seleccionar variante de país** (pe / co / mx):
+
+```python
+country = "pe"  # Perú
+variation = prompts["country_variations"][country]
+print(f"ID fiscal: {variation['fiscal_id']}")  # → RUC
+print(f"Tratamiento: {variation['treatment']}")
+```
+
+3. **Seleccionar canal de outreach:**
+
+```python
+channel = "whatsapp"  # o "email" / "both"
+channel_note = prompts["channel_notes"][channel]
+```
+
+4. **Incluir ejemplos few-shot** en el user prompt para mejorar la consistencia del LLM:
+
+```python
+few_shot = "\n\n".join(
+    f"Entrada:\n{ex['input']}\nSalida:\n{ex['output']}"
+    for ex in prompts["few_shot_examples"]
+)
+```
+
+5. **Ejecutar los tests de localización:**
+
+```bash
+pytest tests/test_playbook_prompts.py -v
+```
+
+### Criterios de calificación (resumen)
+
+| Score | Etapa CRM |
+|---|---|
+| 70–100 | Calificado |
+| 50–69 | En seguimiento |
+| 25–49 | Prospección |
+| 0–24 | Descartado |
+
+> El comportamiento por defecto del agente **no cambia** si no usas `PLAYBOOK_ES`.
+> La localización es opcional y complementaria.
