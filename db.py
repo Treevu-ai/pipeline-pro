@@ -230,6 +230,27 @@ def _create_tables() -> None:
                     updated_at  TIMESTAMPTZ DEFAULT now()
                 );
             """)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS pipeassist_clients (
+                    key         TEXT PRIMARY KEY,
+                    data        JSONB NOT NULL DEFAULT '{}'
+                );
+            """)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS pipeassist_runs (
+                    run_id      TEXT PRIMARY KEY,
+                    kind        TEXT NOT NULL DEFAULT 'pipeline',
+                    query       TEXT NOT NULL DEFAULT '',
+                    cliente     TEXT NOT NULL DEFAULT '',
+                    ts          TIMESTAMPTZ DEFAULT now(),
+                    total       INT DEFAULT 0,
+                    leads       JSONB NOT NULL DEFAULT '[]'
+                );
+            """)
+            cur.execute("""
+                CREATE INDEX IF NOT EXISTS idx_pipeassist_runs_ts
+                ON pipeassist_runs (ts DESC);
+            """)
             # Limpiar sesiones WA viejas (>24h) en cada arranque
             try:
                 cur.execute("""
@@ -432,6 +453,96 @@ def delete_bot_state(chat_id: int) -> None:
         log.error("delete_bot_state(%s): %s", chat_id, exc)
         _bot_states_mem.pop(chat_id, None)
 
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# PipeAssist — clientes y historial de runs
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def get_pipeassist_clients() -> dict:
+    """Devuelve {key: {nombre, chat_id, created_at}}."""
+    if not _USE_DB:
+        return {}
+    try:
+        with _conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT key, data FROM pipeassist_clients")
+                return {row[0]: row[1] for row in cur.fetchall()}
+    except Exception as exc:
+        log.error("get_pipeassist_clients: %s", exc)
+        return {}
+
+
+def save_pipeassist_clients(clients: dict) -> None:
+    """Reemplaza todos los clientes. clients = {key: {nombre, chat_id, created_at}}."""
+    if not _USE_DB:
+        return
+    try:
+        with _conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM pipeassist_clients")
+                for key, data in clients.items():
+                    cur.execute(
+                        "INSERT INTO pipeassist_clients (key, data) VALUES (%s, %s)",
+                        (key, json.dumps(data)),
+                    )
+            conn.commit()
+    except Exception as exc:
+        log.error("save_pipeassist_clients: %s", exc)
+
+
+def get_pipeassist_history(limit: int = 20) -> list[dict]:
+    """Devuelve los últimos `limit` runs ordenados por ts desc."""
+    if not _USE_DB:
+        return []
+    try:
+        with _conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """SELECT run_id, kind, query, cliente, ts, total, leads
+                       FROM pipeassist_runs ORDER BY ts DESC LIMIT %s""",
+                    (limit,),
+                )
+                rows = []
+                for run_id, kind, query, cliente, ts, total, leads in cur.fetchall():
+                    rows.append({
+                        "run_id":    run_id,
+                        "kind":      kind,
+                        "query":     query,
+                        "cliente":   cliente,
+                        "timestamp": ts.isoformat(timespec="seconds") if ts else "",
+                        "total":     total,
+                        "leads":     leads if isinstance(leads, list) else [],
+                    })
+                return list(reversed(rows))   # más reciente al final, igual que el archivo
+    except Exception as exc:
+        log.error("get_pipeassist_history: %s", exc)
+        return []
+
+
+def add_pipeassist_run(run: dict) -> None:
+    """Guarda un run en pipeassist_runs."""
+    if not _USE_DB:
+        return
+    try:
+        with _conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """INSERT INTO pipeassist_runs (run_id, kind, query, cliente, total, leads)
+                       VALUES (%s, %s, %s, %s, %s, %s)
+                       ON CONFLICT (run_id) DO NOTHING""",
+                    (
+                        run.get("run_id", ""),
+                        run.get("kind", "pipeline"),
+                        run.get("query", ""),
+                        run.get("cliente", ""),
+                        run.get("total", 0),
+                        json.dumps(run.get("leads", [])),
+                    ),
+                )
+            conn.commit()
+    except Exception as exc:
+        log.error("add_pipeassist_run: %s", exc)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

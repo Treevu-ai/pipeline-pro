@@ -102,6 +102,13 @@ _CLIENTS_FILE = Path("output/.pipeassist_clients.json")
 def _load_clients() -> dict[str, dict]:
     """Devuelve {nombre_lower: {nombre, chat_id, created_at}}."""
     try:
+        import db as _db
+        clients = _db.get_pipeassist_clients()
+        if clients:
+            return clients
+    except Exception:
+        pass
+    try:
         return json.loads(_CLIENTS_FILE.read_text(encoding="utf-8"))
     except Exception:
         return {}
@@ -109,12 +116,17 @@ def _load_clients() -> dict[str, dict]:
 
 def _save_clients(clients: dict) -> None:
     try:
+        import db as _db
+        _db.save_pipeassist_clients(clients)
+    except Exception as e:
+        log.warning("No se pudo guardar clientes en DB: %s", e)
+    try:
         _CLIENTS_FILE.parent.mkdir(parents=True, exist_ok=True)
         _CLIENTS_FILE.write_text(
             json.dumps(clients, ensure_ascii=False, indent=2), encoding="utf-8"
         )
     except Exception as e:
-        log.warning("No se pudo guardar clientes: %s", e)
+        log.warning("No se pudo guardar clientes en archivo: %s", e)
 
 
 def _client_key(name: str) -> str:
@@ -134,6 +146,13 @@ _MAX_HISTORY  = 20
 
 def _load_history() -> list[dict]:
     try:
+        import db as _db
+        runs = _db.get_pipeassist_history(limit=_MAX_HISTORY)
+        if runs:
+            return runs
+    except Exception:
+        pass
+    try:
         return json.loads(_HISTORY_FILE.read_text(encoding="utf-8"))
     except Exception:
         return []
@@ -151,7 +170,6 @@ def _save_history(history: list[dict]) -> None:
 
 
 def _add_run(query: str, leads: list[dict], kind: str = "pipeline", cliente: str = "") -> dict:
-    history = _load_history()
     run = {
         "run_id":    str(uuid.uuid4())[:8],
         "kind":      kind,
@@ -161,6 +179,12 @@ def _add_run(query: str, leads: list[dict], kind: str = "pipeline", cliente: str
         "total":     len(leads),
         "leads":     leads,
     }
+    try:
+        import db as _db
+        _db.add_pipeassist_run(run)
+    except Exception as e:
+        log.warning("No se pudo guardar run en DB: %s", e)
+    history = _load_history()
     history.append(run)
     _save_history(history)
     return run
