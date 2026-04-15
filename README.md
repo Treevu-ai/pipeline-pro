@@ -65,6 +65,60 @@ Edita `config.py` para personalizar:
 - `OLLAMA` — URL, modelo, timeouts
 - `CHANNEL` — canal por defecto (email / whatsapp / both)
 - `PLAYBOOK` — instrucciones del sistema para el agente
+- `PLAYBOOK_ES` — ruta al playbook en español LatAm (ver sección abajo)
+
+## Localización en español
+
+El repositorio incluye artefactos listos para usar en español neutro de Latinoamérica:
+
+| Archivo | Descripción |
+|---|---|
+| `playbooks/PLAYBOOK_es.md` | Instrucciones del sistema, adaptaciones por país y ejemplos few-shot |
+| `prompts/es_prompts.json` | Prompts estructurados (system, request_template, few_shot_examples) |
+| `templates/messages_es.md` | Plantillas de email formal/informal y WhatsApp corto/detallado |
+
+### Uso rápido
+
+**1. Cargar el playbook en español en el agente:**
+
+```python
+import config as cfg
+from pathlib import Path
+
+# Leer el playbook en español (si existe)
+playbook_path = Path(cfg.PLAYBOOK_ES)
+if playbook_path.exists():
+    playbook_es = playbook_path.read_text(encoding="utf-8")
+    # Pasar playbook_es como system prompt al LLM
+```
+
+**2. Seleccionar canal al calificar:**
+
+```bash
+# Email (por defecto)
+python sdr_agent.py leads.csv output/calificados.csv --channel email
+
+# WhatsApp
+python sdr_agent.py leads.csv output/calificados.csv --channel whatsapp
+
+# Ambos
+python sdr_agent.py leads.csv output/calificados.csv --channel both
+```
+
+**3. Adaptaciones por país disponibles en `playbooks/PLAYBOOK_es.md`:**
+
+| País | Registro tributario | Tratamiento recomendado |
+|---|---|---|
+| 🇵🇪 Perú | SUNAT / RUC | Usted (formal), tú (WhatsApp) |
+| 🇨🇴 Colombia | DIAN / NIT | Usted (siempre en B2B) |
+| 🇲🇽 México | SAT / RFC | Tú (tech), usted (tradicional) |
+
+**4. Ejecutar tests de localización:**
+
+```bash
+pip install -r requirements.txt
+pytest -q tests/test_playbook_prompts.py
+```
 
 ## Columnas que genera el agente
 
@@ -91,6 +145,12 @@ agentepyme/
 ├── sdr_agent.py          # Calificador LLM: CSV → CSV enriquecido
 ├── config.py             # Configuración de producto, ICP y Ollama
 ├── requirements.txt
+├── playbooks/
+│   └── PLAYBOOK_es.md    # Playbook en español LatAm con few-shot y adaptaciones
+├── prompts/
+│   └── es_prompts.json   # Prompts estructurados en español (system + few-shot)
+├── templates/
+│   └── messages_es.md    # Plantillas email/WhatsApp formales e informales
 ├── tests/
 │   ├── test_sdr.py              # 26 tests unitarios del agente
 │   ├── test_scraper.py          # 21 tests unitarios del scraper
