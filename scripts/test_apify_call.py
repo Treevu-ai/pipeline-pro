@@ -57,7 +57,7 @@ try:
     def _trunc(text: str, n: int = _MAX_BODY_CHARS) -> str:
         return _utils_trunc(text, n)
 except Exception:
-    def _trunc(text: str, n: int = _MAX_BODY_CHARS) -> str:  # type: ignore[misc]
+    def _trunc(text: str, n: int = _MAX_BODY_CHARS) -> str:
         """Fallback truncation used when utils is not importable."""
         if len(text) <= n:
             return text
@@ -175,7 +175,7 @@ def run_diagnostic(query: str, limit: int, actor_timeout: int, http_timeout: int
         return 0
 
     print(f"[OK] Apify devolvió {len(data)} resultado(s).")
-    print(f"[OK] Primer resultado: {json.dumps(data[0], ensure_ascii=False, indent=2)[:500]}")
+    print(f"[OK] Primer resultado: {_trunc(json.dumps(data[0], ensure_ascii=False, indent=2))}")
     return 0
 
 

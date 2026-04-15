@@ -355,7 +355,7 @@ async def _search_via_apify(query: str, limit: int) -> list[dict[str, Any]]:
                 items = resp.json()
             except ValueError as json_err:
                 log.error(
-                    "Apify returned invalid JSON for '%s': %s — body=%s",
+                    "Apify returned invalid JSON for '%s': %s body=%s",
                     query, json_err, utils.trunc(resp.text),
                 )
                 return []
