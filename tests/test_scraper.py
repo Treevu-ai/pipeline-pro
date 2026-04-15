@@ -7,6 +7,34 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import scraper
+import utils
+
+
+# ─── utils.trunc ──────────────────────────────────────────────────────────────
+
+class TestTrunc:
+    def test_cadena_corta_sin_truncar(self):
+        assert utils.trunc("hola", 10) == "hola"
+
+    def test_cadena_exacta_sin_truncar(self):
+        assert utils.trunc("abcde", 5) == "abcde"
+
+    def test_cadena_larga_trunca(self):
+        result = utils.trunc("abcdefghij", 5)
+        assert result.startswith("abcde")
+        assert "[truncado]" in result
+
+    def test_cadena_vacia_devuelve_vacia(self):
+        assert utils.trunc("", 100) == ""
+
+    def test_none_devuelve_vacia(self):
+        assert utils.trunc(None, 100) == ""
+
+    def test_default_limit_2000(self):
+        long_s = "x" * 3000
+        result = utils.trunc(long_s)
+        assert len(result) < 3000
+        assert result.startswith("x" * 2000)
 
 
 # ─── map_category ─────────────────────────────────────────────────────────────
