@@ -24,9 +24,35 @@ GROQ = {
     "backoff_s": 2,
 }
 
-# ─── Google Places API ───────────────────────────────────────────────────────
+# ─── API keys de scraping y LLM ──────────────────────────────────────────────
+# Cada clave se lee del entorno; se deja vacío ("") si no está configurada.
+# Para habilitar un proveedor, exporta la variable correspondiente antes de
+# iniciar la aplicación (o añádela a tu archivo .env / Railway variables).
+
+# LLM backend
+ANTHROPIC_API_KEY: str = os.environ.get("ANTHROPIC_API_KEY", "")
+
+# Google Places API (New) — requiere proyecto GCP con Places API v1 habilitada
+PLACES_API_KEY: str = os.environ.get("PLACES_API_KEY", "")
+
 # ─── Apify (Google Maps scraper sin GCP) ─────────────────────────────────────
+# Registro gratuito: apify.com → actor "compass~crawler-google-places"
+# Variable de entorno: APIFY_API_KEY
+APIFY_API_KEY: str = os.environ.get("APIFY_API_KEY", "")
+
+# Tiempo máximo (segundos) que Apify espera a que el actor termine antes de
+# abortar la ejecución en el lado servidor (parámetro ?timeout= en la URL).
+APIFY_ACTOR_TIMEOUT_S: int = int(os.environ.get("APIFY_ACTOR_TIMEOUT_S", "120"))
+
+# Tiempo máximo (segundos) que el cliente httpx espera una respuesta HTTP de
+# Apify antes de lanzar TimeoutException (debe ser > APIFY_ACTOR_TIMEOUT_S).
+APIFY_HTTP_TIMEOUT_S: int = int(os.environ.get("APIFY_HTTP_TIMEOUT_S", "180"))
+
 # ─── SerpApi (Google Maps scraper, alternativa a Apify) ──────────────────────
+# Registro: serpapi.com — pay-as-you-go ~$0.015/búsqueda
+# Variable de entorno: SERPAPI_API_KEY
+SERPAPI_API_KEY: str = os.environ.get("SERPAPI_API_KEY", "")
+
 # ─── Tu producto ─────────────────────────────────────────────────────────────
 PRODUCT = {
     "name": "Pipeline_X",
