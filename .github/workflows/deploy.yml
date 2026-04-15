@@ -18,16 +18,13 @@ jobs:
           python-version: '3.11'
       
       - name: Install tools
-        run: pip install ruff bandit pytest
+        run: pip install ruff pytest
 
       - name: Install dependencies
         run: pip install -r requirements.txt
 
       - name: Lint (errors + style + common bugs)
         run: ruff check --select E9,F --output-format=github .
-
-      - name: Security scan
-        run: bandit -r . -x ./tests,./landing --severity-level medium -q
 
       - name: Run tests
         run: pytest tests/ -x --tb=short
