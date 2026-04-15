@@ -34,7 +34,7 @@ import secrets
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
-import threading
+
 import time as _time
 import traceback
 from datetime import datetime, timezone, timedelta
