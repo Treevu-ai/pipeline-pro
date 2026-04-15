@@ -1,6 +1,9 @@
 .PHONY: scripts/test-apify
 
 QUERY ?= Abogados en Lima
+# Note: QUERY may contain spaces; it is always passed to the script wrapped in
+# single quotes (see the docker run command below), so multi-word queries work
+# correctly. Example: make scripts/test-apify QUERY="Ferreterías en Bogotá"
 
 ## scripts/test-apify: Ejecuta el diagnóstico de Apify en un contenedor Docker temporal.
 ##   Requiere: Docker instalado y APIFY_API_KEY exportada en el entorno.

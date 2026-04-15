@@ -86,8 +86,13 @@ make scripts/test-apify QUERY="Abogados en Lima"
 
 ### 4 — Kubernetes (pod temporal)
 
+> **Requisito**: este comando debe ejecutarse desde una máquina que tenga el
+> repositorio clonado (usa `$(cat ...)` para inyectar el script en el pod).
+> Si prefieres no clonar el repo en el host, usa un ConfigMap (ver nota al pie).
+
 ```bash
 # Crea un pod efímero con la key como variable de entorno
+# Ejecutar desde la raíz del repositorio clonado
 kubectl run apify-diag --rm -it --restart=Never \
   --image=python:3.11-slim \
   --env="APIFY_API_KEY=${APIFY_API_KEY}" \
@@ -98,6 +103,36 @@ $(cat scripts/test_apify_call.py)
 EOF
 " -- "Abogados en Lima"
 ```
+
+<details>
+<summary>Alternativa: inyectar el script via ConfigMap (sin clonar el repo en el host)</summary>
+
+```bash
+# Crear el ConfigMap desde el script
+kubectl create configmap apify-diag-script \
+  --from-file=test_apify_call.py=scripts/test_apify_call.py
+
+# Ejecutar el pod usando el ConfigMap
+kubectl run apify-diag --rm -it --restart=Never \
+  --image=python:3.11-slim \
+  --env="APIFY_API_KEY=${APIFY_API_KEY}" \
+  --overrides='{
+    "spec": {
+      "volumes": [{"name":"script","configMap":{"name":"apify-diag-script"}}],
+      "containers": [{
+        "name": "apify-diag",
+        "image": "python:3.11-slim",
+        "command": ["bash","-c","pip install --quiet httpx && python /scripts/test_apify_call.py '\''Abogados en Lima'\''"],
+        "env": [{"name":"APIFY_API_KEY","value":"'"${APIFY_API_KEY}"'"}],
+        "volumeMounts": [{"name":"script","mountPath":"/scripts"}]
+      }]
+    }
+  }'
+
+# Limpiar el ConfigMap cuando termines
+kubectl delete configmap apify-diag-script
+```
+</details>
 
 ---
 
