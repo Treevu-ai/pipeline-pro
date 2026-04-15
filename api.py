@@ -60,32 +60,68 @@ REPORTS_DIR.mkdir(parents=True, exist_ok=True)
 
 # ─── Plan helpers ─────────────────────────────────────────────────────────────
 
+_tier_cache: dict[str, tuple[str, float]] = {}  # phone → (tier, expires_at_monotonic)
+_TIER_CACHE_TTL = 60.0  # segundos
+
+
+def _verify_user_sig(phone: str, request: Request) -> None:
+    """Valida X-User-Sig si API_USER_SECRET está configurado.
+
+    El caller debe enviar:
+        X-User-Sig: <HMAC-SHA256 hex de phone usando API_USER_SECRET>
+
+    Si API_USER_SECRET no está seteado (dev/legacy), la validación se omite.
+    Lanza HTTP 401 si el secret está configurado pero la firma no coincide.
+    """
+    secret = os.environ.get("API_USER_SECRET", "")
+    if not secret:
+        return
+    expected = hmac.new(secret.encode(), phone.encode(), "sha256").hexdigest()
+    provided = request.headers.get("X-User-Sig", "")
+    if not hmac.compare_digest(provided, expected):
+        raise HTTPException(status_code=401, detail="X-User-Sig inválida o ausente")
+
+
 def _resolve_tier(request: Request) -> str:
-    """Resuelve el tier del usuario desde la DB usando X-User-Phone. Default: 'free'."""
+    """Resuelve el tier del usuario desde la DB usando X-User-Phone. Default: 'free'.
+
+    Cachea el resultado 60 s para evitar una query por request.
+    """
     phone = request.headers.get("X-User-Phone", "").strip()
     if not phone:
         return const.PlanTier.FREE
-    
+
+    _verify_user_sig(phone, request)
+
+    now = _time.monotonic()
+    cached = _tier_cache.get(phone)
+    if cached and now < cached[1]:
+        return cached[0]
+
     import db as _db
     subscriber = _db.get_subscriber(phone)
     if not subscriber:
-        return const.PlanTier.FREE
-    
-    if subscriber.get("status") != "active":
-        return const.PlanTier.FREE
-    
-    expires_at = subscriber.get("expires_at")
-    if expires_at:
-        try:
-            exp_dt = datetime.fromisoformat(str(expires_at).replace(" ", "T"))
-            if exp_dt.tzinfo is None:
-                exp_dt = exp_dt.replace(tzinfo=timezone.utc)
-            if exp_dt < datetime.now(timezone.utc):
-                return const.PlanTier.FREE
-        except (ValueError, TypeError):
-            return const.PlanTier.FREE
-    
-    return subscriber.get("plan", const.PlanTier.FREE)
+        tier = const.PlanTier.FREE
+    elif subscriber.get("status") != "active":
+        tier = const.PlanTier.FREE
+    else:
+        expires_at = subscriber.get("expires_at")
+        if expires_at:
+            try:
+                exp_dt = datetime.fromisoformat(str(expires_at).replace(" ", "T"))
+                if exp_dt.tzinfo is None:
+                    exp_dt = exp_dt.replace(tzinfo=timezone.utc)
+                if exp_dt < datetime.now(timezone.utc):
+                    tier = const.PlanTier.FREE
+                else:
+                    tier = subscriber.get("plan", const.PlanTier.FREE)
+            except (ValueError, TypeError):
+                tier = const.PlanTier.FREE
+        else:
+            tier = subscriber.get("plan", const.PlanTier.FREE)
+
+    _tier_cache[phone] = (tier, now + _TIER_CACHE_TTL)
+    return tier
 
 
 def _plan_limits(tier: str) -> dict:
@@ -427,20 +463,45 @@ async def _green_api_monitor_loop() -> None:
             await asyncio.sleep(300)  # revisar cada 5 minutos cuando está OK
 
 
+def _do_cleanup_reports() -> int:
+    """Elimina PDFs con más de 7 días. Retorna cantidad eliminada."""
+    cutoff = _time.time() - 7 * 86_400
+    return sum(
+        1 for f in REPORTS_DIR.glob("*.pdf")
+        if f.stat().st_mtime < cutoff and not f.unlink()
+    )
+
+
 async def _cleanup_reports_loop() -> None:
-    """Elimina PDFs con más de 7 días en output/reports/ — corre cada 24 h."""
+    """Elimina PDFs con más de 7 días en output/reports/ — corre en startup y cada 24 h."""
+    # Limpiar en startup (antes del primer sleep) para no acumular PDFs entre deploys
+    try:
+        deleted = _do_cleanup_reports()
+        if deleted:
+            log.info("cleanup_reports (startup): %d PDF(s) eliminados", deleted)
+    except Exception as exc:
+        log.warning("cleanup_reports (startup): %s", exc)
+
     while True:
-        await asyncio.sleep(86_400)   # primera ejecución al día siguiente del deploy
+        await asyncio.sleep(86_400)
         try:
-            cutoff = _time.time() - 7 * 86_400
-            deleted = sum(
-                1 for f in REPORTS_DIR.glob("*.pdf")
-                if f.stat().st_mtime < cutoff and not f.unlink()
-            )
+            deleted = _do_cleanup_reports()
             if deleted:
                 log.info("cleanup_reports: %d PDF(s) eliminados (antigüedad > 7 días)", deleted)
         except Exception as exc:
             log.warning("cleanup_reports: error en limpieza de PDFs: %s", exc)
+
+
+async def _supervised(coro_fn, name: str, restart_delay: float = 5.0):
+    """Envuelve un loop async: si crashea lo reinicia tras restart_delay segundos."""
+    while True:
+        try:
+            await coro_fn()
+        except asyncio.CancelledError:
+            break
+        except Exception as exc:
+            log.error("Loop '%s' terminó inesperadamente: %s — reintentando en %.0fs", name, exc, restart_delay)
+            await asyncio.sleep(restart_delay)
 
 
 @asynccontextmanager
@@ -452,12 +513,12 @@ async def lifespan(app: FastAPI):
     _start_bot_interno()
     asyncio.create_task(_register_telegram_webhook())
     asyncio.create_task(_register_whatsapp_webhook())
-    asyncio.create_task(_followup_loop())
-    asyncio.create_task(_followup_3d_loop())
-    asyncio.create_task(_trial_expired_loop())
-    asyncio.create_task(_green_api_monitor_loop())
-    asyncio.create_task(_digest_scheduler())
-    asyncio.create_task(_cleanup_reports_loop())
+    asyncio.create_task(_supervised(_followup_loop, "_followup_loop"))
+    asyncio.create_task(_supervised(_followup_3d_loop, "_followup_3d_loop"))
+    asyncio.create_task(_supervised(_trial_expired_loop, "_trial_expired_loop"))
+    asyncio.create_task(_supervised(_green_api_monitor_loop, "_green_api_monitor_loop"))
+    asyncio.create_task(_supervised(_digest_scheduler, "_digest_scheduler"))
+    asyncio.create_task(_supervised(_cleanup_reports_loop, "_cleanup_reports_loop"))
     yield
 
 
@@ -1012,8 +1073,8 @@ def _run_scrape(query: str, limit: int, enrich_web: bool, enrich_sunat: bool) ->
 
 
 def _run_qualify(leads: list[dict], channel: str) -> list[dict]:
-    from sdr_agent import qualify_batch
-    return qualify_batch(leads, channel)
+    from sdr_agent import qualify_row
+    return [qualify_row(lead, channel) for lead in leads]
 
 
 def _run_enrich(leads: list[dict]) -> list[dict]:
@@ -1312,7 +1373,7 @@ def get_job_result(job_id: str):
 _TG_TOKEN      = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 _TG_API        = "https://api.telegram.org/bot"
 _NOTION_TOKEN  = os.environ.get("NOTION_PIPELINE_TOKEN", "")
-_NOTION_DB_ID  = os.environ.get("NOTION_DB_ID", "c8e55705-b3ab-4e79-a977-cd4f7c64dd51")
+_NOTION_DB_ID  = os.environ.get("NOTION_DB_ID", "")
 
 # Estado de conversación — persistido en PostgreSQL vía db.py.
 
@@ -2475,7 +2536,8 @@ def _check_admin_api_key(request: Request) -> None:
     key = os.environ.get("ADMIN_API_KEY", "")
     if not key:
         raise HTTPException(status_code=503, detail="ADMIN_API_KEY no configurada")
-    if request.headers.get("X-Admin-Key", "") != key:
+    provided = request.headers.get("X-Admin-Key", "")
+    if not hmac.compare_digest(provided.encode(), key.encode()):
         raise HTTPException(status_code=403, detail="Unauthorized")
 
 
@@ -2497,7 +2559,7 @@ async def admin_dashboard(request: Request, days: int = 7):
 
     # Verificar cookie de sesión (más seguro que query param)
     session_cookie = request.cookies.get("admin_session", "")
-    if not admin_key or session_cookie != admin_key:
+    if not admin_key or not hmac.compare_digest(session_cookie.encode(), admin_key.encode()):
         return _HR(_ADMIN_LOGIN_HTML, status_code=403)
 
     stats       = await asyncio.to_thread(_db.get_stats, days)
@@ -2511,12 +2573,12 @@ async def admin_login(request: Request):
     form = await request.form()
     key  = form.get("key", "")
     admin_key = os.environ.get("ADMIN_API_KEY", "")
-    if not admin_key or key != admin_key:
+    if not admin_key or not hmac.compare_digest(key.encode(), admin_key.encode()):
         return HTMLResponse(_ADMIN_LOGIN_HTML + "<script>document.querySelector('p.err') && (document.querySelector('p.err').style.display='block')</script>", status_code=403)
     resp = RedirectResponse(url="/admin", status_code=303)
     resp.set_cookie(
         "admin_session", admin_key,
-        httponly=True, samesite="strict",
+        httponly=True, secure=True, samesite="strict",
         max_age=8 * 3600,  # 8 horas
     )
     return resp

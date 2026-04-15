@@ -17,11 +17,23 @@ jobs:
         with:
           python-version: '3.11'
       
-      - name: Install dependencies
-        run: pip install -r requirements.txt pytest ruff
+      - name: Install tools
+        run: pip install pip-tools ruff bandit pytest
 
-      - name: Lint (critical errors only)
-        run: ruff check --select E9,F8,F82,F84 --output-format=github .
+      - name: Verify lockfile is up to date
+        run: |
+          pip-compile --no-header requirements.txt -o requirements.lock.check --quiet
+          diff requirements.lock requirements.lock.check || (echo "requirements.lock desactualizado — corre pip-compile --no-header requirements.txt -o requirements.lock localmente" && exit 1)
+          rm requirements.lock.check
+
+      - name: Install dependencies from lockfile
+        run: pip install -r requirements.lock
+
+      - name: Lint (errors + style + common bugs)
+        run: ruff check --select E,F,W,B --output-format=github .
+
+      - name: Security scan
+        run: bandit -r . -x ./tests,./landing --severity-level medium -q
 
       - name: Run tests
         run: pytest tests/ -x --ignore=tests/test_admin_api.py --tb=short

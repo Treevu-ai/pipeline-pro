@@ -780,11 +780,12 @@ def _handle_intent(phone: str, intent: str) -> list[dict]:
         return [_t(_MSG("unsubscribed"))]
 
     if intent == "borrar_datos":
+        safe_phone = "".join(c for c in phone if c.isdigit() or c == "+")
         _notify_admins(
             f"🗑️ *Solicitud de borrado de datos*\n\n"
-            f"📱 `{phone}`\n"
+            f"📱 `{safe_phone}`\n"
             f"Por GDPR/privacidad el usuario solicita eliminar sus datos.\n"
-            f"Ejecutar: `DELETE FROM subscribers, wa_sessions, events, user_profiles WHERE phone = '{phone}'`"
+            f"Ejecutar el script de borrado para el número: `{safe_phone}`"
         )
         return [_t(
             "✅ Recibida tu solicitud.\n\n"
