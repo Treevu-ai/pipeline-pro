@@ -1079,7 +1079,19 @@ def _run_scrape(query: str, limit: int, enrich_web: bool, enrich_sunat: bool) ->
 
 def _run_qualify(leads: list[dict], channel: str) -> list[dict]:
     from sdr_agent import qualify_row, pre_score
-    return [{**lead, **qualify_row(lead, channel, pre_score(lead))} for lead in leads]
+    import config as cfg
+    results = []
+    for lead in leads:
+        base = pre_score(lead)
+        try:
+            r = qualify_row(lead, channel, base)
+            r["qualify_error"] = ""
+        except Exception as e:
+            log.error("qualify_row error para '%s': %s", lead.get("empresa", "?"), e)
+            r = {k: "" for k in cfg.OUTPUT_KEYS if k != "qualify_error"}
+            r["qualify_error"] = str(e)
+        results.append({**lead, **r})
+    return results
 
 
 def _run_enrich(leads: list[dict]) -> list[dict]:

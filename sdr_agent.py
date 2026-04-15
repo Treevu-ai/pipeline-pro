@@ -814,8 +814,9 @@ def main() -> None:
             log.warning("--dedup: no se encontro columna 'ruc' en el CSV; se omite deduplicacion")
 
     total = len(df)
+    _model = cfg.CLAUDE.get("model") or cfg.GROQ.get("model") or "llm"
     log.info("Leads a procesar: %d | Modelo: %s | Canal: %s | Workers: %d",
-             total, cfg.OLLAMA["model"], args.channel, args.workers)
+             total, _model, args.channel, args.workers)
 
     skipped = 0
     results: dict[int, dict[str, Any]] = {}
