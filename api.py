@@ -640,7 +640,7 @@ app = FastAPI(
 )
 
 app.mount("/reports", StaticFiles(directory=str(REPORTS_DIR)), name="reports")
-app.mount("/", StaticFiles(directory="landing", html=True))
+# Landing page removed — served by Vercel (pipelinex.app)
 
 
 @app.get("/r/{token}", include_in_schema=False)
