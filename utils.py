@@ -541,6 +541,32 @@ def truncate_words(text: str, max_words: int, suffix: str = "…") -> str:
 
 # ─── Logging ─────────────────────────────────────────────────────────────────
 
+def trunc(s: str, n: int = 2000) -> str:
+    """
+    Trunca una cadena a n caracteres para logging seguro.
+
+    Evita volcar cuerpos de respuesta HTTP completos en los logs.
+
+    Args:
+        s: Cadena a truncar.
+        n: Número máximo de caracteres (default: 2000).
+
+    Returns:
+        Cadena truncada con indicador si fue recortada.
+
+    Examples:
+        >>> trunc("hola mundo", 4)
+        'hola…[truncated]'
+        >>> trunc("corto", 100)
+        'corto'
+    """
+    if not s:
+        return ""
+    if len(s) <= n:
+        return s
+    return s[:n] + "…[truncated]"
+
+
 def setup_logging(log_dir: str, level: int = logging.INFO) -> logging.Logger:
     """
     Configura el logging para la aplicación.
