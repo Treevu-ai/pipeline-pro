@@ -36,7 +36,7 @@ jobs:
         run: bandit -r . -x ./tests,./landing --severity-level medium -q
 
       - name: Run tests
-        run: pytest tests/ -x --ignore=tests/test_admin_api.py --tb=short
+        run: pytest tests/ -x --tb=short
 
   deploy:
     needs: test
