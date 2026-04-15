@@ -92,9 +92,88 @@ agentepyme/
 ├── config.py             # Configuración de producto, ICP y Ollama
 ├── requirements.txt
 ├── tests/
-│   ├── test_sdr.py       # 26 tests unitarios del agente
-│   └── test_scraper.py   # 21 tests unitarios del scraper
+│   ├── test_sdr.py              # 26 tests unitarios del agente
+│   ├── test_scraper.py          # 21 tests unitarios del scraper
+│   └── test_playbook_prompts.py # 82 tests de localización en español
+├── playbooks/
+│   └── PLAYBOOK_es.md           # Playbook completo en español (LatAm)
+├── prompts/
+│   └── es_prompts.json          # Prompts JSON con few-shot y variantes por país
+├── templates/
+│   └── messages_es.md           # Plantillas de mensajes email/WhatsApp en español
 ├── examples/
-│   └── leads_input.csv   # 10 leads de ejemplo (MIPYME Perú)
-└── output/               # CSVs, reportes y logs se guardan aquí
+│   └── leads_input.csv          # 10 leads de ejemplo (MIPYME Perú)
+└── output/                      # CSVs, reportes y logs se guardan aquí
 ```
+
+---
+
+## Localización en español
+
+El agente incluye una localización completa en español neutro latinoamericano, lista para
+usar en Perú, Colombia y México.
+
+### Archivos de localización
+
+| Archivo | Descripción |
+|---|---|
+| `playbooks/PLAYBOOK_es.md` | Playbook completo: instrucción del sistema, adaptaciones por país, reglas de scoring y 3 ejemplos few-shot |
+| `prompts/es_prompts.json` | Prompts en JSON con system prompt, request template, few-shot examples y variantes por país |
+| `templates/messages_es.md` | Plantillas de mensajes listos para usar: email formal, email informal, WhatsApp corto y WhatsApp detallado |
+
+### Cómo usar el playbook en español
+
+1. **Cargar el system prompt desde `es_prompts.json`:**
+
+```python
+import json, pathlib
+import config as cfg
+
+prompts = json.loads(
+    pathlib.Path(cfg.PROMPTS_ES).read_text(encoding="utf-8")
+)
+system_prompt = prompts["system"].replace("{PRODUCT}", cfg.PRODUCT["name"])
+```
+
+2. **Seleccionar variante de país** (pe / co / mx):
+
+```python
+country = "pe"  # Perú
+variation = prompts["country_variations"][country]
+print(f"ID fiscal: {variation['fiscal_id']}")  # → RUC
+print(f"Tratamiento: {variation['treatment']}")
+```
+
+3. **Seleccionar canal de outreach:**
+
+```python
+channel = "whatsapp"  # o "email" / "both"
+channel_note = prompts["channel_notes"][channel]
+```
+
+4. **Incluir ejemplos few-shot** en el user prompt para mejorar la consistencia del LLM:
+
+```python
+few_shot = "\n\n".join(
+    f"Entrada:\n{ex['input']}\nSalida:\n{ex['output']}"
+    for ex in prompts["few_shot_examples"]
+)
+```
+
+5. **Ejecutar los tests de localización:**
+
+```bash
+pytest tests/test_playbook_prompts.py -v
+```
+
+### Criterios de calificación (resumen)
+
+| Score | Etapa CRM |
+|---|---|
+| 70–100 | Calificado |
+| 50–69 | En seguimiento |
+| 25–49 | Prospección |
+| 0–24 | Descartado |
+
+> El comportamiento por defecto del agente **no cambia** si no usas `PLAYBOOK_ES`.
+> La localización es opcional y complementaria.
