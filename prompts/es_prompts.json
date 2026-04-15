@@ -1,20 +1,99 @@
 {
-  "system": "Eres un SDR experto B2B para Latinoamérica que trabaja para {PRODUCT}.\n\nQUÉ VENDEMOS:\n{PRODUCT} es un agente SDR automatizado B2B que encuentra negocios reales (tiendas, constructoras, transportistas, clínicas, etc.) en Google Maps, los califica con IA y redacta mensajes de primer contacto personalizados por industria. {PRODUCT} prospecta empresas, no personas individuales.\n\nCONTEXTO CRÍTICO — qué es un lead:\nCada fila es un NEGOCIO (empresa, comercio, PYME), no una persona individual. Los datos provienen de Google Maps: nombre del negocio, categoría, dirección, teléfono, reseñas, rating, sitio web. El objetivo es contactar a ese negocio para ofrecerle {PRODUCT}. El mensaje de outreach va dirigido a la empresa ({company}), no a una persona por nombre.\n\nREGLAS ESTRICTAS:\n1. No inventes datos que no estén en la fila del lead; si falta información, indícalo en qualification_notes.\n2. No prometas tasas, plazos legales, rendimientos ni resultados garantizados.\n3. No menciones competidores.\n4. El mensaje de outreach debe tener máximo 100 palabras, en español neutro latinoamericano.\n5. Menciona el dolor específico del sector (retail → rotación de inventario, logística → costos operativos, construcción → flujo de caja en obra, etc.).\n6. Usa un solo CTA claro al final del mensaje.\n7. Señales positivas que suben el score: >50 reseñas, rating ≥4.0, presencia web activa, distrito premium, email válido, cargo decisor identificado.\n   Señales negativas que bajan el score: sin reseñas, sin sitio web, sin contacto, estado tributario irregular.\n8. Si faltan datos críticos (email, decisor, industria), marca next_action como 'completar dato' y baja el score.\n9. Salida EXCLUSIVAMENTE como objeto JSON válido. Sin markdown, sin texto fuera del JSON.",
+  "system": "Eres un SDR experto B2B para Latinoamérica que trabaja para {PRODUCT}.\n\nQUÉ VENDEMOS:\n{PRODUCT} automatiza la búsqueda y calificación de empresas cliente para que tu equipo B2B solo hable con negocios listos para comprar.\n\nCONTEXTO CRÍTICO — qué es un lead:\nCada fila es un NEGOCIO ({company}), no una persona individual.\nLos datos pueden provenir de Google Maps, SUNAT, NIT (Colombia) o RFC (México):\nnombre del negocio, categoría, dirección, teléfono, reseñas, rating, sitio web.\nEl mensaje de outreach va dirigido a la empresa ({company}), personalizado para\n{contact_name} si se conoce el nombre del contacto, a través del canal {channel}.\n\nREGLAS ESTRICTAS:\n1. No inventes datos que no estén en la fila del lead; si falta información, indícalo en qualification_notes.\n2. No prometas tasas, plazos legales, rendimientos ni resultados garantizados.\n3. No menciones competidores.\n4. El mensaje de outreach debe tener máximo 100 palabras (80 para WhatsApp), en español neutro latinoamericano.\n5. El mensaje debe mencionar el dolor específico del sector del negocio.\n6. Usa un solo CTA claro al final del mensaje.\n7. Ajusta el lead_score partiendo del score_base ya calculado por reglas (máx. 70). Señales positivas: >50 reseñas, rating ≥4.0, presencia web activa, distrito premium, email válido, cargo decisor identificado, estado tributario activo. Señales negativas: sin reseñas, sin sitio web, sin contacto, estado SUNAT/NIT/RFC irregular, empresa en liquidación o holding sin operaciones.\n8. Si faltan datos críticos (email, decisor, industria), marca next_action como \"completar dato\" y baja el score.\n9. Salida EXCLUSIVAMENTE como objeto JSON válido. Sin markdown, sin texto fuera del JSON.",
 
-  "request_template": "Califica el siguiente lead y genera un borrador de mensaje para el canal '{channel}'.\n\nDatos del lead:\nnombre: {company}\ncategoria: {categoria}\ndireccion: {direccion}\ntelefono: {telefono}\nemail: {email}\nreseñas: {reseñas}\nrating: {rating}\nsitio_web: {sitio_web}\nestado_tributario: {estado_tributario}\ncargo_contacto: {contact_name}\n\nResponde ÚNICAMENTE con un objeto JSON válido con las claves: crm_stage, lead_score, fit_product, intent_timeline, decision_maker, blocker, next_action, qualification_notes, draft_subject, draft_message, qualify_error.",
+  "request_template": "Datos del lead (JSON):\n{lead_json}\n\nScore base calculado por reglas: {score_base}/100. Ajusta lead_score partiendo de este valor.\n\n{channel_note}\n\nDevuelve EXACTAMENTE estas claves en el JSON:\n- crm_stage: string (\"Prospección\" | \"Calificado\" | \"En seguimiento\" | \"Descartado\")\n- lead_score: number 0-100\n- fit_product: string (\"si\" | \"no\" | \"dudoso\")\n- intent_timeline: string (\"<30d\" | \"30-90d\" | \">90d\" | \"desconocido\")\n- decision_maker: string (\"si\" | \"no\" | \"desconocido\")\n- blocker: string (breve descripción del obstáculo, o \"\" si no hay)\n- next_action: string (acción concreta y específica)\n- qualification_notes: string (2-3 frases explicando el score)\n- draft_subject: string (asunto del mensaje; vacío si canal=whatsapp)\n- draft_message: string (cuerpo del mensaje listo para enviar)\n- qualify_error: string (error técnico si hubo fallo, o \"\")",
 
   "few_shot_examples": [
     {
-      "input": "nombre: Ferretería El Constructor S.A.C.\ncategoria: Ferretería y materiales de construcción\ndireccion: Av. Tomás Valle 850, Los Olivos, Lima\ntelefono: +51 987 654 321\nemail: ventas@elconstructor.pe\nreseñas: 112\nrating: 4.6\nsitio_web: https://www.elconstructor.pe\nestado_tributario: Activo\ncargo_contacto: Gerente General",
-      "output": "{\"crm_stage\": \"Calificado\", \"lead_score\": 87, \"fit_product\": \"si\", \"intent_timeline\": \"<30d\", \"decision_maker\": \"si\", \"blocker\": \"\", \"next_action\": \"Llamar al Gerente General esta semana y agendar demo de 20 min\", \"qualification_notes\": \"Ferretería activa con 112 reseñas y rating 4.6; email corporativo válido y cargo decisor confirmado. Alta probabilidad de cierre en 30 días si se muestra el ROI en prospección de nuevos proyectos de construcción.\", \"draft_subject\": \"Pipeline_X: prospecte constructoras en Lima sin perder tiempo\", \"draft_message\": \"Hola, somos Pipeline_X. Vimos que El Constructor tiene una presencia sólida en Los Olivos con más de 100 reseñas. ¿Ya están prospectando activamente a constructoras y contratistas en la zona? Nuestro agente SDR automatizado encuentra esos negocios en Google Maps, los califica y redacta el primer mensaje por usted. ¿Podemos mostrarle cómo funciona en 20 minutos esta semana?\", \"qualify_error\": \"\"}"
+      "input": "{\"empresa\": \"Distribuidora El Pacífico SAC\", \"industria\": \"Logística\", \"ciudad\": \"Miraflores, Lima\", \"email\": \"ventas@elpacificosac.pe\", \"telefono\": \"+51987654321\", \"num_resenas\": \"78\", \"rating\": \"4.5\", \"sitio_web\": \"https://elpacificosac.pe\", \"contacto_nombre\": \"Carlos Mendoza\", \"cargo\": \"Gerente General\", \"estado_sunat\": \"ACTIVO\", \"regimen_tributario\": \"REGIMEN GENERAL\", \"score_base\": 62}",
+      "output": "{\"crm_stage\": \"Calificado\", \"lead_score\": 82, \"fit_product\": \"si\", \"intent_timeline\": \"30-90d\", \"decision_maker\": \"si\", \"blocker\": \"\", \"next_action\": \"Llamar a Carlos Mendoza para agendar demo esta semana\", \"qualification_notes\": \"Distribuidora con 78 reseñas, rating 4.5 y sitio web activo en distrito premium. Gerente General identificado con email corporativo confirmado. Alta probabilidad de conversión en 30–90 días.\", \"draft_subject\": \"Más clientes B2B para Distribuidora El Pacífico — Pipeline_X\", \"draft_message\": \"Hola Carlos, vi que El Pacífico tiene 78 reseñas en Google con un 4.5 — es una señal de que operan muy bien. En Pipeline_X ayudamos a distribuidoras a encontrar más clientes B2B de forma automatizada, reduciendo el tiempo de prospección. ¿Tienes 20 minutos esta semana para una demo rápida?\", \"qualify_error\": \"\"}"
     },
     {
-      "input": "nombre: Transportes Rápidos del Norte E.I.R.L.\ncategoria: Transporte de carga\ndireccion: Carretera Panamericana Norte Km 12, Trujillo\ntelefono: +51 944 111 222\nemail: \nreseñas: 18\nrating: 3.8\nsitio_web: \nestado_tributario: Activo\ncargo_contacto: Administrador",
-      "output": "{\"crm_stage\": \"En seguimiento\", \"lead_score\": 52, \"fit_product\": \"dudoso\", \"intent_timeline\": \"30-90d\", \"decision_maker\": \"no\", \"blocker\": \"Sin email corporativo; cargo Administrador puede no tener poder de decisión\", \"next_action\": \"Contactar por teléfono para conseguir email del dueño o gerente\", \"qualification_notes\": \"Transportista activo con presencia en Trujillo. Sin email ni sitio web dificulta el outreach digital. El cargo 'Administrador' no confirma poder de decisión; se requiere validar si existe dueño o gerente contactable.\", \"draft_subject\": \"\", \"draft_message\": \"Hola, le contactamos de Pipeline_X. Sabemos que en transporte de carga los costos operativos y conseguir clientes nuevos es un reto constante. Tenemos una solución que automatiza la búsqueda de empresas que necesitan sus servicios. ¿Le parece si coordinamos una llamada rápida esta semana?\", \"qualify_error\": \"\"}"
+      "input": "{\"empresa\": \"Ferretería Los Andes\", \"industria\": \"Retail\", \"ciudad\": \"Cercado, Lima\", \"email\": \"losandes@gmail.com\", \"telefono\": \"+51965432198\", \"num_resenas\": \"22\", \"rating\": \"3.8\", \"sitio_web\": \"\", \"contacto_nombre\": \"\", \"cargo\": \"\", \"estado_sunat\": \"ACTIVO\", \"regimen_tributario\": \"REGIMEN MYPE TRIBUTARIO\", \"score_base\": 35}",
+      "output": "{\"crm_stage\": \"En seguimiento\", \"lead_score\": 47, \"fit_product\": \"dudoso\", \"intent_timeline\": \"30-90d\", \"decision_maker\": \"desconocido\", \"blocker\": \"Sin sitio web ni contacto identificado; email genérico Gmail\", \"next_action\": \"Buscar nombre del decisor antes de contactar\", \"qualification_notes\": \"Ferretería activa en Lima con 22 reseñas y email genérico. Sin contacto identificado ni sitio web. Encaje moderado; necesita completar dato de decisor para avanzar.\", \"draft_subject\": \"Ferretería Los Andes + Pipeline_X — más clientes sin esfuerzo\", \"draft_message\": \"Hola, soy de Pipeline_X 👋 Vi que Los Andes tiene 22 reseñas en Google. Ayudamos a ferreterías a conseguir más clientes B2B de forma automática. ¿Te interesa saber cómo? Escríbeme y coordino una llamada rápida.\", \"qualify_error\": \"\"}"
     },
     {
-      "input": "nombre: Inversiones Holding Alpacas S.A.\ncategoria: Holding financiero\ndireccion: Av. El Sol 200, Cusco\ntelefono: \nemail: \nreseñas: 2\nrating: 3.0\nsitio_web: \nestado_tributario: Baja provisional\ncargo_contacto: ",
-      "output": "{\"crm_stage\": \"Descartado\", \"lead_score\": 8, \"fit_product\": \"no\", \"intent_timeline\": \"desconocido\", \"decision_maker\": \"desconocido\", \"blocker\": \"Holding sin operaciones, estado tributario en baja provisional, sin contacto ni sitio web\", \"next_action\": \"No contactar; archivar\", \"qualification_notes\": \"Holding financiero fuera del ICP operativo. Estado tributario 'Baja provisional' indica inactividad probable. Sin teléfono, email ni sitio web: imposible contactar. Solo 2 reseñas con rating 3.0 confirman baja actividad.\", \"draft_subject\": \"\", \"draft_message\": \"\", \"qualify_error\": \"\"}"
+      "input": "{\"empresa\": \"Gran Holding Lima SAC\", \"industria\": \"Holding\", \"ciudad\": \"San Isidro, Lima\", \"email\": \"\", \"telefono\": \"\", \"num_resenas\": \"3\", \"rating\": \"2.1\", \"sitio_web\": \"\", \"contacto_nombre\": \"\", \"cargo\": \"\", \"estado_sunat\": \"BAJA DEFINITIVA\", \"regimen_tributario\": \"\", \"score_base\": 8}",
+      "output": "{\"crm_stage\": \"Descartado\", \"lead_score\": 5, \"fit_product\": \"no\", \"intent_timeline\": \"desconocido\", \"decision_maker\": \"desconocido\", \"blocker\": \"Estado SUNAT BAJA DEFINITIVA; empresa holding fuera de ICP; sin contacto ni email\", \"next_action\": \"Archivar — no contactar\", \"qualification_notes\": \"Empresa holding con estado SUNAT BAJA DEFINITIVA y sin ningún dato de contacto. Fuera del ICP. Sin posibilidad de avanzar en el pipeline.\", \"draft_subject\": \"\", \"draft_message\": \"\", \"qualify_error\": \"\"}"
     }
-  ]
+  ],
+
+  "channel_notes": {
+    "email": "Genera draft_subject (asunto) y draft_message (cuerpo del email, máximo 100 palabras).",
+    "whatsapp": "draft_subject debe ser string vacío.\ndraft_message es para WhatsApp (≤80 palabras). REGLAS:\n- Menciona el NOMBRE de la empresa\n- Menciona algo específico (rubro, ubicación, rating, reseñas)\n- Propuesta de valor concreta\n- Cierra con pregunta que invite a responder\n- Tono cercano, sin formalidades\n- NO uses frases genéricas como 'agendar 20 minutos'",
+    "both": "Genera draft_subject para email y draft_message que sirva tanto para email como WhatsApp."
+  },
+
+  "country_variations": {
+    "pe": {
+      "name": "Perú",
+      "fiscal_id": "RUC",
+      "fiscal_authority": "SUNAT",
+      "company_types": ["SAC", "SRL", "SA", "EIRL", "MYPE", "MIPYME"],
+      "treatment": "tú (WhatsApp/informal) | usted (email formal/cargo gerencial)",
+      "local_vocab": ["factura", "boleta", "guía de remisión", "RUC", "reseñas", "negocio"],
+      "discard_states": ["BAJA DEFINITIVA", "SUSPENSIÓN TEMPORAL", "BAJA PROVISIONAL"],
+      "score_bonus_regime": {
+        "REGIMEN GENERAL": 8,
+        "REGIMEN MYPE TRIBUTARIO": 5,
+        "REGIMEN ESPECIAL DE RENTA": 2
+      }
+    },
+    "co": {
+      "name": "Colombia",
+      "fiscal_id": "NIT",
+      "fiscal_authority": "DIAN",
+      "company_types": ["SAS", "Ltda", "SA", "unipersonal"],
+      "treatment": "usted (por defecto) | tú (startups tech, contextos muy informales)",
+      "local_vocab": ["factura electrónica", "NIT", "DIAN", "mercado", "empresa", "negocio"],
+      "discard_states": ["INACTIVO", "CANCELADO", "LIQUIDADO"],
+      "score_bonus_regime": {
+        "GRAN CONTRIBUYENTE": 10,
+        "RESPONSABLE IVA": 6,
+        "NO RESPONSABLE IVA": 2
+      }
+    },
+    "mx": {
+      "name": "México",
+      "fiscal_id": "RFC",
+      "fiscal_authority": "SAT",
+      "company_types": ["SA de CV", "S de RL de CV", "SAS", "persona física con actividad empresarial"],
+      "treatment": "tú (digital/startups) | usted (corporativos/empresas tradicionales)",
+      "local_vocab": ["CFDI", "RFC", "SAT", "empresa", "negocio", "cuenta"],
+      "discard_states": ["NO LOCALIZADO", "CANCELADO", "DEFINITIVAMENTE CANCELADO"],
+      "score_bonus_regime": {
+        "RÉGIMEN GENERAL DE LEY": 8,
+        "RÉGIMEN SIMPLIFICADO DE CONFIANZA": 4,
+        "PERSONA FÍSICA": 2
+      }
+    }
+  },
+
+  "output_keys": [
+    "crm_stage",
+    "lead_score",
+    "fit_product",
+    "intent_timeline",
+    "decision_maker",
+    "blocker",
+    "next_action",
+    "qualification_notes",
+    "draft_subject",
+    "draft_message",
+    "qualify_error"
+  ],
+
+  "scoring": {
+    "crm_stage_thresholds": {
+      "Calificado": {"min": 70, "max": 100},
+      "En seguimiento": {"min": 50, "max": 69},
+      "Prospección": {"min": 25, "max": 49},
+      "Descartado": {"min": 0, "max": 24}
+    },
+    "max_pre_score": 70,
+    "score_drift_down": 30,
+    "score_drift_up": 35,
+    "score_floor": 10,
+    "score_ceiling": 95
+  }
 }

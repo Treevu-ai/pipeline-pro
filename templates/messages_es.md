@@ -1,128 +1,136 @@
 # Plantillas de mensajes — Español LatAm
 
-> **Variables disponibles:**
-> - `{PRODUCT}` — nombre del producto (p. ej. `Pipeline_X`)
-> - `{company}` — nombre de la empresa del lead
-> - `{contact_name}` — nombre del contacto (usar "Equipo de [empresa]" si no se conoce)
-> - `{tu_nombre}` — nombre del remitente
-> - `{cargo}` — cargo del remitente
-> - `{tel}` — teléfono / WhatsApp del remitente
->
-> **Firma por defecto:** `Equipo Pipeline_X`
+Estas plantillas son el punto de partida para los mensajes de outreach del agente SDR.
+Reemplaza los placeholders `{...}` con los valores reales antes de enviar.
+
+**Placeholders disponibles:**
+
+| Placeholder | Descripción |
+|---|---|
+| `{company}` | Nombre de la empresa / negocio |
+| `{contact_name}` | Nombre del contacto (puede estar vacío) |
+| `{sender}` | Nombre del representante que envía el mensaje |
+| `{PRODUCT}` | Nombre del producto/servicio ofrecido |
+| `{industry}` | Sector o industria del lead |
+| `{num_resenas}` | Número de reseñas en Google |
+| `{rating}` | Rating en Google (ej. 4.5) |
+| `{city}` | Ciudad del negocio |
+| `{pain_point}` | Dolor específico del sector (completar manualmente) |
+| `{cta}` | Llamada a la acción (ej. "¿Podemos agendar 20 minutos?") |
 
 ---
 
 ## 1. Email formal
 
-**Canal:** `email` | **Tono:** Formal (usted) | **Uso:** Primer contacto B2B profesional
+> **Uso:** Leads con cargo gerencial (Gerente, Director, Socio) o en mercados
+> donde el trato formal es la norma (Colombia, empresas tradicionales de México).
 
 **Asunto:**
 ```
-{PRODUCT}: automatice la prospección de {company} hoy
+{company} + {PRODUCT} — más clientes B2B sin esfuerzo
 ```
 
 **Cuerpo:**
 ```
-Estimado equipo de {company},
+Estimado/a {contact_name},
 
-Mi nombre es {tu_nombre}, {cargo} en {PRODUCT}.
+Mi nombre es {sender} y le escribo desde {PRODUCT}.
 
-Nos comunicamos porque empresas del sector de {company} están usando {PRODUCT} para automatizar la búsqueda y calificación de clientes potenciales — ahorrando hasta 80 % del tiempo en prospección manual.
+Trabajamos con empresas del sector {industry} en LatAm para automatizar su proceso
+de prospección B2B: identificamos negocios calificados, los contactamos y generamos
+oportunidades reales en su pipeline, sin que su equipo dedique horas a búsquedas manuales.
 
-{PRODUCT} encuentra negocios reales en Google Maps, los califica con IA y redacta mensajes de primer contacto personalizados por industria. Todo en minutos, sin necesidad de contratar más personal.
+Vi que {company} tiene {num_resenas} reseñas con un {rating} en Google — una señal de
+negocio sólido y activo. Exactamente el perfil que buscan nuestros clientes como socios.
 
-¿Podemos agendar 20 minutos esta semana para mostrarle cómo funciona?
+{cta}
 
-Quedo a su disposición.
+Quedo atento/a a su respuesta.
 
-{tu_nombre}
-{cargo} | {PRODUCT}
-{tel}
+Cordialmente,
+{sender}
+{PRODUCT}
 ```
 
 ---
 
 ## 2. Email informal
 
-**Canal:** `email` | **Tono:** Informal (tú) | **Uso:** Primer contacto en sectores tech, startups o cuando el lead usa tono relajado
+> **Uso:** Leads en sectores tech, startups, agencias o cuando el tono cercano
+> está permitido (Perú digital, México startup, Colombia tech).
 
 **Asunto:**
 ```
-¿{company} ya automatizó su prospección?
+{company} — ¿automatizamos tu prospección B2B?
 ```
 
 **Cuerpo:**
 ```
-Hola, equipo de {company},
+Hola {contact_name},
 
-Soy {tu_nombre} de {PRODUCT}.
+Soy {sender} de {PRODUCT} 👋
 
-Vi que {company} tiene una buena presencia en Google Maps y quería contarte cómo otras empresas de tu sector están usando {PRODUCT} para encontrar y calificar clientes nuevos en piloto automático.
+Vi que {company} tiene {num_resenas} reseñas en Google con un {rating} en {city} — un
+negocio muy activo en el sector {industry}.
 
-En lugar de buscar leads manualmente, {PRODUCT} lo hace por ti: encuentra negocios en Google Maps, los filtra por industria y redacta el primer mensaje. Tú solo revisas y envías.
+Ayudamos a empresas como la tuya a encontrar más clientes B2B de forma automática, para
+que tu equipo solo hable con negocios que ya están listos para comprar.
 
-¿Te animas a una llamada de 20 minutos esta semana?
+{cta}
 
-Saludos,
-{tu_nombre}
-{cargo} | {PRODUCT}
-{tel}
+¡Gracias por tu tiempo!
+
+{sender}
+{PRODUCT}
 ```
 
 ---
 
 ## 3. WhatsApp corto
 
-**Canal:** `whatsapp` | **Tono:** Directo, informal | **Límite:** ~80 palabras | **Uso:** Primer contacto por WhatsApp (frío o semi-cálido)
+> **Uso:** Primer contacto rápido por WhatsApp. Máximo 80 palabras.
+> Tono directo y cercano. Incluye emoji de apertura.
 
 ```
-Hola 👋 Soy {tu_nombre} de *{PRODUCT}*.
-
-Vi que {company} tiene una gran presencia en Maps. ¿Ya están prospectando clientes nuevos de forma automática?
-
-{PRODUCT} encuentra negocios en Google Maps, los califica con IA y redacta el primer mensaje por ustedes. En minutos, no horas.
-
-¿Les parece si coordinamos 20 min esta semana para mostrarles? 🚀
-
-— Equipo Pipeline_X
+Hola {contact_name} 👋, soy {sender} de {PRODUCT}.
+Vi que {company} tiene {num_resenas} reseñas en Google — ¡buen nivel para {industry}!
+Ayudamos a negocios como el tuyo a conseguir más clientes B2B de forma automática.
+{cta}
 ```
 
 ---
 
 ## 4. WhatsApp detallado
 
-**Canal:** `whatsapp` | **Tono:** Semi-formal | **Límite:** ~150 palabras | **Uso:** Seguimiento o lead que ya mostró interés inicial
+> **Uso:** Seguimiento o cuando el lead ya mostró interés previo.
+> Menciona el pain point específico del sector. Máximo 100 palabras.
 
 ```
-Hola {contact_name} 👋
+Hola {contact_name} 👋, te habla {sender} de {PRODUCT}.
 
-Te escribo de *{PRODUCT}*. Anteriormente te habíamos contactado sobre cómo automatizar la prospección de {company}.
+Vi que {company} en {city} tiene {num_resenas} reseñas con un {rating} — es un negocio
+sólido en {industry}.
 
-Quería compartirte cómo funciona en la práctica:
+Sé que en ese sector el desafío más común es {pain_point}. En {PRODUCT} ayudamos a
+empresas de {industry} a resolverlo encontrando clientes B2B calificados de forma
+automática, sin que tu equipo pierda tiempo en prospectos fríos.
 
-✅ Encuentra empresas cliente en Google Maps por sector y zona
-✅ Las califica automáticamente con IA (score 0–100)
-✅ Redacta el mensaje de primer contacto por ti
-✅ Genera un pipeline limpio con etapas CRM listo para usar
-
-Todo esto en minutos, sin contratar más personal de ventas.
-
-¿Tienen 20 minutos esta semana para verlo en vivo? Puedo compartirte un demo con datos reales de tu sector.
-
-Saludos,
-*{tu_nombre}*
-{cargo} | {PRODUCT}
-📞 {tel}
-
-— Equipo Pipeline_X
+{cta}
 ```
 
 ---
 
 ## Notas de uso
 
-- **Perú:** Usar **usted** en email formal; se puede tutear en WhatsApp si el lead es informal.
-- **Colombia:** Preferir **usted** en todos los canales B2B formales.
-- **México:** **Tú** es aceptable en tecnología y startups; **usted** en construcción, salud y gobierno.
-- Para personalizar el CTA, reemplazar la frase final con el CTA definido en `config.PRODUCT["cta"]`.
-- La firma por defecto es `Equipo Pipeline_X`; reemplazar `{tu_nombre}` y `{cargo}` con datos reales antes de enviar.
+- **Perú:** Usa "tú" en WhatsApp, "usted" en email formal. Menciona SUNAT o RUC solo si
+  es relevante para el contexto.
+- **Colombia:** Preferir "usted" por defecto. Adaptar vocabulario: "empresa" en lugar de
+  "negocio" en contextos formales.
+- **México:** "tú" en canales digitales y startups. "usted" en corporativos.
+  Puedes mencionar el RFC solo si estás hablando de temas de facturación.
+- **Pain points por sector:**
+  - Logística → costos operativos y tiempo de entrega
+  - Retail → rotación de inventario y captación de clientes recurrentes
+  - Construcción → flujo de caja en obra y proveedores confiables
+  - Contabilidad/Consultoría → carga administrativa y captación de nuevos clientes
+  - Transporte → ocupación de flota y contratos B2B estables

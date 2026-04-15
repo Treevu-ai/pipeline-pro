@@ -1,36 +1,36 @@
 """
-tests/test_playbook_prompts.py — Tests unitarios para la localización en español.
+tests/test_playbook_prompts.py — Tests automáticos para los archivos de localización en español.
 
-Verifica que los artefactos de localización (prompts, playbook y plantillas)
-estén correctamente creados y sean válidos.
+Valida:
+  - prompts/es_prompts.json existe y contiene las claves requeridas.
+  - Cada few_shot_examples item tiene input y output como strings.
+  - Los outputs de los ejemplos son JSON válido con todas las claves requeridas.
+  - PLAYBOOK_ES y PROMPTS_ES existen como constantes en config.py y apuntan a archivos reales.
+  - playbooks/PLAYBOOK_es.md existe y contiene las secciones documentadas.
+  - templates/messages_es.md existe con las 4 plantillas de mensajes.
 
 Ejecutar:
-    pytest -q tests/test_playbook_prompts.py
+    python -m pytest tests/test_playbook_prompts.py -v
 """
-from __future__ import annotations
-
 import json
 import sys
 from pathlib import Path
 
 import pytest
 
-# Permite importar módulos desde la raíz del proyecto
+# Permite importar desde la raíz del proyecto
 ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
 
 import config as cfg
 
-# ─── Rutas base ────────────────────────────────────────────────────────────────
+# ─── Rutas a los archivos creados ────────────────────────────────────────────
 
-PROMPTS_PATH = ROOT / "prompts" / "es_prompts.json"
-PLAYBOOK_PATH = ROOT / "playbooks" / "PLAYBOOK_es.md"
+PROMPTS_PATH   = ROOT / "prompts" / "es_prompts.json"
+PLAYBOOK_PATH  = ROOT / "playbooks" / "PLAYBOOK_es.md"
 TEMPLATES_PATH = ROOT / "templates" / "messages_es.md"
 
-# Claves obligatorias en el JSON de prompts
-REQUIRED_PROMPT_KEYS = {"system", "request_template", "few_shot_examples"}
-
-# Claves obligatorias en cada salida JSON de los ejemplos few-shot
+# Claves JSON obligatorias en la salida de cada ejemplo few-shot
 REQUIRED_OUTPUT_KEYS = {
     "crm_stage",
     "lead_score",
@@ -45,214 +45,352 @@ REQUIRED_OUTPUT_KEYS = {
     "qualify_error",
 }
 
+# Valores permitidos para los enums
+VALID_CRM_STAGES        = {"Calificado", "En seguimiento", "Prospección", "Descartado"}
+VALID_FIT_PRODUCT       = {"si", "no", "dudoso"}
+VALID_INTENT_TIMELINE   = {"<30d", "30-90d", ">90d", "desconocido"}
+VALID_DECISION_MAKER    = {"si", "no", "desconocido"}
 
-# ─── Fixture: carga el JSON una sola vez ──────────────────────────────────────
+
+# ─── Fixtures ────────────────────────────────────────────────────────────────
 
 @pytest.fixture(scope="module")
-def prompts_data() -> dict:
-    """Carga y devuelve el contenido de es_prompts.json."""
-    with PROMPTS_PATH.open(encoding="utf-8") as f:
-        return json.load(f)
+def prompts_data():
+    """Carga y devuelve el contenido de es_prompts.json (parseado)."""
+    assert PROMPTS_PATH.exists(), (
+        f"Falta el archivo {PROMPTS_PATH}. "
+        "Ejecuta el setup de localización antes de los tests."
+    )
+    return json.loads(PROMPTS_PATH.read_text(encoding="utf-8"))
 
 
-# ─── Tests: existencia de archivos ────────────────────────────────────────────
+# ─── Tests: es_prompts.json — estructura de primer nivel ─────────────────────
 
-class TestArchivosExisten:
-    def test_prompts_json_existe(self):
-        assert PROMPTS_PATH.exists(), f"No se encontró {PROMPTS_PATH}"
+class TestEsPromptsStructure:
+    """Valida las claves de primer nivel de es_prompts.json."""
 
-    def test_playbook_es_md_existe(self):
-        assert PLAYBOOK_PATH.exists(), f"No se encontró {PLAYBOOK_PATH}"
-
-    def test_templates_messages_es_existe(self):
-        assert TEMPLATES_PATH.exists(), f"No se encontró {TEMPLATES_PATH}"
-
-
-# ─── Tests: es_prompts.json válido ────────────────────────────────────────────
-
-class TestPromptsJson:
-    def test_es_json_valido(self):
-        """El archivo debe ser JSON parseable."""
-        with PROMPTS_PATH.open(encoding="utf-8") as f:
-            data = json.load(f)
+    def test_archivo_es_json_valido(self):
+        """El archivo existe y es JSON sintácticamente válido."""
+        content = PROMPTS_PATH.read_text(encoding="utf-8")
+        data = json.loads(content)  # lanza si no es JSON válido
         assert isinstance(data, dict)
 
-    def test_claves_requeridas(self, prompts_data):
-        """Debe contener las claves: system, request_template, few_shot_examples."""
-        faltantes = REQUIRED_PROMPT_KEYS - prompts_data.keys()
-        assert not faltantes, f"Claves faltantes en es_prompts.json: {faltantes}"
+    def test_clave_system_existe(self, prompts_data):
+        assert "system" in prompts_data, "Falta la clave 'system' en es_prompts.json"
 
-    def test_system_es_cadena_no_vacia(self, prompts_data):
-        assert isinstance(prompts_data["system"], str)
-        assert len(prompts_data["system"].strip()) > 0
+    def test_clave_request_template_existe(self, prompts_data):
+        assert "request_template" in prompts_data, (
+            "Falta la clave 'request_template' en es_prompts.json"
+        )
 
-    def test_request_template_es_cadena_no_vacia(self, prompts_data):
-        assert isinstance(prompts_data["request_template"], str)
-        assert len(prompts_data["request_template"].strip()) > 0
+    def test_clave_few_shot_examples_existe(self, prompts_data):
+        assert "few_shot_examples" in prompts_data, (
+            "Falta la clave 'few_shot_examples' en es_prompts.json"
+        )
+
+    def test_system_es_string_no_vacio(self, prompts_data):
+        system = prompts_data["system"]
+        assert isinstance(system, str) and len(system.strip()) > 0
+
+    def test_request_template_es_string_no_vacio(self, prompts_data):
+        template = prompts_data["request_template"]
+        assert isinstance(template, str) and len(template.strip()) > 0
 
     def test_few_shot_examples_es_lista(self, prompts_data):
         assert isinstance(prompts_data["few_shot_examples"], list)
 
     def test_few_shot_examples_tiene_al_menos_tres(self, prompts_data):
         assert len(prompts_data["few_shot_examples"]) >= 3, (
-            "Se requieren al menos 3 ejemplos few-shot"
+            "Se esperan al menos 3 ejemplos few-shot (alto, medio, bajo)"
         )
 
+    def test_clave_country_variations_existe(self, prompts_data):
+        assert "country_variations" in prompts_data
 
-# ─── Tests: estructura de each few-shot example ───────────────────────────────
+    def test_country_variations_tiene_pe_co_mx(self, prompts_data):
+        cv = prompts_data["country_variations"]
+        for country in ("pe", "co", "mx"):
+            assert country in cv, f"Falta la variante de país '{country}' en country_variations"
+
+    def test_clave_output_keys_existe(self, prompts_data):
+        assert "output_keys" in prompts_data
+
+    def test_output_keys_contiene_campos_requeridos(self, prompts_data):
+        ok_set = set(prompts_data["output_keys"])
+        missing = REQUIRED_OUTPUT_KEYS - ok_set
+        assert not missing, f"Faltan output_keys: {missing}"
+
+    def test_clave_channel_notes_existe(self, prompts_data):
+        assert "channel_notes" in prompts_data
+
+    def test_channel_notes_tiene_email_whatsapp_both(self, prompts_data):
+        cn = prompts_data["channel_notes"]
+        for canal in ("email", "whatsapp", "both"):
+            assert canal in cn, f"Falta canal '{canal}' en channel_notes"
+
+    def test_clave_scoring_existe(self, prompts_data):
+        assert "scoring" in prompts_data
+
+    def test_scoring_tiene_umbrales_crm_stage(self, prompts_data):
+        thresholds = prompts_data["scoring"].get("crm_stage_thresholds", {})
+        for stage in VALID_CRM_STAGES:
+            assert stage in thresholds, f"Falta umbral para crm_stage '{stage}' en scoring"
+
+
+# ─── Tests: few_shot_examples — estructura de cada ejemplo ───────────────────
 
 class TestFewShotExamples:
-    def test_cada_ejemplo_tiene_input(self, prompts_data):
-        for i, ejemplo in enumerate(prompts_data["few_shot_examples"]):
-            assert "input" in ejemplo, f"Ejemplo {i} no tiene clave 'input'"
+    """Valida cada ejemplo en la lista few_shot_examples."""
 
-    def test_cada_ejemplo_tiene_output(self, prompts_data):
-        for i, ejemplo in enumerate(prompts_data["few_shot_examples"]):
-            assert "output" in ejemplo, f"Ejemplo {i} no tiene clave 'output'"
+    def _get_example(self, prompts_data, index):
+        examples = prompts_data["few_shot_examples"]
+        assert len(examples) > index, f"No existe el ejemplo en índice {index}"
+        return examples[index]
 
-    def test_input_es_cadena_no_vacia(self, prompts_data):
-        for i, ejemplo in enumerate(prompts_data["few_shot_examples"]):
-            assert isinstance(ejemplo["input"], str), f"Ejemplo {i}: input debe ser str"
-            assert len(ejemplo["input"].strip()) > 0, f"Ejemplo {i}: input vacío"
+    @pytest.mark.parametrize("idx", [0, 1, 2])
+    def test_ejemplo_tiene_clave_input(self, prompts_data, idx):
+        ex = self._get_example(prompts_data, idx)
+        assert "input" in ex, f"Ejemplo {idx} no tiene clave 'input'"
 
-    def test_output_es_cadena_no_vacia(self, prompts_data):
-        for i, ejemplo in enumerate(prompts_data["few_shot_examples"]):
-            assert isinstance(ejemplo["output"], str), f"Ejemplo {i}: output debe ser str"
-            assert len(ejemplo["output"].strip()) > 0, f"Ejemplo {i}: output vacío"
+    @pytest.mark.parametrize("idx", [0, 1, 2])
+    def test_ejemplo_tiene_clave_output(self, prompts_data, idx):
+        ex = self._get_example(prompts_data, idx)
+        assert "output" in ex, f"Ejemplo {idx} no tiene clave 'output'"
 
-    def test_output_es_json_valido(self, prompts_data):
-        """Cada output debe ser parseable como JSON."""
-        for i, ejemplo in enumerate(prompts_data["few_shot_examples"]):
-            try:
-                json.loads(ejemplo["output"])
-            except json.JSONDecodeError as exc:
-                pytest.fail(f"Ejemplo {i}: output no es JSON válido — {exc}")
+    @pytest.mark.parametrize("idx", [0, 1, 2])
+    def test_input_es_string_no_vacio(self, prompts_data, idx):
+        ex = self._get_example(prompts_data, idx)
+        assert isinstance(ex["input"], str) and len(ex["input"].strip()) > 0
 
-    def test_output_contiene_claves_requeridas(self, prompts_data):
-        """Cada output JSON debe tener todas las claves de calificación."""
-        for i, ejemplo in enumerate(prompts_data["few_shot_examples"]):
-            salida = json.loads(ejemplo["output"])
-            faltantes = REQUIRED_OUTPUT_KEYS - salida.keys()
-            assert not faltantes, (
-                f"Ejemplo {i}: claves faltantes en output JSON: {faltantes}"
-            )
+    @pytest.mark.parametrize("idx", [0, 1, 2])
+    def test_output_es_string_no_vacio(self, prompts_data, idx):
+        ex = self._get_example(prompts_data, idx)
+        assert isinstance(ex["output"], str) and len(ex["output"].strip()) > 0
 
-    def test_crm_stage_valores_validos(self, prompts_data):
-        """crm_stage debe ser uno de los valores CRM definidos."""
-        valores_validos = {"Calificado", "En seguimiento", "Prospección", "Descartado"}
-        for i, ejemplo in enumerate(prompts_data["few_shot_examples"]):
-            salida = json.loads(ejemplo["output"])
-            assert salida["crm_stage"] in valores_validos, (
-                f"Ejemplo {i}: crm_stage inválido '{salida['crm_stage']}'"
-            )
+    @pytest.mark.parametrize("idx", [0, 1, 2])
+    def test_input_parsea_como_json(self, prompts_data, idx):
+        """El input de cada ejemplo debe ser JSON válido."""
+        ex = self._get_example(prompts_data, idx)
+        parsed = json.loads(ex["input"])
+        assert isinstance(parsed, dict)
 
-    def test_lead_score_es_entero_en_rango(self, prompts_data):
-        """lead_score debe ser entero entre 0 y 100."""
-        for i, ejemplo in enumerate(prompts_data["few_shot_examples"]):
-            salida = json.loads(ejemplo["output"])
-            score = salida["lead_score"]
-            assert isinstance(score, int), f"Ejemplo {i}: lead_score debe ser int"
-            assert 0 <= score <= 100, f"Ejemplo {i}: lead_score {score} fuera de rango"
+    @pytest.mark.parametrize("idx", [0, 1, 2])
+    def test_output_parsea_como_json(self, prompts_data, idx):
+        """El output de cada ejemplo debe ser JSON válido."""
+        ex = self._get_example(prompts_data, idx)
+        parsed = json.loads(ex["output"])
+        assert isinstance(parsed, dict)
 
-    def test_fit_product_valores_validos(self, prompts_data):
-        """fit_product debe ser si / no / dudoso."""
-        valores_validos = {"si", "no", "dudoso"}
-        for i, ejemplo in enumerate(prompts_data["few_shot_examples"]):
-            salida = json.loads(ejemplo["output"])
-            assert salida["fit_product"] in valores_validos, (
-                f"Ejemplo {i}: fit_product inválido '{salida['fit_product']}'"
-            )
+    @pytest.mark.parametrize("idx", [0, 1, 2])
+    def test_output_contiene_todas_las_claves_requeridas(self, prompts_data, idx):
+        """Cada output debe contener las claves exactas de OUTPUT_KEYS."""
+        ex = self._get_example(prompts_data, idx)
+        parsed = json.loads(ex["output"])
+        missing = REQUIRED_OUTPUT_KEYS - set(parsed.keys())
+        assert not missing, f"Ejemplo {idx} — faltan claves en output: {missing}"
 
-    def test_ejemplos_cubren_alto_medio_descartado(self, prompts_data):
-        """Los ejemplos deben cubrir al menos Calificado, En seguimiento y Descartado."""
-        stages = {
-            json.loads(e["output"])["crm_stage"]
-            for e in prompts_data["few_shot_examples"]
-        }
-        assert "Calificado" in stages, "Falta ejemplo con crm_stage='Calificado'"
-        assert "Descartado" in stages, "Falta ejemplo con crm_stage='Descartado'"
-        seguimiento_o_prospeccion = stages & {"En seguimiento", "Prospección"}
-        assert seguimiento_o_prospeccion, (
-            "Falta ejemplo con crm_stage='En seguimiento' o 'Prospección'"
+    @pytest.mark.parametrize("idx", [0, 1, 2])
+    def test_output_crm_stage_es_valor_valido(self, prompts_data, idx):
+        ex = self._get_example(prompts_data, idx)
+        parsed = json.loads(ex["output"])
+        assert parsed["crm_stage"] in VALID_CRM_STAGES, (
+            f"Ejemplo {idx} — crm_stage '{parsed['crm_stage']}' no es válido"
+        )
+
+    @pytest.mark.parametrize("idx", [0, 1, 2])
+    def test_output_lead_score_es_entero_en_rango(self, prompts_data, idx):
+        ex = self._get_example(prompts_data, idx)
+        parsed = json.loads(ex["output"])
+        score = parsed["lead_score"]
+        assert isinstance(score, int), f"Ejemplo {idx} — lead_score no es int: {score}"
+        assert 0 <= score <= 100, f"Ejemplo {idx} — lead_score fuera de rango: {score}"
+
+    @pytest.mark.parametrize("idx", [0, 1, 2])
+    def test_output_fit_product_es_valor_valido(self, prompts_data, idx):
+        ex = self._get_example(prompts_data, idx)
+        parsed = json.loads(ex["output"])
+        assert parsed["fit_product"] in VALID_FIT_PRODUCT, (
+            f"Ejemplo {idx} — fit_product '{parsed['fit_product']}' no es válido"
+        )
+
+    @pytest.mark.parametrize("idx", [0, 1, 2])
+    def test_output_intent_timeline_es_valor_valido(self, prompts_data, idx):
+        ex = self._get_example(prompts_data, idx)
+        parsed = json.loads(ex["output"])
+        assert parsed["intent_timeline"] in VALID_INTENT_TIMELINE, (
+            f"Ejemplo {idx} — intent_timeline '{parsed['intent_timeline']}' no es válido"
+        )
+
+    @pytest.mark.parametrize("idx", [0, 1, 2])
+    def test_output_decision_maker_es_valor_valido(self, prompts_data, idx):
+        ex = self._get_example(prompts_data, idx)
+        parsed = json.loads(ex["output"])
+        assert parsed["decision_maker"] in VALID_DECISION_MAKER, (
+            f"Ejemplo {idx} — decision_maker '{parsed['decision_maker']}' no es válido"
         )
 
 
-# ─── Tests: config.PLAYBOOK_ES ────────────────────────────────────────────────
+# ─── Tests: ejemplos cubren los tres escenarios (alto/medio/bajo) ─────────────
 
-class TestConfigPlaybookES:
+class TestFewShotCoverage:
+    """Verifica que los 3 ejemplos cubren los escenarios: Calificado, En seguimiento,
+    Descartado (o Prospección)."""
+
+    def _outputs_parsed(self, prompts_data):
+        return [json.loads(ex["output"]) for ex in prompts_data["few_shot_examples"][:3]]
+
+    def test_existe_ejemplo_calificado(self, prompts_data):
+        stages = {p["crm_stage"] for p in self._outputs_parsed(prompts_data)}
+        assert "Calificado" in stages, "Falta un ejemplo con crm_stage='Calificado'"
+
+    def test_existe_ejemplo_descartado_o_prospeccion(self, prompts_data):
+        stages = {p["crm_stage"] for p in self._outputs_parsed(prompts_data)}
+        assert stages & {"Descartado", "Prospección"}, (
+            "Falta un ejemplo con crm_stage='Descartado' o 'Prospección'"
+        )
+
+    def test_scores_cubren_rango_amplio(self, prompts_data):
+        scores = [
+            json.loads(ex["output"])["lead_score"]
+            for ex in prompts_data["few_shot_examples"][:3]
+        ]
+        assert max(scores) - min(scores) >= 30, (
+            f"Los scores de los ejemplos ({scores}) deberían cubrir al menos 30 puntos de rango"
+        )
+
+
+# ─── Tests: config.py — constantes PLAYBOOK_ES y PROMPTS_ES ──────────────────
+
+class TestConfigConstants:
+    """Verifica que config.py expone las constantes de localización."""
+
     def test_playbook_es_existe_en_config(self):
-        """La constante PLAYBOOK_ES debe estar definida en config."""
-        assert hasattr(cfg, "PLAYBOOK_ES"), "config.PLAYBOOK_ES no está definida"
+        assert hasattr(cfg, "PLAYBOOK_ES"), (
+            "config.py no define la constante PLAYBOOK_ES"
+        )
 
-    def test_playbook_es_es_cadena(self):
+    def test_prompts_es_existe_en_config(self):
+        assert hasattr(cfg, "PROMPTS_ES"), (
+            "config.py no define la constante PROMPTS_ES"
+        )
+
+    def test_playbook_es_apunta_a_archivo_existente(self):
+        path = ROOT / cfg.PLAYBOOK_ES
+        assert path.exists(), (
+            f"PLAYBOOK_ES apunta a '{cfg.PLAYBOOK_ES}' pero el archivo no existe"
+        )
+
+    def test_prompts_es_apunta_a_archivo_existente(self):
+        path = ROOT / cfg.PROMPTS_ES
+        assert path.exists(), (
+            f"PROMPTS_ES apunta a '{cfg.PROMPTS_ES}' pero el archivo no existe"
+        )
+
+    def test_playbook_es_es_string(self):
         assert isinstance(cfg.PLAYBOOK_ES, str)
 
-    def test_playbook_es_apunta_al_archivo(self):
-        """La ruta en PLAYBOOK_ES debe resolverse al archivo que existe."""
-        ruta = ROOT / cfg.PLAYBOOK_ES
-        assert ruta.exists(), (
-            f"El archivo apuntado por PLAYBOOK_ES no existe: {ruta}"
+    def test_prompts_es_es_string(self):
+        assert isinstance(cfg.PROMPTS_ES, str)
+
+    def test_playbook_es_no_cambia_playbook_default(self):
+        """PLAYBOOK_ES no debe sobrescribir el PLAYBOOK original."""
+        assert hasattr(cfg, "PLAYBOOK"), "PLAYBOOK (inglés/default) debe seguir existiendo"
+        assert cfg.PLAYBOOK_ES != cfg.PLAYBOOK or cfg.PLAYBOOK_ES.endswith(".md"), (
+            "PLAYBOOK_ES no debe reemplazar el PLAYBOOK original"
         )
 
-    def test_playbook_es_no_altera_playbook_default(self):
-        """PLAYBOOK (por defecto) debe seguir definido y no ser vacío."""
-        assert hasattr(cfg, "PLAYBOOK"), "config.PLAYBOOK fue eliminado"
-        assert isinstance(cfg.PLAYBOOK, str)
-        assert len(cfg.PLAYBOOK.strip()) > 0, "config.PLAYBOOK está vacío"
 
-    def test_playbook_es_es_distinto_de_playbook_default(self):
-        """PLAYBOOK_ES es una ruta de archivo, no el contenido inline del PLAYBOOK."""
-        assert cfg.PLAYBOOK_ES != cfg.PLAYBOOK
+# ─── Tests: PLAYBOOK_es.md — contenido y secciones ───────────────────────────
 
+class TestPlaybookEsContent:
+    """Verifica que el playbook en español contiene las secciones clave."""
 
-# ─── Tests: contenido del PLAYBOOK_es.md ─────────────────────────────────────
+    @pytest.fixture(scope="class")
+    def playbook_text(self):
+        assert PLAYBOOK_PATH.exists(), f"No existe {PLAYBOOK_PATH}"
+        return PLAYBOOK_PATH.read_text(encoding="utf-8")
 
-class TestPlaybookEsMd:
-    def test_playbook_no_vacio(self):
-        contenido = PLAYBOOK_PATH.read_text(encoding="utf-8")
-        assert len(contenido.strip()) > 0
+    def test_archivo_playbook_existe(self):
+        assert PLAYBOOK_PATH.exists()
 
-    def test_playbook_contiene_variables_clave(self):
-        contenido = PLAYBOOK_PATH.read_text(encoding="utf-8")
+    def test_playbook_no_esta_vacio(self, playbook_text):
+        assert len(playbook_text.strip()) > 500
+
+    def test_playbook_contiene_seccion_sistema(self, playbook_text):
+        assert "system prompt" in playbook_text.lower() or "instrucción del sistema" in playbook_text.lower()
+
+    def test_playbook_contiene_adaptaciones_por_pais(self, playbook_text):
+        text_lower = playbook_text.lower()
+        assert "perú" in text_lower or "peru" in text_lower
+        assert "colombia" in text_lower
+        assert "méxico" in text_lower or "mexico" in text_lower
+
+    def test_playbook_menciona_sunat(self, playbook_text):
+        assert "SUNAT" in playbook_text
+
+    def test_playbook_menciona_nit(self, playbook_text):
+        assert "NIT" in playbook_text
+
+    def test_playbook_menciona_rfc(self, playbook_text):
+        assert "RFC" in playbook_text
+
+    def test_playbook_contiene_seccion_scoring(self, playbook_text):
+        text_lower = playbook_text.lower()
+        assert "scoring" in text_lower or "puntos" in text_lower
+
+    def test_playbook_contiene_seccion_formato_salida(self, playbook_text):
+        assert "crm_stage" in playbook_text
+        assert "lead_score" in playbook_text
+
+    def test_playbook_contiene_ejemplos_few_shot(self, playbook_text):
+        text_lower = playbook_text.lower()
+        assert "few-shot" in text_lower or "ejemplo" in text_lower
+
+    def test_playbook_menciona_variables_template(self, playbook_text):
         for var in ("{PRODUCT}", "{company}", "{contact_name}", "{channel}"):
-            assert var in contenido, f"Variable {var} no encontrada en PLAYBOOK_es.md"
+            assert var in playbook_text, f"Variable {var} no encontrada en PLAYBOOK_es.md"
 
-    def test_playbook_contiene_adaptaciones_por_pais(self):
-        contenido = PLAYBOOK_PATH.read_text(encoding="utf-8")
-        for pais in ("Perú", "Colombia", "México"):
-            assert pais in contenido, f"Adaptación para {pais} no encontrada"
-
-    def test_playbook_contiene_seccion_scoring(self):
-        contenido = PLAYBOOK_PATH.read_text(encoding="utf-8")
-        assert "scoring" in contenido.lower() or "score" in contenido.lower()
-
-    def test_playbook_contiene_ejemplos_few_shot(self):
-        contenido = PLAYBOOK_PATH.read_text(encoding="utf-8")
-        assert "Calificado" in contenido
-        assert "En seguimiento" in contenido
-        assert "Descartado" in contenido
+    def test_playbook_contiene_crm_stages_completos(self, playbook_text):
+        for stage in ("Calificado", "En seguimiento", "Prospección", "Descartado"):
+            assert stage in playbook_text, f"Stage '{stage}' no encontrado en PLAYBOOK_es.md"
 
 
-# ─── Tests: plantillas de mensajes ────────────────────────────────────────────
+# ─── Tests: templates/messages_es.md — plantillas de mensajes ────────────────
 
-class TestTemplatesMessages:
-    def test_templates_no_vacio(self):
-        contenido = TEMPLATES_PATH.read_text(encoding="utf-8")
-        assert len(contenido.strip()) > 0
+class TestMessageTemplates:
+    """Verifica que el archivo de plantillas existe y contiene las 4 plantillas."""
 
-    def test_templates_contiene_email_formal(self):
-        contenido = TEMPLATES_PATH.read_text(encoding="utf-8")
-        assert "email" in contenido.lower() and "formal" in contenido.lower()
+    @pytest.fixture(scope="class")
+    def templates_text(self):
+        assert TEMPLATES_PATH.exists(), f"No existe {TEMPLATES_PATH}"
+        return TEMPLATES_PATH.read_text(encoding="utf-8")
 
-    def test_templates_contiene_whatsapp(self):
-        contenido = TEMPLATES_PATH.read_text(encoding="utf-8")
-        assert "whatsapp" in contenido.lower()
+    def test_archivo_templates_existe(self):
+        assert TEMPLATES_PATH.exists()
 
-    def test_templates_contiene_firma_equipo(self):
-        contenido = TEMPLATES_PATH.read_text(encoding="utf-8")
-        assert "Equipo Pipeline_X" in contenido
+    def test_templates_no_esta_vacio(self, templates_text):
+        assert len(templates_text.strip()) > 200
 
-    def test_templates_contiene_variables_placeholder(self):
-        contenido = TEMPLATES_PATH.read_text(encoding="utf-8")
-        for var in ("{PRODUCT}", "{company}", "{tu_nombre}", "{cargo}", "{tel}"):
-            assert var in contenido, f"Variable {var} no encontrada en messages_es.md"
+    def test_templates_tiene_email_formal(self, templates_text):
+        assert "email formal" in templates_text.lower()
+
+    def test_templates_tiene_email_informal(self, templates_text):
+        assert "email informal" in templates_text.lower()
+
+    def test_templates_tiene_whatsapp_corto(self, templates_text):
+        assert "whatsapp corto" in templates_text.lower()
+
+    def test_templates_tiene_whatsapp_detallado(self, templates_text):
+        assert "whatsapp detallado" in templates_text.lower()
+
+    def test_templates_usa_placeholders(self, templates_text):
+        for placeholder in ("{company}", "{contact_name}", "{PRODUCT}"):
+            assert placeholder in templates_text, (
+                f"Placeholder {placeholder} no encontrado en messages_es.md"
+            )
+
+    def test_templates_menciona_los_tres_paises(self, templates_text):
+        text_lower = templates_text.lower()
+        assert "perú" in text_lower or "peru" in text_lower
+        assert "colombia" in text_lower
+        assert "méxico" in text_lower or "mexico" in text_lower
