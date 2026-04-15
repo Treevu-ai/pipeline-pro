@@ -219,6 +219,12 @@ CRITERIOS DE CALIFICACIÓN:
 - "Descartado": fuera de ICP, sin forma de contacto, o negocio con señales negativas (liquidación, holding sin operaciones).
 """
 
+# ─── Playbook en español (localización LatAm) ────────────────────────────────
+# Ruta al playbook en español. No afecta el comportamiento por defecto.
+# Para usar: import config as cfg; open(cfg.PLAYBOOK_ES).read()
+# El archivo se carga sólo si existe y si el código lo invoca explícitamente.
+PLAYBOOK_ES = "playbooks/PLAYBOOK_es.md"
+
 # ─── Columnas de salida que el agente produce ────────────────────────────────
 OUTPUT_KEYS = (
     "crm_stage",           # Prospección | Calificado | En seguimiento | Descartado
