@@ -645,10 +645,17 @@ app.mount("/reports", StaticFiles(directory=str(REPORTS_DIR)), name="reports")
 
 @app.get("/r/{token}", include_in_schema=False)
 async def short_report_redirect(token: str):
-    """Redirect corto: /r/TOKEN → /reports/TOKEN.pdf"""
+    """Redirect corto: /r/TOKEN → /reports/TOKEN.pdf y loguea apertura."""
     path = REPORTS_DIR / f"{token}.pdf"
     if not path.exists():
         raise HTTPException(status_code=404, detail="Reporte no encontrado o expirado")
+    # Loguear apertura en background (no bloquear el redirect)
+    try:
+        phone = await asyncio.to_thread(_db.get_phone_by_report_token, token)
+        if phone:
+            _db.log_event(phone, _db.EventType.WA_REPORT_OPENED, {"token": token})
+    except Exception:
+        pass
     return RedirectResponse(url=f"/reports/{token}.pdf")
 
 def _get_allowed_origins() -> list[str]:
@@ -1732,6 +1739,7 @@ async def _deliver_and_notify_wa(phone: str, target: str) -> None:
         _db.log_event(phone, _db.EventType.WA_REPORT_DELIVERED, {
             "target": target, "leads": len(leads),
             "qualified": n_qualified, "paid": is_paid,
+            "token": token,
         })
 
         # Notificación a admins via PipeAssist (bot interno)
@@ -1778,6 +1786,27 @@ async def _deliver_and_notify_wa(phone: str, target: str) -> None:
                 log.warning("feedback send error phone=%s: %s", phone, fb_exc)
 
         asyncio.create_task(_send_feedback_delayed())
+
+        # ── Check 2h: si no hubo interacción desde el PDF, preguntar si lo abrió ─
+        async def _send_2h_check() -> None:
+            await asyncio.sleep(7200)  # 2 horas
+            try:
+                current = wa_bot._get_session(phone)
+                # Solo enviar si sigue en "done" o "feedback_prompted" (sin acción nueva)
+                if current.get("state") not in ("done", "feedback_prompted"):
+                    log.info("2h check skip: phone=%s state=%s", phone, current.get("state"))
+                    return
+                import wa_sender as _ws
+                from messages import MSG as _MSG
+                await asyncio.to_thread(
+                    _ws.send_text, phone,
+                    _MSG["report_check_2h"].format(name=user_name),
+                )
+                log.info("2h check enviado: phone=%s", phone)
+            except Exception as exc2:
+                log.warning("2h check error phone=%s: %s", phone, exc2)
+
+        asyncio.create_task(_send_2h_check())
 
     except BaseException as exc:
         # Cancelar mensajes de progreso pendientes (t1 puede no estar definido si el error
@@ -2849,3 +2878,46 @@ async def admin_delete_subscriber(phone: str, request: Request):
     return {"phone": phone, "deleted": deleted}
 
 
+
+
+@app.get("/admin/delivered-reports", tags=["Admin"],
+         summary="Lista reportes WA entregados (requiere X-Admin-Key)")
+async def admin_delivered_reports(request: Request, limit: int = 50):
+    """
+    Lista los últimos reportes entregados por WhatsApp.
+    Útil para identificar usuarios que recibieron PDFs con bugs y necesitan reenvío.
+    """
+    _check_admin_api_key(request)
+    reports = await asyncio.to_thread(_db.get_delivered_reports, limit)
+    return {"total": len(reports), "reports": reports}
+
+
+@app.post("/admin/resend-report/{phone}", tags=["Admin"], status_code=202,
+          summary="Reenvía el último reporte corregido a un número (requiere X-Admin-Key)")
+async def admin_resend_report(phone: str, request: Request):
+    """
+    Reenvía el último reporte registrado para el número dado.
+    Regenera el PDF desde cero con los datos originales — útil tras un fix de bug.
+    """
+    _check_admin_api_key(request)
+    phone = phone.strip().replace("+", "").replace(" ", "")
+
+    reports = await asyncio.to_thread(_db.get_delivered_reports, 100)
+    last = next((r for r in reports if r["phone"] == phone), None)
+    if not last:
+        raise HTTPException(status_code=404, detail=f"No se encontraron reportes para {phone}")
+
+    target = last["target"]
+    if not target:
+        raise HTTPException(status_code=422, detail="El reporte no tiene target guardado")
+
+    log.info("Admin resend: phone=%s target=%s", phone, target)
+    import wa_sender
+    await asyncio.to_thread(
+        wa_sender.send_text, phone,
+        f"👋 Hola, detectamos un error técnico en tu reporte anterior de *{target}*.\n\n"
+        f"Los nombres y teléfonos no se mostraban correctamente. Ya está corregido.\n\n"
+        f"Te enviamos uno nuevo ahora mismo 🔧"
+    )
+    asyncio.create_task(_deliver_and_notify_wa(phone, target))
+    return {"ok": True, "phone": phone, "target": target}

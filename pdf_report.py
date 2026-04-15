@@ -405,13 +405,23 @@ def _page_cta(pdf: _PipelineXPDF) -> None:
 
     pdf.set_y(y_card + 56)
 
-    # URL
-    pdf.set_x(10)
-    pdf.set_font(_FONT_FAMILY, "B", 15)
-    pdf.set_text_color(*_PURPLE)
-    pdf.cell(0, 10, "pipelinex.app/#pricing", align="C", ln=1)
+    # CTA: botón WhatsApp directo
+    import os, urllib.parse
+    wa_phone = re.sub(r"[\s\+\-]", "", os.environ.get("WA_BOT_PHONE", ""))
+    wa_text  = urllib.parse.quote("QUIERO STARTER")
+    wa_link  = f"https://wa.me/{wa_phone}?text={wa_text}" if wa_phone else "https://pipelinex.app/#pricing"
 
-    pdf.ln(6)
+    pdf.set_x(10)
+    pdf.set_font(_FONT_FAMILY, "B", 12)
+    pdf.set_text_color(*_GREEN)
+    pdf.cell(0, 8, "👉 Escríbenos 'QUIERO STARTER' por WhatsApp", align="C", link=wa_link, ln=1)
+
+    pdf.set_x(10)
+    pdf.set_font(_FONT_FAMILY, "", 8)
+    pdf.set_text_color(*_PURPLE)
+    pdf.cell(0, 6, "pipelinex.app/#pricing", align="C", link="https://pipelinex.app/#pricing", ln=1)
+
+    pdf.ln(4)
 
     # Garantia
     pdf.set_fill_color(*_LGREEN)

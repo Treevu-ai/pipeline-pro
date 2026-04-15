@@ -138,6 +138,13 @@ MSG: dict[str, str] = {
         "Cuando quieras otro reporte, dime rubro y ciudad y lo mejoramos."
     ),
 
+    # ── Check 2h post-PDF ────────────────────────────────────────────────────
+    "report_check_2h": (
+        "👋 {name}, ¿ya revisaste tu reporte?\n\n"
+        "Si tienes alguna duda sobre los negocios que encontramos, o quieres "
+        "ajustar el rubro o la zona, aquí estoy 👇"
+    ),
+
     # ── Followup 24h ─────────────────────────────────────────────────────────
     "followup_24h": (
         "👋 Hola {name}, soy Pipeline_X de nuevo.\n\n"

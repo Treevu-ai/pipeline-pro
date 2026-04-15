@@ -824,6 +824,7 @@ class EventType:
     SUBSCRIBER_ACTIVATED  = "subscriber_activated"
     SUBSCRIBER_CANCELLED  = "subscriber_cancelled"
     WA_UNSUBSCRIBED       = "wa_unsubscribed"
+    WA_REPORT_OPENED      = "wa_report_opened"
 
 
 def get_followup_candidates(hours_min: int = 23, hours_max: int = 25) -> list[str]:
@@ -1568,3 +1569,52 @@ def is_wa_rate_limited(phone: str, max_per_min: int = 3) -> bool:
     except Exception as exc:
         log.warning("is_wa_rate_limited(%s): DB error, allowing message: %s", phone, exc)
         return False
+
+
+def get_phone_by_report_token(token: str) -> str | None:
+    """Busca el phone que generó un reporte dado su token."""
+    if not _USE_DB:
+        return None
+    try:
+        with _conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT phone FROM events
+                    WHERE event_type = %s
+                      AND metadata->>'token' = %s
+                    ORDER BY created_at DESC LIMIT 1
+                """, (EventType.WA_REPORT_DELIVERED, token))
+                row = cur.fetchone()
+                return row[0] if row else None
+    except Exception as exc:
+        log.warning("get_phone_by_report_token(%s): %s", token, exc)
+        return None
+
+
+def get_delivered_reports(limit: int = 50) -> list[dict]:
+    """Devuelve los últimos reportes WA entregados con phone, target, token y timestamp."""
+    if not _USE_DB:
+        return []
+    try:
+        with _conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT phone, metadata, created_at FROM events
+                    WHERE event_type = %s
+                    ORDER BY created_at DESC LIMIT %s
+                """, (EventType.WA_REPORT_DELIVERED, limit))
+                rows = []
+                for phone, meta, created_at in cur.fetchall():
+                    rows.append({
+                        "phone":      phone,
+                        "target":     meta.get("target", ""),
+                        "token":      meta.get("token", ""),
+                        "leads":      meta.get("leads", 0),
+                        "qualified":  meta.get("qualified", 0),
+                        "paid":       meta.get("paid", False),
+                        "created_at": created_at.isoformat() if created_at else "",
+                    })
+                return rows
+    except Exception as exc:
+        log.error("get_delivered_reports: %s", exc)
+        return []
