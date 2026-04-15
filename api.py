@@ -54,6 +54,11 @@ import constants as const
 log = logging.getLogger("api")
 
 API_PUBLIC_URL = os.environ.get("API_PUBLIC_URL") or os.environ.get("BASE_URL") or "https://agentepyme-api-production.up.railway.app"
+if not (os.environ.get("API_PUBLIC_URL") or os.environ.get("BASE_URL")):
+    logging.getLogger("api").warning(
+        "API_PUBLIC_URL y BASE_URL no configuradas — usando fallback hardcodeado. "
+        "Configura API_PUBLIC_URL en las variables de entorno."
+    )
 REPORTS_DIR = Path("output/reports")
 REPORTS_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -1003,7 +1008,7 @@ async def generate_referral(request: Request):
     if not code_info:
         raise HTTPException(status_code=500, detail="Error generando código de referido")
     
-    base_url = os.environ.get("BASE_URL", "https://pipelinex.app")
+    base_url = os.environ.get("BASE_URL") or API_PUBLIC_URL
     share_url = f"{base_url}?ref={code_info['code']}"
     
     return ReferralCodeResponse(
@@ -1518,8 +1523,8 @@ async def _notion_mark_delivered(target: str) -> None:
                 },
                 json={"properties": {"Estado": {"select": {"name": "Entregado"}}}},
             )
-    except Exception:
-        pass  # No bloquear la entrega si Notion falla
+    except Exception as exc:
+        log.warning("Notion update failed (non-blocking): %s", exc)
 
 
 async def _deliver_and_notify(query: str, chat_id: int, limit: int, channel: str, enrich_sunat: bool) -> None:
@@ -1593,8 +1598,8 @@ async def _deliver_and_notify_wa(phone: str, target: str) -> None:
         await asyncio.sleep(delay)
         try:
             await asyncio.to_thread(wa_sender.send_text, phone, text)
-        except Exception:
-            pass
+        except Exception as exc:
+            log.debug("_progress_msg send failed (non-blocking): %s", exc)
 
     try:
         subscriber  = await asyncio.to_thread(_db.get_subscriber, phone)
