@@ -29,16 +29,3 @@ jobs:
       - name: Run tests
         run: pytest tests/ -x --ignore=tests/test_admin_api.py --tb=short
 
-  deploy:
-    needs: test
-    runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
-    steps:
-      - uses: actions/checkout@v4
-      
-      - name: Deploy to Railway
-        uses: railway-apps/cli@v3
-        with:
-          args: up --detach
-        env:
-          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
