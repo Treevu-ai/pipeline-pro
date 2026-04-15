@@ -72,7 +72,7 @@ def _recover_stale_jobs() -> None:
                 cur.execute("""
                     UPDATE pipeline_jobs
                        SET status = 'failed',
-                           error  = 'Proceso interrumpido por reinicio del servidor',
+                           error_msg = 'Proceso interrumpido por reinicio del servidor',
                            finished_at = NOW()
                      WHERE status IN ('running', 'pending')
                 """)
