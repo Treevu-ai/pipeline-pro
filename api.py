@@ -1079,7 +1079,7 @@ def _run_scrape(query: str, limit: int, enrich_web: bool, enrich_sunat: bool) ->
 
 def _run_qualify(leads: list[dict], channel: str) -> list[dict]:
     from sdr_agent import qualify_row, pre_score
-    return [qualify_row(lead, channel, pre_score(lead)) for lead in leads]
+    return [{**lead, **qualify_row(lead, channel, pre_score(lead))} for lead in leads]
 
 
 def _run_enrich(leads: list[dict]) -> list[dict]:
