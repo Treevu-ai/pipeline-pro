@@ -19,14 +19,12 @@ import logging
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 import config as cfg
 import constants as const
 import exceptions as exc
-import models
 import utils
 from scraper import fetch_html
 
@@ -685,7 +683,7 @@ def main() -> None:
     with_personal_guess = sum(1 for l in enriched if l.get(const.ColumnNames.EMAIL_PERSONAL_GUESS))
 
     print(f"\n{'=' * 56}")
-    print(f"  ENRIQUECIMIENTO COMPLETADO")
+    print("  ENRIQUECIMIENTO COMPLETADO")
     print(f"{'=' * 56}")
     print(f"  Leads procesados           : {len(enriched)}")
     print(f"  Con email web              : {with_email_web}")

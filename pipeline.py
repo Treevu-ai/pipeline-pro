@@ -21,11 +21,10 @@ from typing import Any
 import config as cfg
 import constants as const
 import exceptions as exc
-import models
 
 # Importar módulos directamente en lugar de ejecutar como subprocesses
 from scraper import scrape_google_maps, enrich_leads as enrich_leads_scraper, save_leads
-from sdr_agent import qualify_row, pre_score, should_skip, generate_html_report
+from sdr_agent import qualify_row, pre_score, generate_html_report
 import pandas as pd
 
 log = logging.getLogger("pipeline")
@@ -47,7 +46,6 @@ def qualify_leads(leads: list[dict[str, Any]], channel: str, delay: float = 0.3,
         Lista de leads calificados.
     """
     from concurrent.futures import ThreadPoolExecutor, as_completed
-    import threading
     import time
 
     total = len(leads)
@@ -242,7 +240,7 @@ def main() -> None:
     # ── Paso 3: Enriquecimiento de contactos (opcional) ───────────────────────
     if args.enrich_contacts:
         print(f"\n{'='*54}")
-        print(f"  PASO 3 / 3 — ENRIQUECIMIENTO DE CONTACTOS")
+        print("  PASO 3 / 3 — ENRIQUECIMIENTO DE CONTACTOS")
         print(f"  Entrada: {qualified_csv.name}")
         print(f"  Salida : {enriched_csv.name}")
         print(f"{'='*54}\n")
@@ -269,7 +267,7 @@ def main() -> None:
         with_personal_guess = sum(1 for l in enriched if l.get(const.ColumnNames.EMAIL_PERSONAL_GUESS))
 
         print(f"\n{'=' * 56}")
-        print(f"  ENRIQUECIMIENTO DE CONTACTOS COMPLETADO")
+        print("  ENRIQUECIMIENTO DE CONTACTOS COMPLETADO")
         print(f"{'=' * 56}")
         print(f"  Con email web              : {with_email_web}")
         print(f"  Con teléfono web           : {with_phone_web}")
@@ -281,7 +279,7 @@ def main() -> None:
 
     # ── Resumen final ─────────────────────────────────────────────────────────
     print(f"\n{'='*54}")
-    print(f"  PIPELINE COMPLETADO")
+    print("  PIPELINE COMPLETADO")
     print(f"{'='*54}")
     print(f"  Leads scrapeados : {raw_csv}")
     print(f"  Leads calificados: {qualified_csv}")

@@ -75,7 +75,7 @@ def test_health_ok():
 
 @needs_live
 def test_stats_sin_key_returns_403():
-    import urllib.request, json
+    import urllib.request
     req = urllib.request.Request(f"{BASE_URL}/admin/stats")
     try:
         urllib.request.urlopen(req, timeout=10)

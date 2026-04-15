@@ -6,7 +6,6 @@ en la aplicación para un manejo de errores más específico.
 """
 from __future__ import annotations
 
-from constants import ExitCodes  # re-exportado para uso como exc.ExitCodes
 
 
 # ─── Excepción base ───────────────────────────────────────────────────────────

@@ -29,7 +29,6 @@ from typing import Any
 import constants as const
 import config as cfg
 import exceptions as exc
-import models
 import utils
 
 log = logging.getLogger("scraper")
@@ -289,7 +288,7 @@ async def _search_via_apify(query: str, limit: int) -> list[dict[str, Any]]:
         return []
 
     try:
-        import httpx, time
+        import httpx
         _APIFY_ACTOR_TIMEOUT_S  = 60    # Apify interno: abortar actor si tarda >60s
         _APIFY_HTTP_TIMEOUT_S   = 120   # httpx: límite duro del lado cliente
         actor_id = "compass~crawler-google-places"
@@ -873,7 +872,7 @@ def main() -> None:
     with_email = sum(1 for l in leads if l.get(const.ColumnNames.EMAIL))
     with_phone = sum(1 for l in leads if l.get(const.ColumnNames.TELEFONO))
     print(f"\n{'=' * 48}")
-    print(f"  SCRAPING COMPLETADO")
+    print("  SCRAPING COMPLETADO")
     print(f"{'=' * 48}")
     print(f"  Query      : {args.query}")
     print(f"  Leads      : {len(leads)}")
@@ -881,7 +880,7 @@ def main() -> None:
     print(f"  Con telefono: {with_phone}")
     print(f"  Guardado en: {out_path}")
     print(f"{'=' * 48}")
-    print(f"\nSiguiente paso:")
+    print("\nSiguiente paso:")
     print(f"  python sdr_agent.py {out_path} output/leads_calificados.csv --report\n")
 
 

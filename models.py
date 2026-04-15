@@ -5,7 +5,6 @@ Este módulo define las estructuras de datos utilizadas en la aplicación.
 """
 from __future__ import annotations
 
-import html
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from typing import Any, Optional
