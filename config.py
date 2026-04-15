@@ -25,8 +25,13 @@ GROQ = {
 }
 
 # ─── Google Places API ───────────────────────────────────────────────────────
+GOOGLE_PLACES_API_KEY: str = os.environ.get("GOOGLE_PLACES_API_KEY", "")
+
 # ─── Apify (Google Maps scraper sin GCP) ─────────────────────────────────────
+APIFY_API_KEY: str = os.environ.get("APIFY_API_KEY", "")
+
 # ─── SerpApi (Google Maps scraper, alternativa a Apify) ──────────────────────
+SERPAPI_API_KEY: str = os.environ.get("SERPAPI_API_KEY", "")
 # ─── Tu producto ─────────────────────────────────────────────────────────────
 PRODUCT = {
     "name": "Pipeline_X",
