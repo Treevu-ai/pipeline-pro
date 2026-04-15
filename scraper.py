@@ -289,8 +289,8 @@ async def _search_via_apify(query: str, limit: int) -> list[dict[str, Any]]:
 
     try:
         import httpx
-        _APIFY_ACTOR_TIMEOUT_S  = 60    # Apify interno: abortar actor si tarda >60s
-        _APIFY_HTTP_TIMEOUT_S   = 120   # httpx: límite duro del lado cliente
+        _APIFY_ACTOR_TIMEOUT_S = cfg.SCRAPING.get("apify_actor_timeout_s", 120)
+        _APIFY_HTTP_TIMEOUT_S  = cfg.SCRAPING.get("apify_http_timeout_s", 180)
         actor_id = "compass~crawler-google-places"
         run_url  = f"https://api.apify.com/v2/acts/{actor_id}/run-sync-get-dataset-items"
         params   = {"token": api_key, "timeout": _APIFY_ACTOR_TIMEOUT_S, "memory": 512}
@@ -314,8 +314,29 @@ async def _search_via_apify(query: str, limit: int) -> list[dict[str, Any]]:
                     _APIFY_HTTP_TIMEOUT_S, query,
                 )
                 raise exc.GoogleMapsError(f"Apify timeout ({_APIFY_HTTP_TIMEOUT_S}s)") from te
-            resp.raise_for_status()
-            items = resp.json()
+
+            if resp.status_code >= 400:
+                log.error(
+                    "Apify HTTP %d para '%s' — body: %s — x-request-id: %s",
+                    resp.status_code,
+                    query,
+                    utils.trunc(resp.text, 2000),
+                    resp.headers.get("x-request-id", "n/a"),
+                )
+                resp.raise_for_status()
+
+            try:
+                items = resp.json()
+            except ValueError as json_err:
+                log.error(
+                    "Apify respuesta JSON inválida para '%s': %s — body: %s",
+                    query, json_err, utils.trunc(resp.text, 500),
+                )
+                return []
+
+        if not isinstance(items, list) or not items:
+            log.warning("Apify returned empty dataset para '%s'", query)
+            return []
 
         leads: list[dict[str, Any]] = []
         for place in items:
