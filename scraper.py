@@ -355,20 +355,20 @@ async def _search_via_apify(query: str, limit: int) -> list[dict[str, Any]]:
                 items = resp.json()
             except ValueError as json_err:
                 log.error(
-                    "Apify returned invalid JSON para '%s': %s — body=%s",
+                    "Apify returned invalid JSON for '%s': %s — body=%s",
                     query, json_err, utils.trunc(resp.text),
                 )
                 return []
 
             if not isinstance(items, list):
                 log.error(
-                    "Apify returned invalid JSON (not a list, got %s) para '%s' — body=%s",
+                    "Apify returned invalid JSON (not a list, got %s) for '%s' — body=%s",
                     type(items).__name__, query, utils.trunc(resp.text),
                 )
                 return []
 
             if not items:
-                log.info("Apify returned empty dataset para '%s'", query)
+                log.info("Apify returned empty dataset for '%s'", query)
                 return []
 
         leads: list[dict[str, Any]] = []

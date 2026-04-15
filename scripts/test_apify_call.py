@@ -46,12 +46,22 @@ _MAX_BODY_CHARS = 2000
 _ACTOR_ID = "compass~crawler-google-places"
 _APIFY_BASE = "https://api.apify.com/v2"
 
+# Allow running the script from the repo root or from within the scripts/ dir.
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
 
-def _trunc(text: str, n: int = _MAX_BODY_CHARS) -> str:
-    """Trunca *text* a *n* caracteres añadiendo un marcador si se cortó."""
-    if len(text) <= n:
-        return text
-    return text[:n] + f"…[truncado, {len(text) - n} chars omitidos]"
+try:
+    from utils import trunc as _utils_trunc
+
+    def _trunc(text: str, n: int = _MAX_BODY_CHARS) -> str:
+        return _utils_trunc(text, n)
+except Exception:
+    def _trunc(text: str, n: int = _MAX_BODY_CHARS) -> str:  # type: ignore[misc]
+        """Fallback truncation used when utils is not importable."""
+        if len(text) <= n:
+            return text
+        return text[:n] + f"…[truncado, {len(text) - n} chars omitidos]"
 
 
 def run_diagnostic(query: str, limit: int, actor_timeout: int, http_timeout: int) -> int:

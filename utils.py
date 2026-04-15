@@ -541,15 +541,15 @@ def truncate_words(text: str, max_words: int, suffix: str = "…") -> str:
 
 # ─── Truncado seguro para logs ────────────────────────────────────────────────
 
-def trunc(s: object, n: int = 2000) -> str:
+def trunc(text: object, n: int = 2000) -> str:
     """
-    Trunca la representación en cadena de *s* a *n* caracteres.
+    Trunca la representación en cadena de *text* a *n* caracteres.
 
     Útil para registrar cuerpos de respuesta HTTP sin llenar los logs con
     payloads muy largos.
 
     Args:
-        s: Valor a representar (se convierte a str si no lo es).
+        text: Valor a representar (se convierte a str si no lo es).
         n: Número máximo de caracteres a devolver (default: 2000).
 
     Returns:
@@ -561,10 +561,10 @@ def trunc(s: object, n: int = 2000) -> str:
         >>> trunc("corto", 100)
         'corto'
     """
-    text = s if isinstance(s, str) else str(s)
-    if len(text) <= n:
-        return text
-    return text[:n] + "…[truncado]"
+    value = text if isinstance(text, str) else str(text)
+    if len(value) <= n:
+        return value
+    return value[:n] + "…[truncado]"
 
 
 # ─── Logging ─────────────────────────────────────────────────────────────────
