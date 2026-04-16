@@ -76,13 +76,9 @@ IMPORTANTE — qué busca Pipeline_X:
 - El cliente de Pipeline_X es una empresa que quiere venderle a otras empresas (B2B).
 
 PLANES (usa estos precios exactos, sin inventar):
-- Free      $0      — 10 leads gratis, sin tarjeta
-- Solo      $19/mes — 30 leads, para freelancers
-- Starter   $39/mes — 200 leads  ← tier principal
-- Pro       $79/mes — 500 leads, acceso API
-- Reseller  $299/mes — 1.000 leads, white-label, multi-cuenta (para agencias)
-- Anual: Starter por $390/año (2 meses gratis)
-- Precio fundador: $29/mes para los primeros 20 clientes (mismas features que Starter)
+- Free      S/0      — 10 leads demo, 1 búsqueda/día, sin tarjeta
+- Starter   S/129/mes — 30 leads, búsquedas ilimitadas, PDF completo  ← tier principal
+- Pro       S/299/mes — 50 leads + API REST, para equipos que automatizan
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 PERSONALIDAD
@@ -131,10 +127,10 @@ Ejemplos:
 ETAPA 5 — MANEJO DE OBJECIONES
 
 "Es muy caro"
-→ "Un SDR humano cuesta $700–900/mes. Pipeline_X desde $39. ¿Cuánto vale conseguir 10 clientes nuevos?"
+→ "Un SDR humano cuesta S/2.500–3.500/mes. Pipeline_X desde S/129. ¿Cuánto vale conseguir 10 clientes nuevos?"
 
 "No tengo tiempo para aprenderlo"
-→ "3 pasos: escribes la búsqueda, esperás 2 min, recibes el CSV con leads y mensajes. Sin config."
+→ "3 pasos: escribes la búsqueda, esperás 2 min, recibes el PDF con leads y mensajes. Sin config."
 
 "¿Funciona para mi industria?"
 → "Si está en Google Maps, Pipeline_X lo encuentra. Retail, logística, salud, construcción y más."
@@ -148,12 +144,10 @@ ETAPA 5 — MANEJO DE OBJECIONES
 ETAPA 6 — CIERRE
 
 Según el tamaño:
-- 1 persona / freelancer: recomienda Solo ($19/mes)
-- Equipo pequeño: recomienda Starter ($39/mes)
-- Equipo de ventas: recomienda Pro ($79/mes)
-- Agencia o multi-cliente: recomienda Reseller ($299/mes)
+- 1 persona / equipo pequeño: recomienda Starter (S/129/mes)
+- Equipo de ventas / necesita API: recomienda Pro (S/299/mes)
 
-Si quiere comprar: "Escríbeme a contacto@pipelinex.io con asunto 'Acceso [Plan]' y te activamos hoy."
+Si quiere comprar: "Escríbeme a contacto@pipelinex.app con asunto 'Acceso [Plan]' y te activamos hoy."
 Si quiere demo: "Puedo generarte 10 leads reales de tu industria ahora mismo. ¿Qué tipo de empresa prospectás?"
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -180,18 +174,16 @@ def kb_start() -> InlineKeyboardMarkup:
 
 def kb_planes() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("Free — $0  (10 leads)",            callback_data="plan_free")],
-        [InlineKeyboardButton("Solo — $19/mes  (30 leads)",       callback_data="plan_solo")],
-        [InlineKeyboardButton("⭐ Starter — $39/mes  (200 leads)", callback_data="plan_starter")],
-        [InlineKeyboardButton("Pro — $79/mes  (500 leads + API)", callback_data="plan_pro")],
-        [InlineKeyboardButton("Reseller — $299/mes  (agencias)",  callback_data="plan_reseller")],
-        [InlineKeyboardButton("🚀 Probar gratis primero",         callback_data="start_demo")],
+        [InlineKeyboardButton("Free — S/0  (10 leads demo)",              callback_data="plan_free")],
+        [InlineKeyboardButton("⭐ Starter — S/129/mes  (30 leads, ilimitado)", callback_data="plan_starter")],
+        [InlineKeyboardButton("Pro — S/299/mes  (50 leads + API REST)",   callback_data="plan_pro")],
+        [InlineKeyboardButton("🚀 Probar gratis primero",                 callback_data="start_demo")],
     ])
 
 def kb_post_demo() -> InlineKeyboardMarkup:
     """Aparece justo después de entregar el PDF de demo."""
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("🚀 Quiero el PDF completo  (Starter $39/mes)", callback_data="demo_upgrade")],
+        [InlineKeyboardButton("🚀 Quiero el PDF completo  (Starter S/129/mes)", callback_data="demo_upgrade")],
         [InlineKeyboardButton("💬 Tengo preguntas",  callback_data="demo_preguntas"),
          InlineKeyboardButton("👎 No fue útil",      callback_data="demo_no_util")],
     ])
@@ -209,12 +201,10 @@ LABELS: dict[str, str] = {
     "start_demo":    "Quiero probar gratis",
     "start_planes":  "Planes y precios",
     "start_info":    "Cómo funciona Pipeline_X",
-    "plan_free":     "Free $0",
-    "plan_solo":     "Solo $19/mes",
-    "plan_starter":  "Starter $39/mes",
-    "plan_pro":      "Pro $79/mes",
-    "plan_reseller": "Reseller $299/mes",
-    "demo_upgrade":  "Quiero los 200 leads completos (Starter)",
+    "plan_free":     "Free S/0",
+    "plan_starter":  "Starter S/129/mes",
+    "plan_pro":      "Pro S/299/mes",
+    "demo_upgrade":  "Quiero el PDF completo (Starter)",
     "demo_preguntas":"Tengo preguntas sobre la demo",
     "demo_no_util":  "No me fue útil",
 }
@@ -502,9 +492,9 @@ async def _deliver_demo(chat_id: int, user_id: int, target: str, context: Contex
     await context.bot.send_message(
         chat_id=chat_id,
         text=(
-            "Esto es el *10% de lo que obtienes con Starter.*\n\n"
-            "— 200 leads/mes · SUNAT · PDF completo\n"
-            "— Todo por $39/mes"
+            "Esto es una muestra. Con Starter obtienes:\n\n"
+            "— 30 leads por búsqueda · búsquedas ilimitadas\n"
+            "— SUNAT · PDF completo · S/129/mes"
         ),
         parse_mode="Markdown",
         reply_markup=kb_post_demo(),
