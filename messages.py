@@ -148,19 +148,19 @@ MSG: dict[str, str] = {
     # ── Followup 24h ─────────────────────────────────────────────────────────
     "followup_24h": (
         "👋 Hola {name}, soy Pipeline_X de nuevo.\n\n"
-        "¿Pudiste contactar a los leads del reporte de ayer?\n\n"
-        "Si quieres mas prospectos o probar con otro rubro, "
+        "¿Pudiste contactar a los leads de *{target}* que te mandé ayer?\n\n"
+        "Si quieres más prospectos o probar con otro rubro, "
         "con el plan *Starter (S/129/mes)* tienes reportes ilimitados 🚀\n\n"
-        "Responde *demo* para una nueva busqueda gratis "
+        "Responde *demo* para una nueva búsqueda gratis "
         "o *upgrade* para activar tu plan."
     ),
 
     # ── Followup día 3 ─────────────────────────────────────────────────────────
     "followup_3d": (
-        "Hola {name}, queria saber si la lista que te prepare te fue util.\n\n"
-        "Muchos-duenos de negocios como tu empiezan a ver resultados concretos durante la primera semana.\n\n"
-        "Si deseas, puedo generarte otra lista gratuita en una zona o rubro diferente, "
-        "o explicarte los beneficios del Plan Starter para que tengas acceso ilimitado.\n\n"
+        "Hola {name}, quería saber si el reporte de *{target}* te fue útil.\n\n"
+        "Muchos dueños de negocios como tú empiezan a ver resultados concretos en la primera semana.\n\n"
+        "Si quieres, puedo generarte otra lista gratuita en una zona o rubro diferente, "
+        "o contarte los beneficios del Plan Starter para que tengas acceso ilimitado.\n\n"
         "¿En qué te puedo apoyar hoy?"
     ),
 

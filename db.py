@@ -827,9 +827,9 @@ class EventType:
     WA_REPORT_OPENED      = "wa_report_opened"
 
 
-def get_followup_candidates(hours_min: int = 23, hours_max: int = 25) -> list[str]:
+def get_followup_candidates(hours_min: int = 23, hours_max: int = 25) -> list[tuple[str, str]]:
     """
-    Devuelve teléfonos de usuarios que:
+    Devuelve lista de (phone, target) de usuarios que:
       - Recibieron un reporte hace entre hours_min y hours_max horas
       - NO son suscriptores activos
       - NO recibieron ya un followup en las últimas 48h
@@ -840,7 +840,9 @@ def get_followup_candidates(hours_min: int = 23, hours_max: int = 25) -> list[st
         with _conn() as conn:
             with conn.cursor() as cur:
                 cur.execute("""
-                    SELECT DISTINCT e.phone
+                    SELECT DISTINCT ON (e.phone)
+                           e.phone,
+                           e.data->>'target' AS target
                     FROM events e
                     WHERE e.event_type = %s
                       AND e.phone IS NOT NULL
@@ -857,21 +859,22 @@ def get_followup_candidates(hours_min: int = 23, hours_max: int = 25) -> list[st
                             AND f.event_type = %s
                             AND f.created_at > now() - INTERVAL '48 hours'
                       )
+                    ORDER BY e.phone, e.created_at DESC
                 """, (
                     EventType.WA_REPORT_DELIVERED,
                     f"{hours_max} hours",
                     f"{hours_min} hours",
                     EventType.WA_FOLLOWUP_SENT,
                 ))
-                return [row[0] for row in cur.fetchall()]
+                return [(row[0], row[1] or "") for row in cur.fetchall()]
     except Exception as exc:
         log.error("get_followup_candidates: %s", exc)
         return []
 
 
-def get_followup_3d_candidates() -> list[str]:
+def get_followup_3d_candidates() -> list[tuple[str, str]]:
     """
-    Devuelve teléfonos de usuarios que:
+    Devuelve lista de (phone, target) de usuarios que:
       - Recibieron un reporte hace entre 72 y 96 horas (3-4 días)
       - NO son suscriptores activos
       - NO recibieron ya un followup de 3 días
@@ -882,7 +885,9 @@ def get_followup_3d_candidates() -> list[str]:
         with _conn() as conn:
             with conn.cursor() as cur:
                 cur.execute("""
-                    SELECT DISTINCT e.phone
+                    SELECT DISTINCT ON (e.phone)
+                           e.phone,
+                           e.data->>'target' AS target
                     FROM events e
                     WHERE e.event_type = %s
                       AND e.phone IS NOT NULL
@@ -899,11 +904,12 @@ def get_followup_3d_candidates() -> list[str]:
                             AND f.event_type = %s
                             AND f.created_at > now() - INTERVAL '72 hours'
                       )
+                    ORDER BY e.phone, e.created_at DESC
                 """, (
                     EventType.WA_REPORT_DELIVERED,
                     EventType.WA_FOLLOWUP_3D_SENT,
                 ))
-                return [row[0] for row in cur.fetchall()]
+                return [(row[0], row[1] or "") for row in cur.fetchall()]
     except Exception as exc:
         log.error("get_followup_3d_candidates: %s", exc)
         return []

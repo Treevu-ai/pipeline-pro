@@ -250,7 +250,7 @@ async def _followup_loop() -> None:
                 log.info("Followup 24h: %d candidatos", len(candidates))
             # Obtener phones unsubscribed una sola vez antes del loop
             unsubscribed = await asyncio.to_thread(_db.get_unsubscribed_phones)
-            for phone in candidates:
+            for phone, target in candidates:
                 if phone in unsubscribed:
                     log.info("Followup omitido (unsubscribed): phone=%s", phone)
                     await asyncio.sleep(2)
@@ -264,7 +264,7 @@ async def _followup_loop() -> None:
                         user_name = "amigo"
                     await asyncio.to_thread(
                         wa_sender.send_text, phone,
-                        MSG["followup_24h"].format(name=user_name)
+                        MSG["followup_24h"].format(name=user_name, target=target or "tu búsqueda")
                     )
                     _db.log_event(phone, _db.EventType.WA_FOLLOWUP_SENT)
                     log.info("Followup enviado: phone=%s", phone)
@@ -292,7 +292,7 @@ async def _followup_3d_loop() -> None:
             if candidates:
                 log.info("Followup 3d: %d candidatos", len(candidates))
             unsubscribed = await asyncio.to_thread(_db.get_unsubscribed_phones)
-            for phone in candidates:
+            for phone, target in candidates:
                 if phone in unsubscribed:
                     log.info("Followup 3d omitido (unsubscribed): phone=%s", phone)
                     await asyncio.sleep(2)
@@ -301,14 +301,13 @@ async def _followup_3d_loop() -> None:
                     # Obtener nombre para personalización
                     try:
                         profile = await asyncio.to_thread(_db.get_user_profile, phone)
-                        user_name = profile.get("name", "") or ""
+                        user_name = profile.get("name", "") or "amigo"
                     except Exception:
-                        user_name = ""
-                    if not user_name:
                         user_name = "amigo"
 
                     await asyncio.to_thread(
-                        wa_sender.send_text, phone, MSG["followup_3d"].format(name=user_name)
+                        wa_sender.send_text, phone,
+                        MSG["followup_3d"].format(name=user_name, target=target or "tu búsqueda")
                     )
                     _db.log_event(phone, _db.EventType.WA_FOLLOWUP_3D_SENT)
                     log.info("Followup 3d enviado: phone=%s", phone)
@@ -1733,11 +1732,12 @@ async def _deliver_and_notify_wa(phone: str, target: str) -> None:
                 rest_count = n_qualified - top3 + (total - n_qualified)
                 visible = top3 + min(rest_count, 9)
                 visible_q = min(n_qualified, 3 + 9)
+            greeting = f"Hola {user_name}, " if user_name != "amigo" else ""
             await asyncio.to_thread(
                 wa_sender.send_text,
                 phone,
-                f"✅ *Reporte listo: {target}*\n"
-                f"_{visible} leads en tu reporte · {visible_q} calificados_\n\n"
+                f"✅ *{greeting}tu reporte está listo*\n"
+                f"_{target} · {visible} leads · {visible_q} calificados_\n\n"
                 f"🔥 He puesto al frente los leads con mayor probabilidad de cierre para que empieces por ellos.\n\n"
                 f"📄 Descárgalo aquí 👇\n{short_url}\n\n"
                 f"━━━━━━━━━━━━━━━━━━━━━\n"
