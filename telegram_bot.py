@@ -21,7 +21,6 @@ Deep link para landing:
 from __future__ import annotations
 
 import asyncio
-import csv
 import io
 import json
 import logging
@@ -190,9 +189,9 @@ def kb_planes() -> InlineKeyboardMarkup:
     ])
 
 def kb_post_demo() -> InlineKeyboardMarkup:
-    """Aparece justo después de entregar el CSV de demo."""
+    """Aparece justo después de entregar el PDF de demo."""
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("🚀 Quiero los 200 leads  (Starter $39/mes)", callback_data="demo_upgrade")],
+        [InlineKeyboardButton("🚀 Quiero el PDF completo  (Starter $39/mes)", callback_data="demo_upgrade")],
         [InlineKeyboardButton("💬 Tengo preguntas",  callback_data="demo_preguntas"),
          InlineKeyboardButton("👎 No fue útil",      callback_data="demo_no_util")],
     ])
@@ -318,16 +317,6 @@ def _run_pipeline_sync(target: str) -> list[dict]:
     return results
 
 
-def _leads_to_csv_bytes(leads: list[dict]) -> bytes:
-    if not leads:
-        return b""
-    buf = io.StringIO()
-    writer = csv.DictWriter(buf, fieldnames=list(leads[0].keys()), extrasaction="ignore")
-    writer.writeheader()
-    writer.writerows(leads)
-    return buf.getvalue().encode("utf-8-sig")  # BOM para Excel
-
-
 def _save_demo_lead(user_id: int, target: str, email: str) -> None:
     """Persiste el email capturado post-demo en el mismo store que /demo-request."""
     from datetime import datetime, timezone
@@ -422,9 +411,8 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     await update.message.reply_text(
-        "Hola 👋 Soy *Pipeline_X*.\n\n"
-        "Encuentra empresas reales en Google Maps, califícalas con IA "
-        "y recibe mensajes de outreach listos — en minutos.\n\n"
+        "👋 Soy *Pipeline_X*.\n\n"
+        "Escribe qué empresas buscas y te entrego un PDF con leads calificados y mensajes listos.\n\n"
         "¿Por dónde empezamos?",
         parse_mode="Markdown",
         reply_markup=kb_start(),
@@ -442,8 +430,7 @@ async def _start_demo_flow(reply_fn, user_id: int) -> None:
         return
     _demo_states[user_id] = {"state": "waiting_target"}
     await reply_fn(
-        "Voy a generarte *10 leads reales* ahora mismo, sin tarjeta.\n\n"
-        "¿Qué tipo de empresa estás prospectando?\n"
+        "¿Qué tipo de empresa buscas y en qué ciudad?\n\n"
         "_Ej: Ferreterías en Trujillo · Clínicas en Bogotá · Logística en CDMX_",
         parse_mode="Markdown",
     )
@@ -492,35 +479,19 @@ async def _deliver_demo(chat_id: int, user_id: int, target: str, context: Contex
         reverse=True,
     )
 
-    # Resumen top 3
-    lines = [
-        f"✅ *{total} leads de {target}*",
-        f"_{len(qualified)} calificados (score ≥60)_\n",
-    ]
-    for i, lead in enumerate(qualified[:3], 1):
-        empresa = lead.get("empresa", "—")
-        score   = lead.get("lead_score", "—")
-        action  = lead.get("next_action", "—")
-        lines.append(f"*{i}. {empresa}* — Score {score}")
-        lines.append(f"   → {action}")
-    if not qualified:
-        lines.append("_No se encontraron leads con score ≥60. Revisa el CSV adjunto._")
-    lines.append("\n📎 CSV adjunto con todos los leads y borradores de mensaje.")
-
-    await context.bot.send_message(
-        chat_id=chat_id,
-        text="\n".join(lines),
-        parse_mode="Markdown",
-    )
-
-    # Enviar CSV
-    csv_bytes = _leads_to_csv_bytes(leads)
+    # Generar PDF demo
+    from pdf_report import build_demo_pdf
+    pdf_bytes = await asyncio.to_thread(build_demo_pdf, target, leads)
     safe_name = target[:30].replace(" ", "_").replace("/", "-")
     await context.bot.send_document(
         chat_id=chat_id,
-        document=io.BytesIO(csv_bytes),
-        filename=f"pipeline_x_{safe_name}.csv",
-        caption=f"📊 Demo gratuita — {target}",
+        document=io.BytesIO(pdf_bytes),
+        filename=f"pipeline_x_{safe_name}.pdf",
+        caption=(
+            f"✅ *{total} leads · {len(qualified)} calificados*\n"
+            f"📄 Reporte demo — {target}"
+        ),
+        parse_mode="Markdown",
     )
 
     _demo_states[user_id] = {"state": "delivered", "target": target, "total": total}
@@ -532,7 +503,7 @@ async def _deliver_demo(chat_id: int, user_id: int, target: str, context: Contex
         chat_id=chat_id,
         text=(
             "Esto es el *10% de lo que obtienes con Starter.*\n\n"
-            "— 200 leads/mes · SUNAT · reporte HTML\n"
+            "— 200 leads/mes · SUNAT · PDF completo\n"
             "— Todo por $39/mes"
         ),
         parse_mode="Markdown",
