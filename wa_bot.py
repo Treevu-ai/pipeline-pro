@@ -114,7 +114,11 @@ def _r_menu(phone: str | None = None) -> list[dict]:
             profile = _db.get_user_profile(phone)
             name = profile.get("name")
             if name:
-                bienvenida = f"Hola {name}! 👋\n\n" + _BIENVENIDA.split("\n\n", 1)[-1]
+                history = _db.get_search_history(phone, limit=1)
+                if history:
+                    bienvenida = f"Bienvenido de vuelta, {name} 👋\n\n¿Qué buscamos hoy? Escribe rubro + ciudad."
+                else:
+                    bienvenida = f"Hola {name}! 👋\n\n" + _BIENVENIDA.split("\n\n", 1)[-1]
 
             # ── Trial automático al primer contacto ──────────────────────────
             # Si es usuario nuevo (nunca tuvo trial y no es suscriptor activo),
@@ -679,9 +683,21 @@ def _launch_pipeline(phone: str, target: str, session: dict) -> list[dict]:
             "• _Agencias de marketing en Trujillo_"
         )]
 
-    # Rate limiting por plan
+    # Verificar reporte reciente (misma búsqueda en < 4h)
     try:
         import db as _db
+        recent = _db.get_recent_report(phone, hours=4)
+        if recent and recent.lower() == target.lower():
+            return [_t(
+                f"Ya tienes un reporte de *{target}* generado hace menos de 4 horas 📄\n\n"
+                "Para no repetir los mismos leads, espera un poco o "
+                "prueba con otro rubro o ciudad 👇"
+            )]
+    except Exception:
+        pass
+
+    # Rate limiting por plan
+    try:
         import config as _cfg
         sub = _db.get_subscriber(phone)
         plan_name = (

@@ -443,9 +443,9 @@ async def cmd_planes(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     )
 
 
-async def _deliver_demo(chat_id: int, user_id: int, target: str, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def _deliver_demo(chat_id: int, user_id: int, target: str, context: ContextTypes.DEFAULT_TYPE, user_name: str = "") -> None:
     """
-    Corre el pipeline y entrega el CSV de demo directamente en el chat.
+    Corre el pipeline y entrega el PDF de demo directamente en el chat.
     Llamado en un task separado para no bloquear el handler.
     """
     try:
@@ -471,15 +471,16 @@ async def _deliver_demo(chat_id: int, user_id: int, target: str, context: Contex
 
     # Generar PDF demo
     from pdf_report import build_demo_pdf
-    pdf_bytes = await asyncio.to_thread(build_demo_pdf, target, leads)
+    pdf_bytes = await asyncio.to_thread(build_demo_pdf, target, leads, user_name)
     safe_name = target[:30].replace(" ", "_").replace("/", "-")
+    greeting = f"Hola {user_name}, " if user_name else ""
     await context.bot.send_document(
         chat_id=chat_id,
         document=io.BytesIO(pdf_bytes),
         filename=f"pipeline_x_{safe_name}.pdf",
         caption=(
-            f"✅ *{total} leads · {len(qualified)} calificados*\n"
-            f"📄 Reporte demo — {target}"
+            f"✅ *{greeting}tu reporte está listo*\n"
+            f"_{total} leads · {len(qualified)} calificados · {target}_"
         ),
         parse_mode="Markdown",
     )
@@ -597,7 +598,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             parse_mode="Markdown",
         )
         await context.bot.send_chat_action(chat_id=chat_id, action="upload_document")
-        asyncio.create_task(_deliver_demo(chat_id, user_id, text, context))
+        user_name = update.effective_user.first_name or ""
+        asyncio.create_task(_deliver_demo(chat_id, user_id, text, context, user_name))
         return
 
     # ── Flujo demo: capturando email post-entrega ─────────────────────────────

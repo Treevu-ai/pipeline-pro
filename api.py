@@ -379,6 +379,8 @@ async def _build_digest(period_label: str, hours: int, include_weekly: bool) -> 
         f"💎 Suscriptores activos: {stats.get('active_subscribers', 0)}",
         f"🔄 Búsqueda→Upgrade: {stats.get('conversion', {}).get('search_to_upgrade', '—')}",
         f"💳 Upgrade→Pago: {stats.get('conversion', {}).get('upgrade_to_paid', '—')}",
+        f"📬 Follow-ups 24h enviados: {stats.get('followups_24h', 0)}",
+        f"📬 Follow-ups 3d enviados: {stats.get('followups_3d', 0)}",
     ]
 
     if include_weekly:
@@ -1673,7 +1675,13 @@ async def _deliver_and_notify_wa(phone: str, target: str) -> None:
 
         # Mensajes de progreso intermedios (cancelados si el pipeline termina antes)
         t1 = asyncio.create_task(_progress_msg(
-            45, MSG["qualify_progress"].format(name=user_name)
+            30, f"📍 Rastreando Google Maps y fuentes locales... _(paso 1/3)_"
+        ))
+        t2 = asyncio.create_task(_progress_msg(
+            75, f"🤖 Calificando leads con IA... _(paso 2/3)_"
+        ))
+        t3 = asyncio.create_task(_progress_msg(
+            120, f"📄 Preparando tu PDF personalizado... _(paso 3/3)_"
         ))
 
         _t0 = _time.monotonic()
@@ -1696,6 +1704,8 @@ async def _deliver_and_notify_wa(phone: str, target: str) -> None:
         _elapsed = _time.monotonic() - _t0
         log.info("WA pipeline END: phone=%s elapsed=%.1fs leads=%d", phone, _elapsed, len(result.get("leads", [])))
         t1.cancel()
+        t2.cancel()
+        t3.cancel()
         leads  = result.get("leads", [])
         total  = result.get("total", len(leads))
 
@@ -1714,10 +1724,10 @@ async def _deliver_and_notify_wa(phone: str, target: str) -> None:
                      target, len(leads), len(qualified), plan_cfg.get("full_pdf", False))
             if plan_cfg.get("full_pdf", False):
                 from pdf_report import build_full_pdf
-                pdf_bytes = await asyncio.to_thread(build_full_pdf, target, leads)
+                pdf_bytes = await asyncio.to_thread(build_full_pdf, target, leads, user_name if user_name != "amigo" else "")
             else:
                 from pdf_report import build_demo_pdf
-                pdf_bytes = await asyncio.to_thread(build_demo_pdf, target, leads)
+                pdf_bytes = await asyncio.to_thread(build_demo_pdf, target, leads, user_name if user_name != "amigo" else "")
             token = _save_report_bytes(pdf_bytes)
             import storage as _storage
             short_url = _storage.get_report_url(token, API_PUBLIC_URL)

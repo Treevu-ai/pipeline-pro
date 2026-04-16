@@ -827,6 +827,32 @@ class EventType:
     WA_REPORT_OPENED      = "wa_report_opened"
 
 
+def get_recent_report(phone: str, hours: int = 4) -> str | None:
+    """
+    Devuelve el target del último reporte entregado al usuario en las
+    últimas `hours` horas, o None si no hubo ninguno.
+    """
+    if not _USE_DB:
+        return None
+    try:
+        with _conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT data->>'target'
+                    FROM events
+                    WHERE phone = %s
+                      AND event_type = %s
+                      AND created_at > now() - INTERVAL %s
+                    ORDER BY created_at DESC
+                    LIMIT 1
+                """, (phone, EventType.WA_REPORT_DELIVERED, f"{hours} hours"))
+                row = cur.fetchone()
+                return row[0] if row else None
+    except Exception as exc:
+        log.error("get_recent_report(%s): %s", phone, exc)
+        return None
+
+
 def get_followup_candidates(hours_min: int = 23, hours_max: int = 25) -> list[tuple[str, str]]:
     """
     Devuelve lista de (phone, target) de usuarios que:
@@ -1248,6 +1274,8 @@ def get_stats(days: int = 7) -> dict:
                 delivered      = counts.get(EventType.WA_REPORT_DELIVERED, 0)
                 upgrade_clicks = counts.get(EventType.WA_UPGRADE_CLICK, 0)
                 activations    = counts.get(EventType.SUBSCRIBER_ACTIVATED, 0)
+                followups_24h  = counts.get(EventType.WA_FOLLOWUP_SENT, 0)
+                followups_3d   = counts.get(EventType.WA_FOLLOWUP_3D_SENT, 0)
 
                 def _pct(num, den):
                     return f"{round(num / den * 100, 1)}%" if den else "—"
@@ -1260,6 +1288,8 @@ def get_stats(days: int = 7) -> dict:
                     "activations":       activations,
                     "unique_searchers":  unique_searchers,
                     "active_subscribers": active_subs,
+                    "followups_24h":     followups_24h,
+                    "followups_3d":      followups_3d,
                     "conversion": {
                         "search_to_upgrade": _pct(upgrade_clicks, searches),
                         "upgrade_to_paid":   _pct(activations, upgrade_clicks),

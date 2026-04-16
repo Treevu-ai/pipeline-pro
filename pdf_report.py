@@ -101,7 +101,7 @@ class _PipelineXPDF(FPDF):
 
 # ─── Helpers de dibujo ────────────────────────────────────────────────────────
 
-def _header_bar(pdf: _PipelineXPDF, target: str, total: int, qualified: int) -> None:
+def _header_bar(pdf: _PipelineXPDF, target: str, total: int, qualified: int, user_name: str = "") -> None:
     pdf.set_fill_color(*_DARK)
     pdf.rect(0, 0, 210, 30, "F")
 
@@ -112,7 +112,8 @@ def _header_bar(pdf: _PipelineXPDF, target: str, total: int, qualified: int) -> 
 
     pdf.set_font(_FONT_FAMILY, "", 8)
     pdf.set_text_color(*_GRAY)
-    pdf.cell(0, 7, "Agente SDR con IA para pequenos negocios", ln=1)
+    prepared = f"Preparado para {user_name}" if user_name else "Agente SDR con IA para negocios"
+    pdf.cell(0, 7, prepared, ln=1)
 
     pdf.set_x(10)
     pdf.set_font(_FONT_FAMILY, "B", 10)
@@ -456,7 +457,7 @@ def _page_cta(pdf: _PipelineXPDF) -> None:
 
 # ─── Funcion principal ────────────────────────────────────────────────────────
 
-def build_full_pdf(target: str, leads: list[dict[str, Any]]) -> bytes:
+def build_full_pdf(target: str, leads: list[dict[str, Any]], user_name: str = "") -> bytes:
     """
     Genera el PDF completo (suscriptores pagos) - todos los leads sin censura.
 
@@ -511,7 +512,7 @@ def build_full_pdf(target: str, leads: list[dict[str, Any]]) -> bytes:
     return bytes(pdf.output())
 
 
-def build_demo_pdf(target: str, leads: list[dict[str, Any]]) -> bytes:
+def build_demo_pdf(target: str, leads: list[dict[str, Any]], user_name: str = "") -> bytes:
     """
     Genera el PDF demo de 3 paginas.
 
@@ -536,7 +537,7 @@ def build_demo_pdf(target: str, leads: list[dict[str, Any]]) -> bytes:
 
     # ── Pagina 1: Top 3 completos ─────────────────────────────────────────────
     pdf.add_page()
-    _header_bar(pdf, target, len(leads), len(qualified))
+    _header_bar(pdf, target, len(leads), len(qualified), user_name)
     pdf.set_y(34)
 
     if top3:
@@ -559,7 +560,7 @@ def build_demo_pdf(target: str, leads: list[dict[str, Any]]) -> bytes:
     # ── Pagina 2: Leads truncados ─────────────────────────────────────────────
     if rest:
         pdf.add_page()
-        _header_bar(pdf, target, len(leads), len(qualified))
+        _header_bar(pdf, target, len(leads), len(qualified), user_name)
         pdf.set_y(34)
 
         pdf.set_x(10)

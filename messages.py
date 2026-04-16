@@ -76,11 +76,11 @@ MSG: dict[str, str] = {
     # ── Upgrade / planes ─────────────────────────────────────────────────────
     "upgrade_intro": (
         "¡Perfecto! 🙌\n\n"
-        "Un agente de *Pipeline_X* se pondra en contacto contigo "
-        "en los proximos minutos.\n\n"
+        "Un agente de *Pipeline_X* se pondrá en contacto contigo "
+        "en los próximos minutos.\n\n"
         "Si prefieres activar ahora mismo, puedes pagar por:\n\n"
         "{bank_info}\n\n"
-        "📸 Envia tu comprobante aqui y activamos tu acceso al instante."
+        "📸 Envía tu comprobante aquí y activamos tu acceso al instante."
     ),
     "upgrade_no_bank": (
         "¡Perfecto! 🙌\n\n"
