@@ -661,6 +661,23 @@ def _launch_pipeline(phone: str, target: str, session: dict) -> list[dict]:
     Helper compartido: aplica rate limiting, guarda ciudad por defecto,
     lanza el pipeline y retorna mensajes.
     """
+    # Validar que el rubro sea significativo (ej: "A  en Lima" → rubro="A" → inválido)
+    rubro = target
+    if " en " in target.lower():
+        rubro = target[:target.lower().index(" en ")].strip()
+    elif "," in target:
+        rubro = target.split(",")[0].strip()
+    if len(rubro) < 3:
+        _set_session(phone, {**session, "state": "collecting_target"})
+        return [_t(
+            "No entendí bien el tipo de negocio 🤔\n\n"
+            "Escribe así: *rubro + ciudad*\n\n"
+            "Ejemplos:\n"
+            "• _Ferreterías en Lima_\n"
+            "• _Clínicas en Cusco_\n"
+            "• _Agencias de marketing en Trujillo_"
+        )]
+
     # Rate limiting por plan
     try:
         import db as _db
