@@ -1792,27 +1792,34 @@ async def _deliver_and_notify_wa(phone: str, target: str) -> None:
         async def _send_feedback_delayed() -> None:
             await asyncio.sleep(90)
             try:
-                # Solo enviar si el usuario sigue en estado "done" — no interrumpir flujos nuevos
+                # Enviar si el usuario está en post_pdf_options (estado normal tras entregar PDF)
+                # o aún en "done". No interrumpir si ya inició un flujo nuevo.
                 current = wa_bot._get_session(phone)
-                if current.get("state") != "done":
+                if current.get("state") not in ("post_pdf_options", "done"):
                     log.info("feedback skip: phone=%s state=%s (ya cambió)", phone, current.get("state"))
                     return
                 fb_msgs = wa_bot._r_feedback()
                 for fb in fb_msgs:
-                    await asyncio.to_thread(wa_sender.send_text, phone, fb["text"])
+                    if fb.get("type") == "buttons":
+                        await asyncio.to_thread(
+                            wa_sender.send_buttons, phone,
+                            fb.get("text", ""), fb.get("buttons", [])
+                        )
+                    else:
+                        await asyncio.to_thread(wa_sender.send_text, phone, fb["text"])
                 wa_bot._set_session(phone, {"state": "feedback_prompted", "target": target})
             except Exception as fb_exc:
                 log.warning("feedback send error phone=%s: %s", phone, fb_exc)
 
-        asyncio.create_task(_send_feedback_delayed())
+        _fire_and_forget(_send_feedback_delayed())
 
         # ── Check 2h: si no hubo interacción desde el PDF, preguntar si lo abrió ─
         async def _send_2h_check() -> None:
             await asyncio.sleep(7200)  # 2 horas
             try:
                 current = wa_bot._get_session(phone)
-                # Solo enviar si sigue en "done" o "feedback_prompted" (sin acción nueva)
-                if current.get("state") not in ("done", "feedback_prompted"):
+                # Solo enviar si sigue sin acción nueva tras el PDF
+                if current.get("state") not in ("post_pdf_options", "done", "feedback_prompted"):
                     log.info("2h check skip: phone=%s state=%s", phone, current.get("state"))
                     return
                 import wa_sender as _ws
@@ -1825,7 +1832,7 @@ async def _deliver_and_notify_wa(phone: str, target: str) -> None:
             except Exception as exc2:
                 log.warning("2h check error phone=%s: %s", phone, exc2)
 
-        asyncio.create_task(_send_2h_check())
+        _fire_and_forget(_send_2h_check())
 
     except BaseException as exc:
         # Cancelar mensajes de progreso pendientes (t1 puede no estar definido si el error
@@ -2255,7 +2262,7 @@ async def telegram_webhook(request: Request):
     if state.get("flow") == "report":
         target = text
         _del_bot_state(chat_id)
-        asyncio.create_task(
+        _fire_and_forget(
             _deliver_and_notify(target, chat_id, limit=30, channel="whatsapp", enrich_sunat=True)
         )
         await _tg_message(chat_id,
@@ -2274,7 +2281,7 @@ async def telegram_webhook(request: Request):
             "_Listo en aprox. 2–5 minutos._"
         )
         # Tier free: 10 leads, sin SUNAT
-        asyncio.create_task(
+        _fire_and_forget(
             _demo_deliver_and_capture(target, chat_id)
         )
         return {"ok": True}
