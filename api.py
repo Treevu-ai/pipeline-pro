@@ -1497,14 +1497,15 @@ async def _tg_answer_callback(callback_query_id: str) -> None:
     await _tg_post("answerCallbackQuery", {"callback_query_id": callback_query_id})
 
 
-async def _tg_document(chat_id: int, filename: str, content: bytes, caption: str = "") -> None:
+async def _tg_document(chat_id: int, filename: str, content: bytes, caption: str = "",
+                       content_type: str = "text/csv; charset=utf-8") -> None:
     if not _TG_TOKEN:
         return
     async with httpx.AsyncClient(timeout=60) as client:
         await client.post(
             f"{_TG_API}{_TG_TOKEN}/sendDocument",
             data={"chat_id": str(chat_id), "caption": caption, "parse_mode": "Markdown"},
-            files={"document": (filename, content, "text/csv; charset=utf-8")},
+            files={"document": (filename, content, content_type)},
         )
 
 
@@ -1658,7 +1659,7 @@ async def _deliver_and_notify_wa(phone: str, target: str) -> None:
 
         log.info("WA deliver: phone=%s plan=%s active=%s limit=%d", phone, plan_name, _active, leads_limit)
         # Nota: el mensaje "Buscando..." ya se envió desde wa_bot._r_procesando()
-        asyncio.create_task(_notify_pipeassist(
+        _fire_and_forget(_notify_pipeassist(
             f"🔍 *Nueva búsqueda*\n"
             f"📱 `{phone}`\n"
             f"🎯 `{target}`\n"
@@ -1879,14 +1880,14 @@ async def _demo_deliver_and_capture(target: str, chat_id: int) -> None:
     """
     Flujo demo desde landing (deep link ?start=demo):
     1. Corre pipeline con límite free (10 leads, sin SUNAT)
-    2. Entrega resumen + CSV
+    2. Entrega resumen + PDF demo
     3. Muestra oferta Starter y pide email para activar acceso
     """
     try:
         req = PipelineRequest(
             query=target,
             limit=cfg.DEMO_REQUEST_LEADS_LIMIT,
-            channel="email",
+            channel="whatsapp",
             enrich_web=True,
             enrich_sunat=False,   # Sin SUNAT en tier free
             qualify=True,
@@ -1901,6 +1902,14 @@ async def _demo_deliver_and_capture(target: str, chat_id: int) -> None:
             key=_int_score, reverse=True,
         )
 
+        # Notificar al admin
+        _fire_and_forget(_notify_pipeassist(
+            f"📲 *Demo Telegram*\n"
+            f"💬 chat_id: `{chat_id}`\n"
+            f"🎯 `{target}`\n"
+            f"📊 {len(leads)} leads · {len(qualified)} calificados"
+        ))
+
         lines = [
             f"✅ *{total} leads de {target}*",
             f"_{len(qualified)} calificados (score ≥60)_\n",
@@ -1912,15 +1921,17 @@ async def _demo_deliver_and_capture(target: str, chat_id: int) -> None:
             lines.append(f"*{i}. {empresa}* — Score {score}")
             lines.append(f"   → {action}")
         if not qualified:
-            lines.append("_No se encontraron leads con score ≥60. Revisa el CSV adjunto._")
-        lines.append("\n📎 CSV adjunto con todos los leads y borradores de mensaje.")
+            lines.append("_No se encontraron leads con score ≥60. Revisa el PDF adjunto._")
+        lines.append("\n📎 PDF adjunto con todos los leads y borradores de mensaje.")
 
         await _tg_message(chat_id, "\n".join(lines))
 
-        csv_bytes = _leads_to_csv(leads)
+        from pdf_report import build_demo_pdf
+        pdf_bytes = await asyncio.to_thread(build_demo_pdf, target, leads)
         safe_name = target[:30].replace(" ", "_").replace("/", "-")
-        await _tg_document(chat_id, f"pipeline_x_demo_{safe_name}.csv", csv_bytes,
-                           caption=f"📊 Demo gratuita — {target}")
+        await _tg_document(chat_id, f"pipeline_x_demo_{safe_name}.pdf", pdf_bytes,
+                           caption=f"📊 Demo gratuita — {target}",
+                           content_type="application/pdf")
 
         # Actualizar estado: esperando email
         _set_bot_state(chat_id, {"flow": "demo_collecting_email", "target": target})
@@ -2012,7 +2023,7 @@ async def demo_request(req: DemoRequest, request: Request):
         f"*Industria:* {req.industria}\n"
         f"*Ciudad:* {req.ciudad}"
     )
-    asyncio.create_task(_notify_pipeassist(notif_msg))
+    _fire_and_forget(_notify_pipeassist(notif_msg))
 
     # Lanzar pipeline en background y entregar CSV al primer admin
     # Usa el límite del tier free (DEMO_REQUEST_LEADS_LIMIT = 10 leads)
@@ -2710,7 +2721,7 @@ async def admin_activate_subscriber(req: ActivateSubscriberRequest, request: Req
 
     _db.log_event(req.phone, _db.EventType.SUBSCRIBER_ACTIVATED,
                   {"plan": req.plan, "days": req.days, "notes": req.notes})
-    asyncio.create_task(_notify_pipeassist(
+    _fire_and_forget(_notify_pipeassist(
         f"💎 *Suscriptor activado*\n"
         f"📱 `{req.phone}`\n"
         f"📦 Plan: {req.plan.capitalize()}\n"
@@ -2783,7 +2794,7 @@ async def admin_activate_quick(phone: str, plan: str = "starter", days: int = 30
         log.warning("WA bienvenida falló: %s", wa_exc)
 
     _db.log_event(phone, _db.EventType.SUBSCRIBER_ACTIVATED, {"plan": plan, "days": days})
-    asyncio.create_task(_notify_pipeassist(
+    _fire_and_forget(_notify_pipeassist(
         f"💎 *Suscriptor activado (quick)*\n"
         f"📱 `{phone}`\n"
         f"📦 Plan: {plan.capitalize()} · {days} días"
