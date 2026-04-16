@@ -163,7 +163,10 @@ def _call_groq(system: str, user: str) -> dict[str, Any]:
 
 def call(system: str, user: str) -> dict[str, Any]:
     """
-    Llama al LLM disponible: Groq (primario) → Claude (fallback si no hay GROQ_API_KEY).
+    Llama al LLM disponible: Groq (primario) → Claude (fallback).
+
+    Si Groq está configurado pero devuelve rate limit (429), intenta Claude
+    automáticamente si ANTHROPIC_API_KEY está disponible.
 
     Args:
         system: Prompt del sistema.
@@ -173,7 +176,13 @@ def call(system: str, user: str) -> dict[str, Any]:
         Diccionario con la respuesta del LLM.
     """
     if os.environ.get("GROQ_API_KEY"):
-        return _call_groq(system, user)
+        try:
+            return _call_groq(system, user)
+        except exc.RateLimitError:
+            if os.environ.get("ANTHROPIC_API_KEY"):
+                log.warning("Groq rate limit alcanzado — fallback a Claude")
+                return _call_claude(system, user)
+            raise
     # Fallback: Claude (requiere ANTHROPIC_API_KEY con créditos)
     if os.environ.get("ANTHROPIC_API_KEY"):
         return _call_claude(system, user)
