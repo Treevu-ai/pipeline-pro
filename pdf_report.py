@@ -414,7 +414,7 @@ def _page_cta(pdf: _PipelineXPDF) -> None:
     pdf.set_x(10)
     pdf.set_font(_FONT_FAMILY, "B", 12)
     pdf.set_text_color(*_GREEN)
-    pdf.cell(0, 8, "👉 Escríbenos 'QUIERO STARTER' por WhatsApp", align="C", link=wa_link, ln=1)
+    pdf.cell(0, 8, "Escribenos 'QUIERO STARTER' por WhatsApp", align="C", link=wa_link, ln=1)
 
     pdf.set_x(10)
     pdf.set_font(_FONT_FAMILY, "", 8)

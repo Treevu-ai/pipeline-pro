@@ -1709,6 +1709,7 @@ async def _deliver_and_notify_wa(phone: str, target: str) -> None:
 
         # ── PDF ──────────────────────────────────────────────────────────────
         safe_name = target[:30].replace(" ", "_").replace("/", "-")
+        token = ""
         try:
             log.info("PDF gen: target=%s leads=%d qualified=%d full_pdf=%s",
                      target, len(leads), len(qualified), plan_cfg.get("full_pdf", False))
