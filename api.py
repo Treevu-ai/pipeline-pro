@@ -1739,7 +1739,10 @@ async def _deliver_and_notify_wa(phone: str, target: str) -> None:
                 f"✅ *Reporte listo: {target}*\n"
                 f"_{visible} leads en tu reporte · {visible_q} calificados_\n\n"
                 f"🔥 He puesto al frente los leads con mayor probabilidad de cierre para que empieces por ellos.\n\n"
-                f"📄 Descárgalo aquí 👇\n{short_url}",
+                f"📄 Descárgalo aquí 👇\n{short_url}\n\n"
+                f"━━━━━━━━━━━━━━━━━━━━━\n"
+                f"*¿Quieres que te configuremos todo el sistema para que empieces a contactar hoy mismo?*\n"
+                f"Responde *Sí, quiero* y te cuento cómo.",
             )
             log.info("PDF guardado: %s (token=%s)", safe_name, token)
         except Exception as pdf_exc:
