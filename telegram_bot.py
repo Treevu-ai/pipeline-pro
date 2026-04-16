@@ -492,7 +492,9 @@ async def _deliver_demo(chat_id: int, user_id: int, target: str, context: Contex
     await context.bot.send_message(
         chat_id=chat_id,
         text=(
-            "Esto es una muestra. Con Starter obtienes:\n\n"
+            "Esto es una muestra.\n\n"
+            "*¿Quieres que te configuremos todo el sistema para que empieces a contactar hoy mismo?*\n\n"
+            "Con Starter obtienes:\n"
             "— 30 leads por búsqueda · búsquedas ilimitadas\n"
             "— SUNAT · PDF completo · S/129/mes"
         ),
