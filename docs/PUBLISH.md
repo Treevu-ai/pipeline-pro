@@ -7,10 +7,17 @@
 
 ## Una sola vez en GitHub
 
-1. **Settings** del repo → **Pages**.
-2. En **Build and deployment**, **Source** debe ser **`GitHub Actions`** (no “Deploy from a branch”).
-3. Haz **push** de `main` para que corra el workflow **Deploy GitHub Pages (Jekyll)** (`.github/workflows/pages-jekyll.yml`).
-4. En **Actions**, comprueba que el job termine en verde. Si pide **aprobar** el entorno `github-pages`, acéptalo.
+1. **Settings** del repo → **Pages** → **Source = GitHub Actions**  
+   O desde CLI (repo `Treevu-ai/pipeline-pro`; ajusta si cambias el nombre):
+
+   ```bash
+   gh api -X POST repos/Treevu-ai/pipeline-pro/pages -f build_type=workflow
+   ```
+
+2. Haz **push** de `main` para que corra **Deploy GitHub Pages (Jekyll)** (`.github/workflows/pages-jekyll.yml`).
+3. Si el deploy falló con **404** antes de activar Pages: `gh run rerun RUN_ID --failed`.
+
+4. En **Actions**, el job debe quedar en verde.
 
 ## URL del sitio
 
