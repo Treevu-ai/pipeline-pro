@@ -15,6 +15,7 @@ from typing import Any
 
 import config as cfg
 import exceptions as exc
+import utils
 
 log = logging.getLogger("llm_client")
 
@@ -55,7 +56,7 @@ def _get_openai():
     global _openai_client
     if _openai_client is None:
         from openai import OpenAI
-        api_key = os.environ.get("OPENAI_API_KEY", "")
+        api_key = utils.clean_env_secret("OPENAI_API_KEY")
         if not api_key:
             raise exc.LLMCallError("OPENAI_API_KEY no está configurada", model="openai")
         _openai_client = OpenAI(api_key=api_key)
@@ -113,7 +114,7 @@ def _get_groq():
     global _groq_client
     if _groq_client is None:
         from groq import Groq
-        api_key = os.environ.get("GROQ_API_KEY")
+        api_key = utils.clean_env_secret("GROQ_API_KEY")
         if not api_key:
             raise exc.ConfigurationError("GROQ_API_KEY no está configurada")
         _groq_client = Groq(api_key=api_key)
@@ -239,15 +240,15 @@ def call_raw(system: str, user: str) -> str:
     Texto crudo del LLM (OpenAI primario → Groq fallback).
     Usar cuando la salida no es un único JSON object (p. ej. batch JSON array).
     """
-    if os.environ.get("OPENAI_API_KEY"):
+    if utils.clean_env_secret("OPENAI_API_KEY"):
         try:
             return _call_openai_raw(system, user)
         except (exc.LLMCallError, exc.RateLimitError) as e:
-            if os.environ.get("GROQ_API_KEY"):
+            if utils.clean_env_secret("GROQ_API_KEY"):
                 log.warning("OpenAI falló (%s) — usando Groq como fallback (raw)", e)
                 return _call_groq_raw(system, user)
             raise
-    if os.environ.get("GROQ_API_KEY"):
+    if utils.clean_env_secret("GROQ_API_KEY"):
         return _call_groq_raw(system, user)
     raise exc.ConfigurationError("Se requiere OPENAI_API_KEY o GROQ_API_KEY")
 
@@ -266,14 +267,14 @@ def call(system: str, user: str) -> dict[str, Any]:
     Returns:
         Diccionario con la respuesta del LLM.
     """
-    if os.environ.get("OPENAI_API_KEY"):
+    if utils.clean_env_secret("OPENAI_API_KEY"):
         try:
             return _call_openai(system, user)
         except (exc.LLMCallError, exc.RateLimitError) as e:
-            if os.environ.get("GROQ_API_KEY"):
+            if utils.clean_env_secret("GROQ_API_KEY"):
                 log.warning("OpenAI falló (%s) — usando Groq como fallback", e)
                 return _call_groq(system, user)
             raise
-    if os.environ.get("GROQ_API_KEY"):
+    if utils.clean_env_secret("GROQ_API_KEY"):
         return _call_groq(system, user)
     raise exc.ConfigurationError("Se requiere OPENAI_API_KEY o GROQ_API_KEY")

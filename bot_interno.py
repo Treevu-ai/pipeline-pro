@@ -60,6 +60,7 @@ from datetime import datetime
 from pathlib import Path
 
 import logging_config
+import utils
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import (
@@ -484,11 +485,11 @@ def _build_context(history: list[dict], clients: dict) -> str:
 def _llm_chat(user_text: str, context: str) -> str:
     system = _ASSISTANT_SYSTEM.format(context=context)
 
-    if os.environ.get("OPENAI_API_KEY"):
+    if utils.clean_env_secret("OPENAI_API_KEY"):
         try:
             from openai import OpenAI
             import config as cfg
-            client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
+            client = OpenAI(api_key=utils.clean_env_secret("OPENAI_API_KEY"))
             resp = client.chat.completions.create(
                 model=cfg.OPENAI["model"],
                 max_tokens=350,
@@ -503,10 +504,10 @@ def _llm_chat(user_text: str, context: str) -> str:
         except Exception:
             pass
 
-    if os.environ.get("GROQ_API_KEY"):
+    if utils.clean_env_secret("GROQ_API_KEY"):
         try:
             from groq import Groq
-            resp = Groq(api_key=os.environ["GROQ_API_KEY"]).chat.completions.create(
+            resp = Groq(api_key=utils.clean_env_secret("GROQ_API_KEY")).chat.completions.create(
                 model="llama-3.3-70b-versatile",
                 messages=[{"role": "system", "content": system}, {"role": "user", "content": user_text}],
                 temperature=0.5, max_tokens=350,

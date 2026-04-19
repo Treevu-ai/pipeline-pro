@@ -32,6 +32,7 @@ from pathlib import Path
 
 import config as cfg
 import logging_config
+import utils
 
 from groq import Groq
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
@@ -369,11 +370,11 @@ def _get_reply(user_id: int, user_message: str) -> str:
 
     messages = [{"role": "system", "content": SYSTEM_PROMPT}] + _conversations[user_id]
 
-    if os.environ.get("OPENAI_API_KEY"):
+    if utils.clean_env_secret("OPENAI_API_KEY"):
         try:
             from openai import OpenAI
 
-            client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
+            client = OpenAI(api_key=utils.clean_env_secret("OPENAI_API_KEY"))
             response = client.chat.completions.create(
                 model=cfg.OPENAI["model"],
                 messages=messages,
@@ -387,10 +388,10 @@ def _get_reply(user_id: int, user_message: str) -> str:
         except Exception as exc:
             log.warning("OpenAI falló (%s); intentando Groq si hay clave", exc)
 
-    if os.environ.get("GROQ_API_KEY"):
+    if utils.clean_env_secret("GROQ_API_KEY"):
         try:
             if _groq is None:
-                _groq = Groq(api_key=os.environ["GROQ_API_KEY"])
+                _groq = Groq(api_key=utils.clean_env_secret("GROQ_API_KEY"))
             response = _groq.chat.completions.create(
                 model=cfg.GROQ.get("model", "llama-3.3-70b-versatile"),
                 messages=messages,

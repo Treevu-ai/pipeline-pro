@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import html
 import logging
+import os
 import re
 import time
 import unicodedata
@@ -18,6 +19,20 @@ import constants as const
 import logging_config
 
 log = logging.getLogger(__name__)
+
+
+def clean_env_secret(key: str, default: str = "") -> str:
+    """
+    Lee una variable de entorno tipo API key y quita basura típica de copy-paste
+    o del panel de hosting (espacios, CR/LF, BOM, comillas envolventes).
+    """
+    raw = os.environ.get(key, default)
+    if raw is None:
+        return default
+    s = str(raw).strip().replace("\ufeff", "").replace("\r", "").replace("\n", "")
+    if len(s) >= 2 and s[0] == s[-1] and s[0] in "\"'":
+        s = s[1:-1].strip()
+    return s
 
 
 # ─── Normalización de texto ────────────────────────────────────────────────────

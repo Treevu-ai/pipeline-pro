@@ -51,6 +51,7 @@ from pydantic import BaseModel, Field
 
 import config as cfg
 import constants as const
+import utils as _utils
 
 log = logging.getLogger("api")
 
@@ -1199,11 +1200,11 @@ async def health():
         checks["db"] = f"error: {str(exc)[:80]}"
 
     # ── OpenAI (LLM primario) ─────────────────────────────────────────────────
-    if os.environ.get("OPENAI_API_KEY"):
+    if _utils.clean_env_secret("OPENAI_API_KEY"):
         try:
             def _ping_openai() -> bool:
                 from openai import OpenAI
-                client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY", ""))
+                client = OpenAI(api_key=_utils.clean_env_secret("OPENAI_API_KEY"))
                 r = client.chat.completions.create(
                     model=cfg.OPENAI["model"],
                     messages=[{"role": "user", "content": "ok"}],
@@ -1219,11 +1220,11 @@ async def health():
         checks["openai"] = "missing"
 
     # ── Groq (fallback) ───────────────────────────────────────────────────────
-    if os.environ.get("GROQ_API_KEY"):
+    if _utils.clean_env_secret("GROQ_API_KEY"):
         try:
             def _ping_groq() -> bool:
                 import groq as _groq_lib
-                client = _groq_lib.Groq(api_key=os.environ.get("GROQ_API_KEY", ""))
+                client = _groq_lib.Groq(api_key=_utils.clean_env_secret("GROQ_API_KEY"))
                 r = client.chat.completions.create(
                     model=cfg.GROQ["model"],
                     messages=[{"role": "user", "content": "ok"}],
@@ -1272,8 +1273,8 @@ def _health_overall(checks: dict[str, str]) -> str:
     def _llm_bad(v: str) -> bool:
         return v.startswith("error") or v == "no_response"
 
-    has_oa = bool(os.environ.get("OPENAI_API_KEY"))
-    has_gq = bool(os.environ.get("GROQ_API_KEY"))
+    has_oa = bool(_utils.clean_env_secret("OPENAI_API_KEY"))
+    has_gq = bool(_utils.clean_env_secret("GROQ_API_KEY"))
     oa = checks.get("openai", "")
     gq = checks.get("groq", "")
 
@@ -2155,7 +2156,7 @@ def _alex_reply(chat_id: int, user_text: str) -> str:
     system_prompt = _get_alex_prompt()
 
     # ── OpenAI ───────────────────────────────────────────────────────────────
-    openai_key = os.environ.get("OPENAI_API_KEY")
+    openai_key = _utils.clean_env_secret("OPENAI_API_KEY")
     if openai_key:
         try:
             from openai import OpenAI
@@ -2176,7 +2177,7 @@ def _alex_reply(chat_id: int, user_text: str) -> str:
             pass  # Intentar con Groq si falla
 
     # ── Groq (fallback) ─────────────────────────────────────────────────────
-    groq_key = os.environ.get("GROQ_API_KEY")
+    groq_key = _utils.clean_env_secret("GROQ_API_KEY")
     if groq_key:
         try:
             from groq import Groq
