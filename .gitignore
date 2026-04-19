@@ -65,6 +65,9 @@ dist/
 .vite/
 
 
+# Jekyll (bundle install bajo docs/)
+docs/vendor/
+
 # Environment variables
 .env
 .env.local

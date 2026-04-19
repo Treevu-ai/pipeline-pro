@@ -23,3 +23,5 @@ baseurl: "/pipeline-pro"
 exclude:
   - Gemfile
   - Gemfile.lock
+  # bundle install en CI usa docs/vendor — si no se excluye, Jekyll intenta parsear gems como posts.
+  - vendor
