@@ -1,7 +1,7 @@
 # AgentePyme SDR
 
 Agente SDR para MIPYME en Latinoamérica.
-Lee un CSV de leads, califica cada uno con un LLM local (Ollama) y genera borradores de mensaje listos para enviar.
+Lee un CSV de leads, los califica con LLM y genera borradores de mensaje listos para enviar.
 
 ## Pipeline completo (recomendado)
 
@@ -24,10 +24,22 @@ python sdr_agent.py output/leads_raw.csv output/leads_calificados.csv --report
 
 ---
 
+## Entornos, LLM y scraping (matriz rápida)
+
+| Entorno | LLM usado | Variables requeridas | Scraping (orden real de fallback) |
+|---|---|---|---|
+| CLI local (`sdr_agent.py`, `pipeline.py`) | `llm_client.call()` → OpenAI primario (`gpt-4o-mini`) / Groq fallback | `OPENAI_API_KEY` recomendado; `GROQ_API_KEY` opcional de respaldo | Apify → SerpApi → Google Places API → Playwright |
+| API Railway (`api.py`) | OpenAI primario / Groq fallback | `OPENAI_API_KEY` y opcionalmente `GROQ_API_KEY` + vars de bot/webhook | Misma cadena: Apify → SerpApi → Google Places API → Playwright |
+
+Notas:
+- Si no hay `GROQ_API_KEY`, se intenta `OPENAI_API_KEY`.
+- Si faltan ambas, la calificación LLM falla por configuración.
+- Para scraping, si un proveedor no responde o no devuelve resultados, se pasa al siguiente fallback.
+
 ## Requisitos
 
 - Python 3.9+
-- [Ollama](https://ollama.com) corriendo localmente con un modelo descargado
+- Al menos una clave de LLM: `GROQ_API_KEY` o `OPENAI_API_KEY`
 - `pip install -r requirements.txt`
 
 ## Instalación rápida
@@ -35,7 +47,6 @@ python sdr_agent.py output/leads_raw.csv output/leads_calificados.csv --report
 ```bash
 pip install -r requirements.txt
 playwright install chromium          # navegador para scraping
-ollama pull mistral:7b-instruct-q4_0 # o el modelo que prefieras
 ```
 
 ## Uso
@@ -62,7 +73,7 @@ python sdr_agent.py examples/leads_input.csv output/leads_calificados.csv --repo
 Edita `config.py` para personalizar:
 - `PRODUCT` — nombre, pitch y CTA de tu negocio
 - `ICP` — industrias objetivo, umbrales, keywords a excluir
-- `OLLAMA` — URL, modelo, timeouts
+- `CLAUDE` / `GROQ` — modelo, retries, backoff
 - `CHANNEL` — canal por defecto (email / whatsapp / both)
 - `PLAYBOOK` — instrucciones del sistema para el agente
 - `PLAYBOOK_ES` — ruta al playbook en español LatAm (ver sección abajo)
@@ -143,7 +154,7 @@ agentepyme/
 ├── pipeline.py           # Orquestador: scrape → califica en un comando
 ├── scraper.py            # Scraper: Google Maps + sitios web + SUNAT
 ├── sdr_agent.py          # Calificador LLM: CSV → CSV enriquecido
-├── config.py             # Configuración de producto, ICP y Ollama
+├── config.py             # Configuración de producto, ICP y proveedores LLM
 ├── requirements.txt
 ├── playbooks/
 │   └── PLAYBOOK_es.md    # Playbook en español LatAm con few-shot y adaptaciones

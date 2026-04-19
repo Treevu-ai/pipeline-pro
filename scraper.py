@@ -26,6 +26,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+import logging_config
+
 import constants as const
 import config as cfg
 import exceptions as exc
@@ -39,7 +41,7 @@ log = logging.getLogger("scraper")
 COUNTRY_CODES = const.CountryCodes.CODE_TO_NAME
 
 
-def map_category(raw_category: str) -> str:
+def map_category(raw_category: str | None) -> str:
     """
     Intenta mapear la categoría de Google Maps a nuestro ICP.
 
@@ -49,6 +51,8 @@ def map_category(raw_category: str) -> str:
     Returns:
         Categoría mapeada o la original si no hay match.
     """
+    if raw_category is None:
+        raw_category = ""
     norm = utils.normalize(raw_category)
     for key, value in const.CATEGORY_MAP.items():
         if key in norm:
@@ -293,7 +297,9 @@ async def _search_via_apify(query: str, limit: int) -> list[dict[str, Any]]:
         _APIFY_HTTP_TIMEOUT_S   = 120   # httpx: límite duro del lado cliente
         actor_id = "compass~crawler-google-places"
         run_url  = f"https://api.apify.com/v2/acts/{actor_id}/run-sync-get-dataset-items"
-        params   = {"token": api_key, "timeout": _APIFY_ACTOR_TIMEOUT_S, "memory": 512}
+        # Bearer en header (recomendado por Apify); no meter token en URL (logs/proxies).
+        params = {"timeout": _APIFY_ACTOR_TIMEOUT_S, "memory": 512}
+        headers = {"Authorization": f"Bearer {api_key}"}
         body = {
             "searchStringsArray": [query],
             "maxCrawledPlacesPerSearch": min(limit, 20),
@@ -307,7 +313,7 @@ async def _search_via_apify(query: str, limit: int) -> list[dict[str, Any]]:
             timeout=httpx.Timeout(_APIFY_HTTP_TIMEOUT_S, connect=10)
         ) as client:
             try:
-                resp = await client.post(run_url, params=params, json=body)
+                resp = await client.post(run_url, params=params, headers=headers, json=body)
             except httpx.TimeoutException as te:
                 log.error(
                     "Apify timeout (%ds) para '%s' — intenta reducir el límite de leads",
@@ -326,8 +332,8 @@ async def _search_via_apify(query: str, limit: int) -> list[dict[str, Any]]:
                 const.ColumnNames.RATING:             str(place.get("totalScore", "")),
                 const.ColumnNames.NUM_RESENAS:        str(place.get("reviewsCount", "")),
                 const.ColumnNames.SITIO_WEB:          place.get("website", ""),
-                const.ColumnNames.CATEGORIA_ORIGINAL: place.get("categoryName", ""),
-                const.ColumnNames.INDUSTRIA:          map_category(place.get("categoryName", "")),
+                const.ColumnNames.CATEGORIA_ORIGINAL: place.get("categoryName") or "",
+                const.ColumnNames.INDUSTRIA:          map_category(place.get("categoryName") or ""),
                 const.ColumnNames.FUENTE:             "apify_google_maps",
                 "maps_url":                           place.get("url", ""),
             })
@@ -827,6 +833,7 @@ def main() -> None:
         format="%(asctime)s [%(levelname)s] %(message)s",
         datefmt="%H:%M:%S",
     )
+    logging_config.silence_sensitive_http_loggers()
 
     args = parse_args()
 
@@ -839,11 +846,11 @@ def main() -> None:
         leads = scrape_google_maps(args.query, args.limit, headful=args.headful)
     except exc.GoogleMapsError as e:
         log.error("Error en scraping: %s", e)
-        sys.exit(exc.ExitCodes.NETWORK_ERROR)
+        sys.exit(const.ExitCodes.NETWORK_ERROR)
 
     if not leads:
         log.error("No se obtuvieron leads. Verifica la query o la conexión.")
-        sys.exit(exc.ExitCodes.ERROR)
+        sys.exit(const.ExitCodes.ERROR)
 
     log.info("Leads encontrados: %d", len(leads))
 
@@ -854,7 +861,7 @@ def main() -> None:
             leads = enrich_leads(leads, use_sunat=args.enrich_sunat, delay=args.delay)
         except Exception as e:
             log.error("Error en enriquecimiento: %s", e)
-            sys.exit(exc.ExitCodes.ERROR)
+            sys.exit(const.ExitCodes.ERROR)
 
         emails_found = sum(1 for l in leads if l.get(const.ColumnNames.EMAIL))
         log.info("Emails encontrados: %d/%d", emails_found, len(leads))
@@ -866,7 +873,7 @@ def main() -> None:
         save_leads(leads, out_path)
     except exc.CSVError as e:
         log.error("Error al guardar CSV: %s", e)
-        sys.exit(exc.ExitCodes.ERROR)
+        sys.exit(const.ExitCodes.ERROR)
 
     # Resumen
     with_email = sum(1 for l in leads if l.get(const.ColumnNames.EMAIL))

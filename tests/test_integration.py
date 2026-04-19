@@ -355,11 +355,11 @@ class TestExceptionsIntegration:
 class TestConfigIntegration:
     """Tests de integración de configuración."""
 
-    def test_config_has_claude(self) -> None:
-        """Prueba que config tiene configuración de Claude (LLM de producción)."""
-        assert "model" in cfg.CLAUDE
-        assert "max_tokens" in cfg.CLAUDE
-        assert "temperature" in cfg.CLAUDE
+    def test_config_has_openai(self) -> None:
+        """Prueba que config tiene configuración de OpenAI (LLM de fallback)."""
+        assert "model" in cfg.OPENAI
+        assert "max_tokens" in cfg.OPENAI
+        assert "temperature" in cfg.OPENAI
 
     def test_config_has_product(self) -> None:
         """Prueba que config tiene configuración de producto."""

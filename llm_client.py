@@ -1,7 +1,7 @@
 """
-llm_client.py — Cliente LLM con soporte para Claude y Groq.
+llm_client.py — Cliente LLM con soporte para OpenAI y Groq.
 
-Prioridad: Claude (si ANTHROPIC_API_KEY está disponible) → Groq (fallback).
+Prioridad: OpenAI (gpt-4o-mini, costo-efectivo) → Groq (fallback).
 Interfaz: call(system, user) -> dict
 """
 from __future__ import annotations
@@ -47,59 +47,61 @@ def _fix_encoding(obj: Any) -> Any:
     return obj
 
 
-# ── Claude ────────────────────────────────────────────────────────────────────
+# ── OpenAI (primario) ─────────────────────────────────────────────────────────
 
-_claude_client = None
+_openai_client = None
 
-def _get_claude():
-    global _claude_client
-    if _claude_client is None:
-        import anthropic
-        api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+def _get_openai():
+    global _openai_client
+    if _openai_client is None:
+        from openai import OpenAI
+        api_key = os.environ.get("OPENAI_API_KEY", "")
         if not api_key:
-            raise exc.LLMCallError("ANTHROPIC_API_KEY no está configurada", model="claude")
-        _claude_client = anthropic.Anthropic(api_key=api_key)
-    return _claude_client
+            raise exc.LLMCallError("OPENAI_API_KEY no está configurada", model="openai")
+        _openai_client = OpenAI(api_key=api_key)
+    return _openai_client
 
 
-def _call_claude(system: str, user: str) -> dict[str, Any]:
-    client = _get_claude()
-    model   = cfg.CLAUDE["model"]
-    retries = cfg.CLAUDE["retries"]
-    backoff = cfg.CLAUDE["backoff_s"]
+def _call_openai(system: str, user: str) -> dict[str, Any]:
+    client = _get_openai()
+    model = cfg.OPENAI["model"]
+    retries = cfg.OPENAI["retries"]
+    backoff = cfg.OPENAI["backoff_s"]
 
     last_err: Exception | None = None
     for attempt in range(1, retries + 1):
         try:
-            msg = client.messages.create(
+            msg = client.chat.completions.create(
                 model=model,
-                max_tokens=cfg.CLAUDE["max_tokens"],
-                system=system,
-                messages=[{"role": "user", "content": user}],
-                temperature=0.0,
-                timeout=60.0,
+                max_tokens=cfg.OPENAI["max_tokens"],
+                messages=[
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user},
+                ],
+                temperature=cfg.OPENAI.get("temperature", 0),
+                response_format={"type": "json_object"},
+                timeout=60,
             )
-            content = msg.content[0].text if msg.content else ""
-            return _parse_json_loose(content)
+            content = (msg.choices[0].message.content or "").strip()
+            return _fix_encoding(_parse_json_loose(content))
         except exc.LLMResponseError:
             raise
         except Exception as e:
             last_err = e
-            # Log exhaustivo del error para diagnóstico
-            log.warning("Claude intento %d/%d — %s: %s", attempt, retries, type(e).__name__, e)
+            log.warning("OpenAI intento %d/%d — %s: %s", attempt, retries, type(e).__name__, e)
             for attr in ("response", "body", "message", "args"):
                 val = getattr(e, attr, None)
                 if val:
                     try:
                         body_text = val.text if hasattr(val, "text") else str(val)
-                        log.error("Claude error.%s: %s", attr, body_text[:500])
+                        log.error("OpenAI error.%s: %s", attr, body_text[:500])
                     except Exception:
                         pass
             if attempt < retries:
                 time.sleep(backoff * attempt)
 
     raise exc.LLMCallError(
-        f"Claude no respondió después de {retries} intentos", model=model
+        f"OpenAI no respondió después de {retries} intentos", model=model
     ) from last_err
 
 
@@ -159,14 +161,103 @@ def _call_groq(system: str, user: str) -> dict[str, Any]:
     )
 
 
+def _call_openai_raw(system: str, user: str) -> str:
+    """OpenAI sin `response_format`: útil cuando la salida es un JSON array u otro texto."""
+    client = _get_openai()
+    model = cfg.OPENAI["model"]
+    retries = cfg.OPENAI["retries"]
+    backoff = cfg.OPENAI["backoff_s"]
+    raw_max = min(16384, max(int(cfg.OPENAI.get("max_tokens", 1024)), 8192))
+
+    last_err: Exception | None = None
+    for attempt in range(1, retries + 1):
+        try:
+            msg = client.chat.completions.create(
+                model=model,
+                max_tokens=raw_max,
+                messages=[
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user},
+                ],
+                temperature=cfg.OPENAI.get("temperature", 0),
+                timeout=120,
+            )
+            return (msg.choices[0].message.content or "").strip()
+        except Exception as e:
+            last_err = e
+            log.warning(
+                "OpenAI raw intento %d/%d — %s: %s", attempt, retries, type(e).__name__, e
+            )
+            if attempt < retries:
+                time.sleep(backoff * attempt)
+
+    raise exc.LLMCallError(
+        f"OpenAI (raw) no respondió después de {retries} intentos", model=model
+    ) from last_err
+
+
+def _call_groq_raw(system: str, user: str) -> str:
+    """Groq sin `response_format` json_object (salida texto / JSON array)."""
+    client = _get_groq()
+    model = cfg.GROQ.get("model", "llama-3.3-70b-versatile")
+    retries = cfg.GROQ.get("retries", 3)
+    backoff = cfg.GROQ.get("backoff_s", 2)
+
+    last_err: Exception | None = None
+    for attempt in range(1, retries + 1):
+        try:
+            response = client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user},
+                ],
+                temperature=cfg.GROQ.get("temperature", 0.2),
+                max_tokens=8192,
+                timeout=90,
+            )
+            return (response.choices[0].message.content or "").strip()
+        except Exception as e:
+            last_err = e
+            err_str = str(e).lower()
+            if "429" in err_str or "rate limit" in err_str or "rate_limit" in err_str:
+                wait = backoff * (attempt * 3)
+                if attempt < retries:
+                    time.sleep(wait)
+            elif attempt < retries:
+                time.sleep(backoff * attempt)
+
+    raise exc.RateLimitError(
+        f"Groq rate limit alcanzado después de {retries} intentos"
+    ) if last_err and ("429" in str(last_err) or "rate" in str(last_err).lower()) else exc.LLMCallError(
+        f"Groq (raw) no respondió después de {retries} intentos", model=model
+    )
+
+
+def call_raw(system: str, user: str) -> str:
+    """
+    Texto crudo del LLM (OpenAI primario → Groq fallback).
+    Usar cuando la salida no es un único JSON object (p. ej. batch JSON array).
+    """
+    if os.environ.get("OPENAI_API_KEY"):
+        try:
+            return _call_openai_raw(system, user)
+        except (exc.LLMCallError, exc.RateLimitError) as e:
+            if os.environ.get("GROQ_API_KEY"):
+                log.warning("OpenAI falló (%s) — usando Groq como fallback (raw)", e)
+                return _call_groq_raw(system, user)
+            raise
+    if os.environ.get("GROQ_API_KEY"):
+        return _call_groq_raw(system, user)
+    raise exc.ConfigurationError("Se requiere OPENAI_API_KEY o GROQ_API_KEY")
+
+
 # ── Interfaz pública ──────────────────────────────────────────────────────────
 
 def call(system: str, user: str) -> dict[str, Any]:
     """
-    Llama al LLM disponible: Groq (primario) → Claude (fallback).
-
-    Si Groq está configurado pero devuelve rate limit (429), intenta Claude
-    automáticamente si ANTHROPIC_API_KEY está disponible.
+    Llama al LLM disponible: OpenAI (primario) → Groq (fallback si OpenAI falla
+    tras reintentos y hay GROQ_API_KEY).
 
     Args:
         system: Prompt del sistema.
@@ -175,15 +266,14 @@ def call(system: str, user: str) -> dict[str, Any]:
     Returns:
         Diccionario con la respuesta del LLM.
     """
-    if os.environ.get("GROQ_API_KEY"):
+    if os.environ.get("OPENAI_API_KEY"):
         try:
-            return _call_groq(system, user)
-        except exc.RateLimitError:
-            if os.environ.get("ANTHROPIC_API_KEY"):
-                log.warning("Groq rate limit alcanzado — fallback a Claude")
-                return _call_claude(system, user)
+            return _call_openai(system, user)
+        except (exc.LLMCallError, exc.RateLimitError) as e:
+            if os.environ.get("GROQ_API_KEY"):
+                log.warning("OpenAI falló (%s) — usando Groq como fallback", e)
+                return _call_groq(system, user)
             raise
-    # Fallback: Claude (requiere ANTHROPIC_API_KEY con créditos)
-    if os.environ.get("ANTHROPIC_API_KEY"):
-        return _call_claude(system, user)
-    raise exc.ConfigurationError("Se requiere GROQ_API_KEY o ANTHROPIC_API_KEY")
+    if os.environ.get("GROQ_API_KEY"):
+        return _call_groq(system, user)
+    raise exc.ConfigurationError("Se requiere OPENAI_API_KEY o GROQ_API_KEY")

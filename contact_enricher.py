@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any
 
 import config as cfg
+import logging_config
 import constants as const
 import exceptions as exc
 import utils
@@ -639,6 +640,7 @@ def main() -> None:
         format="%(asctime)s [%(levelname)s] %(message)s",
         datefmt="%H:%M:%S",
     )
+    logging_config.silence_sensitive_http_loggers()
 
     args = parse_args()
 
@@ -651,11 +653,11 @@ def main() -> None:
         leads = read_csv(input_path)
     except exc.CSVError as e:
         log.error("Error: %s", e)
-        sys.exit(exc.ExitCodes.IO_ERROR)
+        sys.exit(const.ExitCodes.IO_ERROR)
 
     if not leads:
         log.error("No se encontraron leads en el archivo de entrada.")
-        sys.exit(exc.ExitCodes.ERROR)
+        sys.exit(const.ExitCodes.ERROR)
 
     log.info("Leads a enriquecer: %d", len(leads))
 
@@ -665,14 +667,14 @@ def main() -> None:
         enriched = enrich_leads(leads, delay=args.delay, headful=args.headful, workers=args.workers)
     except Exception as e:
         log.error("Error en enriquecimiento: %s", e)
-        sys.exit(exc.ExitCodes.ERROR)
+        sys.exit(const.ExitCodes.ERROR)
 
     # Guardar
     try:
         save_csv(enriched, output_path)
     except exc.CSVError as e:
         log.error("Error al guardar CSV: %s", e)
-        sys.exit(exc.ExitCodes.ERROR)
+        sys.exit(const.ExitCodes.ERROR)
 
     # Resumen
     with_email_web = sum(1 for l in enriched if l.get(const.ColumnNames.EMAIL_WEB))

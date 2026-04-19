@@ -1,7 +1,7 @@
 """
 telegram_bot.py — Bot de ventas Pipeline_X en Telegram.
 
-Asistente conversacional con IA (Groq/Claude) + flujo de demo en vivo.
+Asistente conversacional con IA (OpenAI primario, Groq fallback) + flujo de demo en vivo.
 
 Flujos:
   /start            → Alex (bot de ventas conversacional)
@@ -11,8 +11,8 @@ Flujos:
 
 Variables de entorno requeridas:
   TELEGRAM_BOT_TOKEN  — token de @BotFather
-  GROQ_API_KEY        — clave de Groq (console.groq.com)
-  ANTHROPIC_API_KEY   — opcional, Claude como LLM primario
+  OPENAI_API_KEY      — OpenAI como LLM primario (gpt-4o-mini)
+  GROQ_API_KEY        — opcional, Groq como fallback si OpenAI falla
 
 Deep link para landing:
   t.me/<botname>?start=demo
@@ -29,6 +29,9 @@ import sys
 import time as _time
 from collections import defaultdict, deque
 from pathlib import Path
+
+import config as cfg
+import logging_config
 
 from groq import Groq
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
@@ -48,15 +51,10 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s — %(message)s",
     datefmt="%H:%M:%S",
 )
+logging_config.silence_sensitive_http_loggers()
 log = logging.getLogger("pipeline_x_bot")
 
 # ─── Groq client ─────────────────────────────────────────────────────────────
-
-def _get_groq_client() -> Groq:
-    api_key = os.environ.get("GROQ_API_KEY", "")
-    if not api_key:
-        raise RuntimeError("GROQ_API_KEY no está configurada en las variables de entorno.")
-    return Groq(api_key=api_key)
 
 _groq: Groq | None = None
 
@@ -289,7 +287,6 @@ def _run_pipeline_sync(target: str) -> list[dict]:
 
     from scraper import scrape_google_maps, enrich_leads
     from sdr_agent import qualify_row, pre_score
-    import config as cfg
 
     raw = scrape_google_maps(target, DEMO_LEADS_LIMIT)
     enriched = enrich_leads(raw, use_sunat=False)  # SUNAT deshabilitado en tier free
@@ -361,8 +358,6 @@ async def _notify_admin_demo_email(context: "ContextTypes.DEFAULT_TYPE", user_id
 
 def _get_reply(user_id: int, user_message: str) -> str:
     global _groq
-    if _groq is None:
-        _groq = _get_groq_client()
 
     if user_id not in _conversations:
         _conversations[user_id] = []
@@ -374,14 +369,44 @@ def _get_reply(user_id: int, user_message: str) -> str:
 
     messages = [{"role": "system", "content": SYSTEM_PROMPT}] + _conversations[user_id]
 
-    response = _groq.chat.completions.create(
-        model="llama-3.3-70b-versatile",
-        messages=messages,
-        temperature=0.7,
-        max_tokens=400,
-    )
+    if os.environ.get("OPENAI_API_KEY"):
+        try:
+            from openai import OpenAI
 
-    reply = response.choices[0].message.content.strip()
+            client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
+            response = client.chat.completions.create(
+                model=cfg.OPENAI["model"],
+                messages=messages,
+                temperature=0.7,
+                max_tokens=400,
+                timeout=60,
+            )
+            reply = (response.choices[0].message.content or "").strip()
+            _conversations[user_id].append({"role": "assistant", "content": reply})
+            return reply
+        except Exception as exc:
+            log.warning("OpenAI falló (%s); intentando Groq si hay clave", exc)
+
+    if os.environ.get("GROQ_API_KEY"):
+        try:
+            if _groq is None:
+                _groq = Groq(api_key=os.environ["GROQ_API_KEY"])
+            response = _groq.chat.completions.create(
+                model=cfg.GROQ.get("model", "llama-3.3-70b-versatile"),
+                messages=messages,
+                temperature=0.7,
+                max_tokens=400,
+            )
+            reply = (response.choices[0].message.content or "").strip()
+            _conversations[user_id].append({"role": "assistant", "content": reply})
+            return reply
+        except Exception as exc:
+            log.warning("Groq también falló: %s", exc)
+
+    reply = (
+        "No puedo responder ahora: configura OPENAI_API_KEY (recomendado) "
+        "o GROQ_API_KEY como respaldo."
+    )
     _conversations[user_id].append({"role": "assistant", "content": reply})
     return reply
 

@@ -3,19 +3,22 @@ config.py — Edita este archivo para adaptar el agente a tu producto y mercado.
 """
 from __future__ import annotations
 import os
+from dotenv import load_dotenv
+
+load_dotenv()
 
 
-# ─── Claude API (producción) ──────────────────────────────────────────────────
-# Requiere variable de entorno: ANTHROPIC_API_KEY
-CLAUDE = {
-    "model": "claude-3-5-haiku-20241022",  # rápido y barato (~$0.01/lead)
+# ─── OpenAI API (producción) ──────────────────────────────────────────────────
+# Requiere variable de entorno: OPENAI_API_KEY
+OPENAI = {
+    "model": "gpt-4o-mini",  # rápido y costo-efectivo para calificación SDR
     "max_tokens": 1024,
     "temperature": 0,   # 0 = determinista
     "retries": 3,
     "backoff_s": 2,
 }
 
-# ─── Groq API (fallback si ANTHROPIC_API_KEY no está disponible) ──────────────
+# ─── Groq API (fallback si OpenAI falla) ───────────────────────────────────────
 # Requiere variable de entorno: GROQ_API_KEY
 GROQ = {
     "model": "llama-3.1-8b-instant",   # 5x más rate limit que 70b en free tier

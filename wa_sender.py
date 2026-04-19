@@ -285,15 +285,22 @@ def get_state(timeout: int = 5) -> str:
     """
     Devuelve el estado de la instancia: 'authorized', 'notAuthorized', etc.
     Útil para healthcheck.
+    Reintenta ante fallos transitorios de red / 5xx (Green API no es crítico para el API HTTP).
     """
     url = f"{_base_url()}/getStateInstance/{_token()}"
-    try:
-        r = httpx.get(url, timeout=timeout)
-        r.raise_for_status()
-        return r.json().get("stateInstance", "unknown")
-    except Exception as exc:
-        log.warning("getStateInstance falló: %s", exc)
-        return "error"
+    last_exc: Exception | None = None
+    for attempt in range(3):
+        try:
+            r = httpx.get(url, timeout=timeout)
+            r.raise_for_status()
+            return r.json().get("stateInstance", "unknown")
+        except Exception as exc:
+            last_exc = exc
+            log.warning("getStateInstance falló (intento %d/3): %s", attempt + 1, exc)
+            if attempt < 2:
+                time.sleep(0.5 * (attempt + 1))
+    log.warning("getStateInstance agotó reintentos: %s", last_exc)
+    return "error"
 
 
 def set_typing(phone: str, typing: bool = True, timeout: int = 5) -> bool:

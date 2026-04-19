@@ -4,7 +4,7 @@ api.py — API REST para AgentePyme SDR.
 Endpoints:
   GET  /health                  Estado del servicio
   POST /scrape                  Busca leads en Google Maps
-  POST /qualify                 Califica una lista de leads con Groq
+  POST /qualify                 Califica una lista de leads (OpenAI → Groq)
   POST /enrich                  Enriquece contactos (emails, redes sociales)
   POST /pipeline                Pipeline completo: scrape → califica
   POST /jobs/pipeline           Lanza pipeline en background
@@ -14,7 +14,8 @@ Endpoints:
   POST /webhook/telegram        Webhook del bot de Telegram
 
 Variables de entorno requeridas:
-  GROQ_API_KEY                — clave de API de Groq (o ANTHROPIC_API_KEY)
+  OPENAI_API_KEY              — clave de OpenAI (LLM primario)
+  GROQ_API_KEY                — opcional, Groq como fallback si OpenAI falla
   TELEGRAM_BOT_TOKEN          — token del bot externo Alex (@BotFather)
   TELEGRAM_BOT_TOKEN_INTERNO  — token del bot interno de gestión (bot_interno.py)
   ADMIN_CHAT_ID               — tu chat_id de Telegram (acceso al bot interno)
@@ -1176,7 +1177,9 @@ async def ready():
 
 @app.get("/health", tags=["Sistema"])
 async def health():
-    """Estado del servicio — incluye checks de Groq y PostgreSQL."""
+    """Estado del servicio — checks detallados; `status` solo es **degraded** si falla algo
+    crítico (PostgreSQL o ningún proveedor LLM usable con las keys configuradas).
+    Green API / keys de scraping informativas no degradan solas."""
 
     checks: dict[str, str] = {}
 
@@ -1195,22 +1198,45 @@ async def health():
     except Exception as exc:
         checks["db"] = f"error: {str(exc)[:80]}"
 
-    # ── Groq ──────────────────────────────────────────────────────────────────
-    try:
-        def _ping_groq() -> bool:
-            import groq as _groq_lib
-            client = _groq_lib.Groq(api_key=os.environ.get("GROQ_API_KEY", ""))
-            r = client.chat.completions.create(
-                model=cfg.GROQ["model"],
-                messages=[{"role": "user", "content": "ok"}],
-                max_tokens=3,
-                timeout=8,
-            )
-            return bool(r.choices)
-        groq_ok = await asyncio.to_thread(_ping_groq)
-        checks["groq"] = "ok" if groq_ok else "no_response"
-    except Exception as exc:
-        checks["groq"] = f"error: {str(exc)[:80]}"
+    # ── OpenAI (LLM primario) ─────────────────────────────────────────────────
+    if os.environ.get("OPENAI_API_KEY"):
+        try:
+            def _ping_openai() -> bool:
+                from openai import OpenAI
+                client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY", ""))
+                r = client.chat.completions.create(
+                    model=cfg.OPENAI["model"],
+                    messages=[{"role": "user", "content": "ok"}],
+                    max_tokens=3,
+                    timeout=8,
+                )
+                return bool(r.choices)
+            oa_ok = await asyncio.to_thread(_ping_openai)
+            checks["openai"] = "ok" if oa_ok else "no_response"
+        except Exception as exc:
+            checks["openai"] = f"error: {str(exc)[:80]}"
+    else:
+        checks["openai"] = "missing"
+
+    # ── Groq (fallback) ───────────────────────────────────────────────────────
+    if os.environ.get("GROQ_API_KEY"):
+        try:
+            def _ping_groq() -> bool:
+                import groq as _groq_lib
+                client = _groq_lib.Groq(api_key=os.environ.get("GROQ_API_KEY", ""))
+                r = client.chat.completions.create(
+                    model=cfg.GROQ["model"],
+                    messages=[{"role": "user", "content": "ok"}],
+                    max_tokens=3,
+                    timeout=8,
+                )
+                return bool(r.choices)
+            groq_ok = await asyncio.to_thread(_ping_groq)
+            checks["groq"] = "ok" if groq_ok else "no_response"
+        except Exception as exc:
+            checks["groq"] = f"error: {str(exc)[:80]}"
+    else:
+        checks["groq"] = "missing"
 
     # ── Green API ─────────────────────────────────────────────────────────────
     try:
@@ -1225,16 +1251,46 @@ async def health():
     checks["serpapi"] = "ok" if cfg.SERPAPI_API_KEY else "missing"
     checks["google_places"] = "ok" if cfg.GOOGLE_PLACES_API_KEY else "missing"
 
-    overall = "ok" if all(
-        v in ("ok", "authorized", "fallback_file", "unconfigured", "missing")
-        for v in checks.values()
-    ) else "degraded"
+    # Estado global: solo fallos **críticos** degradan el servicio (DB, LLM usable).
+    # Green API / presencia de keys de scraping son informativos; WhatsApp puede fallar
+    # un instante sin tumbar el readiness del API REST.
+    overall = _health_overall(checks)
 
     return {
         "status":  overall,
         "product": cfg.PRODUCT["name"],
         "checks":  checks,
     }
+
+
+def _health_overall(checks: dict[str, str]) -> str:
+    """ok | degraded — ver docstring en /health."""
+    db = checks.get("db", "")
+    if db.startswith("error"):
+        return "degraded"
+
+    def _llm_bad(v: str) -> bool:
+        return v.startswith("error") or v == "no_response"
+
+    has_oa = bool(os.environ.get("OPENAI_API_KEY"))
+    has_gq = bool(os.environ.get("GROQ_API_KEY"))
+    oa = checks.get("openai", "")
+    gq = checks.get("groq", "")
+
+    if not has_oa and not has_gq:
+        return "ok"
+    usable = False
+    if has_oa and not _llm_bad(oa):
+        usable = True
+    if has_gq and not _llm_bad(gq):
+        usable = True
+    if has_oa and _llm_bad(oa) and has_gq and not _llm_bad(gq):
+        usable = True
+    if has_gq and _llm_bad(gq) and has_oa and not _llm_bad(oa):
+        usable = True
+    if not usable:
+        return "degraded"
+    return "ok"
 
 
 @app.get("/metrics", tags=["Sistema"])
@@ -2088,7 +2144,7 @@ def _get_alex_prompt() -> str:
 
 def _alex_reply(chat_id: int, user_text: str) -> str:
     """Genera respuesta conversacional de Alex (texto libre).
-    Prioridad: Anthropic → Groq. Ninguno disponible → mensaje estático."""
+    Prioridad: OpenAI → Groq. Ninguno disponible → mensaje estático."""
     state   = _get_bot_state(chat_id)
     history: list[dict] = list(state.get("history", []))
 
@@ -2098,20 +2154,20 @@ def _alex_reply(chat_id: int, user_text: str) -> str:
 
     system_prompt = _get_alex_prompt()
 
-    # ── Anthropic (Claude) ──────────────────────────────────────────────────
-    claude_key = os.environ.get("ANTHROPIC_API_KEY")
-    if claude_key:
+    # ── OpenAI ───────────────────────────────────────────────────────────────
+    openai_key = os.environ.get("OPENAI_API_KEY")
+    if openai_key:
         try:
-            import anthropic
-            client = anthropic.Anthropic(api_key=claude_key)
-            resp = client.messages.create(
-                model=cfg.CLAUDE["model"],
+            from openai import OpenAI
+            client = OpenAI(api_key=openai_key)
+            resp = client.chat.completions.create(
+                model=cfg.OPENAI["model"],
                 max_tokens=400,
-                system=system_prompt,
-                messages=history,
-                temperature=1,  # Claude no acepta 0 en modo conversacional
+                messages=[{"role": "system", "content": system_prompt}] + history,
+                temperature=0.7,
+                timeout=60,
             )
-            reply = resp.content[0].text.strip() if resp.content else ""
+            reply = (resp.choices[0].message.content or "").strip()
             if reply:
                 history.append({"role": "assistant", "content": reply})
                 _set_bot_state(chat_id, {**state, "history": history})
@@ -2205,7 +2261,7 @@ async def telegram_webhook(request: Request):
       /start reporte    → solicita target → corre /deliver → entrega CSV
       /start demo       → flujo demo (deep link desde landing)
       callback_query    → botones inline (demo / precios / info / contacto)
-      cualquier otro    → bot de ventas Alex (Groq)
+      cualquier otro    → bot de ventas Alex (OpenAI / Groq)
     """
     # Verificar token secreto si está configurado
     secret = os.environ.get("TELEGRAM_WEBHOOK_SECRET")

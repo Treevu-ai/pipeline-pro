@@ -18,6 +18,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from dotenv import load_dotenv
+
+import logging_config
+
 import config as cfg
 import constants as const
 import exceptions as exc
@@ -28,6 +32,7 @@ from sdr_agent import qualify_row, pre_score, generate_html_report
 import pandas as pd
 
 log = logging.getLogger("pipeline")
+load_dotenv()
 
 
 # ─── Calificación de leads ─────────────────────────────────────────────────────
@@ -152,6 +157,7 @@ def main() -> None:
         format="%(asctime)s [%(levelname)s] %(message)s",
         datefmt="%H:%M:%S",
     )
+    logging_config.silence_sensitive_http_loggers()
 
     args = parse_args()
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -174,11 +180,11 @@ def main() -> None:
         leads = scrape_google_maps(args.query, args.limit, headful=args.headful)
     except exc.GoogleMapsError as e:
         log.error("Scraping falló: %s", e)
-        sys.exit(exc.ExitCodes.NETWORK_ERROR)
+        sys.exit(const.ExitCodes.NETWORK_ERROR)
 
     if not leads:
         log.error("No se obtuvieron leads. Verifica la query o la conexión.")
-        sys.exit(exc.ExitCodes.ERROR)
+        sys.exit(const.ExitCodes.ERROR)
 
     log.info("Leads encontrados: %d", len(leads))
 
@@ -189,7 +195,7 @@ def main() -> None:
             leads = enrich_leads_scraper(leads, use_sunat=args.enrich_sunat, delay=args.scrape_delay)
         except Exception as e:
             log.error("Error en enriquecimiento: %s", e)
-            sys.exit(exc.ExitCodes.ERROR)
+            sys.exit(const.ExitCodes.ERROR)
 
         emails_found = sum(1 for l in leads if l.get(const.ColumnNames.EMAIL))
         log.info("Emails encontrados: %d/%d", emails_found, len(leads))
@@ -201,7 +207,7 @@ def main() -> None:
         save_leads(leads, raw_csv)
     except exc.CSVError as e:
         log.error("Error al guardar CSV: %s", e)
-        sys.exit(exc.ExitCodes.ERROR)
+        sys.exit(const.ExitCodes.ERROR)
 
     if args.no_qualify:
         print(f"\nScraping completado. CSV en: {raw_csv}")
@@ -219,14 +225,14 @@ def main() -> None:
         qualified = qualify_leads(leads, channel=args.channel, delay=args.qualify_delay, workers=args.workers)
     except Exception as e:
         log.error("Calificación falló: %s", e)
-        sys.exit(exc.ExitCodes.ERROR)
+        sys.exit(const.ExitCodes.ERROR)
 
     # Guardar leads calificados
     try:
         save_leads(qualified, qualified_csv)
     except exc.CSVError as e:
         log.error("Error al guardar CSV: %s", e)
-        sys.exit(exc.ExitCodes.ERROR)
+        sys.exit(const.ExitCodes.ERROR)
 
     # Generar reporte HTML
     if args.report:
@@ -249,14 +255,14 @@ def main() -> None:
             enriched = enrich_contacts(qualified, delay=args.contact_delay, headful=args.headful, workers=args.contact_workers)
         except Exception as e:
             log.error("Enriquecimiento de contactos falló: %s", e)
-            sys.exit(exc.ExitCodes.ERROR)
+            sys.exit(const.ExitCodes.ERROR)
 
         # Guardar leads enriquecidos
         try:
             save_leads(enriched, enriched_csv)
         except exc.CSVError as e:
             log.error("Error al guardar CSV: %s", e)
-            sys.exit(exc.ExitCodes.ERROR)
+            sys.exit(const.ExitCodes.ERROR)
 
         # Resumen de enriquecimiento
         with_email_web = sum(1 for l in enriched if l.get(const.ColumnNames.EMAIL_WEB))

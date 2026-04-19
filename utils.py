@@ -15,6 +15,7 @@ from functools import wraps
 from typing import Any, Callable
 
 import constants as const
+import logging_config
 
 log = logging.getLogger(__name__)
 
@@ -568,6 +569,7 @@ def setup_logging(log_dir: str, level: int = logging.INFO) -> logging.Logger:
         format=fmt,
         datefmt=datefmt,
     )
+    logging_config.silence_sensitive_http_loggers()
 
     # Agregar handler de archivo
     fh = logging.FileHandler(log_file, encoding="utf-8")

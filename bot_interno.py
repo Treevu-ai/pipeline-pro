@@ -43,7 +43,7 @@ Variables de entorno:
   TELEGRAM_BOT_TOKEN_INTERNO  — token de PipeAssist (@BotFather)
   TELEGRAM_BOT_TOKEN          — token de Alex (para entregar reportes a clientes)
   ADMIN_CHAT_ID               — tu Telegram chat_id
-  GROQ_API_KEY / ANTHROPIC_API_KEY
+  GROQ_API_KEY / OPENAI_API_KEY
 """
 from __future__ import annotations
 
@@ -58,6 +58,8 @@ import uuid
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
+
+import logging_config
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import (
@@ -76,6 +78,7 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s — %(message)s",
     datefmt="%H:%M:%S",
 )
+logging_config.silence_sensitive_http_loggers()
 log = logging.getLogger("pipeassist")
 
 # ─── Auth ────────────────────────────────────────────────────────────────────
@@ -481,15 +484,22 @@ def _build_context(history: list[dict], clients: dict) -> str:
 def _llm_chat(user_text: str, context: str) -> str:
     system = _ASSISTANT_SYSTEM.format(context=context)
 
-    if os.environ.get("ANTHROPIC_API_KEY"):
+    if os.environ.get("OPENAI_API_KEY"):
         try:
-            import anthropic, config as cfg
-            client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
-            resp = client.messages.create(
-                model=cfg.CLAUDE["model"], max_tokens=350, system=system,
-                messages=[{"role": "user", "content": user_text}], temperature=1,
+            from openai import OpenAI
+            import config as cfg
+            client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
+            resp = client.chat.completions.create(
+                model=cfg.OPENAI["model"],
+                max_tokens=350,
+                messages=[
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user_text},
+                ],
+                temperature=0.7,
+                timeout=60,
             )
-            return resp.content[0].text.strip() if resp.content else ""
+            return (resp.choices[0].message.content or "").strip()
         except Exception:
             pass
 
@@ -552,7 +562,7 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         await _deny(update); return
 
     groq   = "✅" if os.environ.get("GROQ_API_KEY") else "❌"
-    claude = "✅" if os.environ.get("ANTHROPIC_API_KEY") else "—"
+    openai = "✅" if os.environ.get("OPENAI_API_KEY") else "—"
     alex   = "✅" if os.environ.get("TELEGRAM_BOT_TOKEN") else "❌ (entrega desactivada)"
 
     history = _load_history()
@@ -565,7 +575,7 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 
     lines = [
         "🔧 *Estado del sistema*\n",
-        f"*ANTHROPIC_API_KEY:* {claude}",
+        f"*OPENAI_API_KEY:* {openai}",
         f"*GROQ_API_KEY:* {groq}",
         f"*Bot entrega (Alex):* {alex}",
         f"\n📦 *Último run:* {last_info}",

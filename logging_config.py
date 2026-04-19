@@ -17,11 +17,22 @@ import os
 import sys
 
 
+def silence_sensitive_http_loggers() -> None:
+    """
+    httpx/httpcore en INFO registran la URL completa del request; con query ?token=
+    eso filtra secretos a stdout (Railway, CI, logs compartidos).
+    """
+    for name in ("httpx", "httpcore"):
+        logging.getLogger(name).setLevel(logging.WARNING)
+
+
 def setup() -> None:
     """
     Configura el logging global de la aplicación.
     Idempotente — puede llamarse múltiples veces sin duplicar handlers.
     """
+    silence_sensitive_http_loggers()
+
     level_name = os.environ.get("LOG_LEVEL", "INFO").upper()
     level      = getattr(logging, level_name, logging.INFO)
 
@@ -39,8 +50,6 @@ def setup() -> None:
     root.setLevel(level)
 
     # Silenciar loggers muy ruidosos de librerías externas
-    logging.getLogger("httpx").setLevel(logging.WARNING)
-    logging.getLogger("httpcore").setLevel(logging.WARNING)
     logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
     logging.getLogger("telegram").setLevel(logging.WARNING)
 

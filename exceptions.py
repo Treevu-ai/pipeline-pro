@@ -156,7 +156,7 @@ class QualificationError(AgentePymeError):
 
 class LLMCallError(QualificationError):
     """
-    Excepción genérica para errores al llamar a cualquier LLM (Claude, Groq, Ollama).
+    Excepción genérica para errores al llamar a cualquier LLM (OpenAI, Groq, Ollama).
 
     Se lanza cuando el proveedor LLM no responde tras todos los reintentos.
     """

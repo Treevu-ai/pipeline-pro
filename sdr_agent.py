@@ -33,6 +33,8 @@ import pandas as pd
 from dotenv import load_dotenv
 load_dotenv()
 
+import logging_config
+
 import config as cfg
 import constants as const
 import exceptions as exc
@@ -55,6 +57,7 @@ def _setup_logging(log_dir: Path) -> logging.Logger:
     log_file = log_dir / f"sdr_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
     fmt = "%(asctime)s [%(levelname)s] %(message)s"
     logging.basicConfig(level=logging.INFO, format=fmt, datefmt="%H:%M:%S")
+    logging_config.silence_sensitive_http_loggers()
     fh = logging.FileHandler(log_file, encoding="utf-8")
     fh.setFormatter(logging.Formatter(fmt, datefmt="%H:%M:%S"))
     logger = logging.getLogger("sdr_agent")
@@ -510,23 +513,8 @@ Cada objeto debe tener EXACTAMENTE estas claves:
 Responde SOLO el JSON array, sin texto adicional."""
 
     try:
-        _raw = llm_client.call(cfg.PLAYBOOK, user_prompt)  # noqa: F841 — no usado; batch llama groq directo
-        # llm_client.call parsea JSON → si el LLM devuelve array, sería el primer elemento.
-        # Necesitamos el texto raw. Usamos _call_groq directamente.
-        import groq as _groq_lib
-        import os
-
-        _groq = _groq_lib.Groq(api_key=os.environ.get("GROQ_API_KEY", ""))
-        resp = _groq.chat.completions.create(
-            model=cfg.GROQ.get("model", "llama-3.1-8b-instant"),
-            messages=[
-                {"role": "system", "content": cfg.PLAYBOOK},
-                {"role": "user",   "content": user_prompt},
-            ],
-            temperature=0,
-            timeout=90,
-        )
-        text = resp.choices[0].message.content.strip()
+        # Una sola llamada por lote; salida JSON array (OpenAI primario → Groq fallback).
+        text = llm_client.call_raw(cfg.PLAYBOOK, user_prompt)
         # Extraer JSON array del texto
         m = re.search(r"\[.*\]", text, re.DOTALL)
         if not m:
@@ -785,7 +773,7 @@ def main() -> None:
 
     if not src.exists():
         logging.error("Archivo no encontrado: %s", src)
-        sys.exit(exc.ExitCodes.FILE_NOT_FOUND)
+        sys.exit(const.ExitCodes.FILE_NOT_FOUND)
 
     dst.parent.mkdir(parents=True, exist_ok=True)
     log = _setup_logging(dst.parent / "logs")
@@ -794,7 +782,7 @@ def main() -> None:
         df = pd.read_csv(src, dtype=str).fillna("")
     except Exception as e:
         log.error("Error al leer CSV: %s", e)
-        sys.exit(exc.ExitCodes.IO_ERROR)
+        sys.exit(const.ExitCodes.IO_ERROR)
 
     if args.max:
         df = df.head(args.max)
@@ -814,7 +802,7 @@ def main() -> None:
             log.warning("--dedup: no se encontro columna 'ruc' en el CSV; se omite deduplicacion")
 
     total = len(df)
-    _model = cfg.CLAUDE.get("model") or cfg.GROQ.get("model") or "llm"
+    _model = cfg.OPENAI.get("model") or cfg.GROQ.get("model") or "llm"
     log.info("Leads a procesar: %d | Modelo: %s | Canal: %s | Workers: %d",
              total, _model, args.channel, args.workers)
 
@@ -913,7 +901,7 @@ def main() -> None:
                             f_out.flush()
     except Exception as e:
         log.error("Error al procesar leads: %s", e)
-        sys.exit(exc.ExitCodes.ERROR)
+        sys.exit(const.ExitCodes.ERROR)
 
     log.info("CSV guardado (incremental): %s", dst)
     if skipped:

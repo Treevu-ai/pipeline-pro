@@ -62,13 +62,13 @@ def _delete(path: str, params: str = "") -> tuple[int, dict]:
 # ─── Health ───────────────────────────────────────────────────────────────────
 
 def test_health_ok():
-    """El endpoint /health debe responder 200 con db:ok."""
+    """HTTP 200, DB usable, estado ok (solo fallos críticos degradan — ver api._health_overall)."""
     import urllib.request, json
-    r = urllib.request.urlopen(f"{BASE_URL}/health", timeout=10)
+    r = urllib.request.urlopen(f"{BASE_URL}/health", timeout=15)
     data = json.loads(r.read())
     assert r.status == 200
+    assert data["checks"]["db"] in ("ok", "fallback_file")
     assert data["status"] == "ok"
-    assert data["checks"]["db"] == "ok"
 
 
 # ─── Autenticación ────────────────────────────────────────────────────────────
