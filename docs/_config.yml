@@ -1,4 +1,7 @@
 # Sitio Jekyll para GitHub Pages (Settings → Pages → Branch: main, folder: /docs)
+# Requerido por el tema Cayman / metadatos en CI (sin .git en el runner):
+repository: Treevu-ai/pipeline-pro
+
 title: "Pipeline_X"
 tagline: "Agente SDR con IA · MIPYME LatAm"
 description: >
