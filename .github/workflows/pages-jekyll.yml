@@ -1,0 +1,54 @@
+# Publica el sitio Jekyll en docs/ a GitHub Pages.
+# Tras hacer push: Repo → Settings → Pages → Source = "GitHub Actions" (una sola vez).
+
+name: Deploy GitHub Pages (Jekyll)
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.2"
+          bundler-cache: true
+          working-directory: docs
+
+      - name: Build Jekyll site
+        working-directory: docs
+        env:
+          JEKYLL_ENV: production
+        run: |
+          bundle install
+          bundle exec jekyll build \
+            --destination _site \
+            --baseurl "/${{ github.event.repository.name }}"
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs/_site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@v4

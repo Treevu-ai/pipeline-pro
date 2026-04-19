@@ -172,6 +172,13 @@ def main() -> int:
         help="Ruta al CSV calificado (default: output/batch_validacion_20_icp_calificados.csv)",
     )
     parser.add_argument("--json", action="store_true", help="Salida JSON en stdout")
+    parser.add_argument(
+        "--out",
+        type=Path,
+        default=None,
+        metavar="FILE",
+        help="Guardar también el JSON en FILE (UTF-8). Útil en Windows sin redirección.",
+    )
     args = parser.parse_args()
 
     path: Path = args.csv
@@ -188,6 +195,10 @@ def main() -> int:
 
     data = summarize(rows)
     data["source_file"] = str(path.resolve())
+
+    if args.out:
+        args.out.parent.mkdir(parents=True, exist_ok=True)
+        args.out.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
     if args.json:
         print(json.dumps(data, ensure_ascii=False, indent=2))

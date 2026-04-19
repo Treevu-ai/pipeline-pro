@@ -1,250 +1,182 @@
-# AgentePyme SDR
+<!-- La vista README en github.com NO ejecuta Jekyll ni CSS: sin fondos ni animaciones aquí.
+     Efectos visuales → GitHub Pages con carpeta `/docs` (véase tabla de estado abajo). -->
 
-Agente SDR para MIPYME en Latinoamérica.
-Lee un CSV de leads, los califica con LLM y genera borradores de mensaje listos para enviar.
+<p align="center">
+  <img
+    src="https://raw.githubusercontent.com/Treevu-ai/pipeline-pro/main/docs/assets/readme-hero.png"
+    alt="Pipeline_X — prospección B2B con IA para MIPYME LatAm"
+    width="100%"
+  />
+</p>
 
-## Pipeline completo (recomendado)
+<h1 align="center">Pipeline_X · Agente SDR</h1>
+
+<p align="center">
+  <strong>Scrape → califica con LLM → borradores email/WhatsApp · Perú & LatAm</strong><br/>
+  <sub>OpenAI (<code>gpt-4o-mini</code>) primario · Groq fallback · Green API opcional · API Railway</sub>
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/python-3.9+-3776AB?logo=python&logoColor=white" alt="Python 3.9+" />
+  <img src="https://img.shields.io/badge/OpenAI-chat-412991?logo=openai&logoColor=white" alt="OpenAI" />
+  <img src="https://img.shields.io/badge/WhatsApp-Green_API-25D366?logo=whatsapp&logoColor=white" alt="WhatsApp" />
+  <img src="https://img.shields.io/badge/GitHub-Pages-Jekyll-CB6297?logo=githubpages&logoColor=white" alt="Jekyll Pages" />
+</p>
+
+---
+
+## Estado del proyecto (snapshot)
+
+| Área | Estado |
+|------|--------|
+| Pipeline scrape + qualify (`pipeline.py`, `sdr_agent.py`) | Estable · LLM OpenAI → Groq |
+| API (`api.py`) · `/health` degradado solo por fallos críticos | Producción típica Railway |
+| Piloto outreach (`scripts/run_outreach_pilot.py`) | Generación de mensajes + envío WA · **dedup por teléfono PE** (`utils.whatsapp_digits_pe`) · CSV `output/pilot_outreach_batch2.csv` |
+| Docs / web | **`docs/`** · Jekyll **Cayman** + CSS propio (`assets/css/style.scss`): cabecera con **imagen de fondo**, degradado y cuerpo con fondo fijo · activar **Settings → Pages → `/docs`** · URL típica: `https://<org>.github.io/<repo>/` |
+
+
+Roadmap operativo y decisión GO/HOLD: carpeta **`tasks/`** (`todo.md`, `planner-outreach-pilot.md`).
+
+---
+
+## Por qué existe
+
+Las **MIPYME B2B** pierden tiempo armando listas manualmente (Maps, Excel). **Pipeline_X** encuentra negocios con señales **(reseñas, web, ubicación)** y devuelve **CSV enriquecido**, **score 0–100** y **primer contacto personalizado**. El mensaje va al **negocio**, no a una persona inventada.
+
+---
+
+## Inicio rápido
 
 ```bash
-# Un solo comando: busca leads en Google Maps → califica → reporte
-python pipeline.py "Retail Lima" --limit 20 --report
-python pipeline.py "Logística Bogotá" --limit 30 --workers 2 --channel whatsapp
-python pipeline.py "Construcción Trujillo" --limit 25 --enrich-sunat --report
-```
+pip install -r requirements.txt
+playwright install chromium    # scraping fallback
 
-O en dos pasos separados:
+# Flujo recomendado: scrape + calificación + HTML
+python pipeline.py "estudio contable Lima Peru" --limit 20 --report
 
-```bash
-# Paso 1: Scraping
-python scraper.py "Ferretería Arequipa" --limit 20 --output output/leads_raw.csv
+# Solo calificar CSV existente · canal WhatsApp
+python sdr_agent.py output/leads_raw.csv output/leads_calificados.csv --channel whatsapp --report
 
-# Paso 2: Calificación
-python sdr_agent.py output/leads_raw.csv output/leads_calificados.csv --report
+# Piloto outreach (tras pick_pilot_leads): generar borradores por ángulo + gancho A/B
+python scripts/run_outreach_pilot.py generate output/pilot_outreach_batch2.csv
+
+# Vista previa / envío WhatsApp (Green API) · dedup automático
+python scripts/run_outreach_pilot.py send output/pilot_outreach_batch2.csv --dry-run
+python scripts/run_outreach_pilot.py send output/pilot_outreach_batch2.csv --confirm   # solo cuando quieras enviar de verdad
 ```
 
 ---
 
-## Entornos, LLM y scraping (matriz rápida)
+## Entorno: LLM y scraping
 
-| Entorno | LLM usado | Variables requeridas | Scraping (orden real de fallback) |
-|---|---|---|---|
-| CLI local (`sdr_agent.py`, `pipeline.py`) | `llm_client.call()` → OpenAI primario (`gpt-4o-mini`) / Groq fallback | `OPENAI_API_KEY` recomendado; `GROQ_API_KEY` opcional de respaldo | Apify → SerpApi → Google Places API → Playwright |
-| API Railway (`api.py`) | OpenAI primario / Groq fallback | `OPENAI_API_KEY` y opcionalmente `GROQ_API_KEY` + vars de bot/webhook | Misma cadena: Apify → SerpApi → Google Places API → Playwright |
+| Entorno | LLM | Variables típicas | Scraping (orden de fallback) |
+|---------|-----|-------------------|--------------------------------|
+| CLI (`pipeline.py`, `sdr_agent.py`) | `llm_client`: OpenAI → Groq | `OPENAI_API_KEY` · opcional `GROQ_API_KEY` | Apify → SerpApi → Google Places API → Playwright |
+| API (`api.py`) | Igual | + keys de scraping según uso | Igual cadena |
 
-Notas:
-- Si no hay `GROQ_API_KEY`, se intenta `OPENAI_API_KEY`.
-- Si faltan ambas, la calificación LLM falla por configuración.
-- Para scraping, si un proveedor no responde o no devuelve resultados, se pasa al siguiente fallback.
+Sin `OPENAI_API_KEY` y sin `GROQ_API_KEY`, la calificación LLM no arranca.
 
-## Requisitos
-
-- Python 3.9+
-- Al menos una clave de LLM: `GROQ_API_KEY` o `OPENAI_API_KEY`
-- `pip install -r requirements.txt`
-
-## Instalación rápida
-
-```bash
-pip install -r requirements.txt
-playwright install chromium          # navegador para scraping
-```
-
-## Uso
-
-```bash
-# Calificar todos los leads
-python sdr_agent.py examples/leads_input.csv output/leads_calificados.csv
-
-# Solo los primeros 5 (para probar)
-python sdr_agent.py examples/leads_input.csv output/leads_calificados.csv --max 5
-
-# Retomar sin recalificar los ya procesados
-python sdr_agent.py examples/leads_input.csv output/leads_calificados.csv --resume
-
-# Canal WhatsApp
-python sdr_agent.py examples/leads_input.csv output/leads_calificados.csv --channel whatsapp
-
-# Generar reporte HTML
-python sdr_agent.py examples/leads_input.csv output/leads_calificados.csv --report
-```
+---
 
 ## Configuración
 
-Edita `config.py` para personalizar:
-- `PRODUCT` — nombre, pitch y CTA de tu negocio
-- `ICP` — industrias objetivo, umbrales, keywords a excluir
-- `CLAUDE` / `GROQ` — modelo, retries, backoff
-- `CHANNEL` — canal por defecto (email / whatsapp / both)
-- `PLAYBOOK` — instrucciones del sistema para el agente
-- `PLAYBOOK_ES` — ruta al playbook en español LatAm (ver sección abajo)
+Edita **`config.py`**: `PRODUCT`, `ICP`, `CHANNEL`, **`PLAYBOOK`** (instrucciones sistema). Artefactos en español neutro LatAm:
 
-## Localización en español
+| Archivo | Uso |
+|---------|-----|
+| `playbooks/PLAYBOOK_es.md` | Playbook extendido · adaptaciones 🇵🇪 🇨🇴 🇲🇽 |
+| `prompts/es_prompts.json` | System · few-shot · variantes país |
+| `templates/messages_es.md` | Plantillas email / WhatsApp |
 
-El repositorio incluye artefactos listos para usar en español neutro de Latinoamérica:
-
-| Archivo | Descripción |
-|---|---|
-| `playbooks/PLAYBOOK_es.md` | Instrucciones del sistema, adaptaciones por país y ejemplos few-shot |
-| `prompts/es_prompts.json` | Prompts estructurados (system, request_template, few_shot_examples) |
-| `templates/messages_es.md` | Plantillas de email formal/informal y WhatsApp corto/detallado |
-
-### Uso rápido
-
-**1. Cargar el playbook en español en el agente:**
+Ejemplo rápido de uso de prompts JSON:
 
 ```python
-import config as cfg
+import json
 from pathlib import Path
+import config as cfg
 
-# Leer el playbook en español (si existe)
-playbook_path = Path(cfg.PLAYBOOK_ES)
-if playbook_path.exists():
-    playbook_es = playbook_path.read_text(encoding="utf-8")
-    # Pasar playbook_es como system prompt al LLM
-```
-
-**2. Seleccionar canal al calificar:**
-
-```bash
-# Email (por defecto)
-python sdr_agent.py leads.csv output/calificados.csv --channel email
-
-# WhatsApp
-python sdr_agent.py leads.csv output/calificados.csv --channel whatsapp
-
-# Ambos
-python sdr_agent.py leads.csv output/calificados.csv --channel both
-```
-
-**3. Adaptaciones por país disponibles en `playbooks/PLAYBOOK_es.md`:**
-
-| País | Registro tributario | Tratamiento recomendado |
-|---|---|---|
-| 🇵🇪 Perú | SUNAT / RUC | Usted (formal), tú (WhatsApp) |
-| 🇨🇴 Colombia | DIAN / NIT | Usted (siempre en B2B) |
-| 🇲🇽 México | SAT / RFC | Tú (tech), usted (tradicional) |
-
-**4. Ejecutar tests de localización:**
-
-```bash
-pip install -r requirements.txt
-pytest -q tests/test_playbook_prompts.py
-```
-
-## Columnas que genera el agente
-
-| Columna | Descripción |
-|---|---|
-| `crm_stage` | Prospección / Calificado / En seguimiento / Descartado |
-| `lead_score` | 0–100 |
-| `fit_product` | si / no / dudoso |
-| `intent_timeline` | <30d / 30-90d / >90d / desconocido |
-| `decision_maker` | si / no / desconocido |
-| `blocker` | Obstáculo principal o vacío |
-| `next_action` | Acción concreta sugerida |
-| `qualification_notes` | Resumen de 2-4 frases |
-| `draft_subject` | Asunto del email |
-| `draft_message` | Cuerpo del mensaje listo para copiar |
-| `qualify_error` | Error técnico si hubo fallo (vacío si OK) |
-
-## Estructura
-
-```
-agentepyme/
-├── pipeline.py           # Orquestador: scrape → califica en un comando
-├── scraper.py            # Scraper: Google Maps + sitios web + SUNAT
-├── sdr_agent.py          # Calificador LLM: CSV → CSV enriquecido
-├── config.py             # Configuración de producto, ICP y proveedores LLM
-├── requirements.txt
-├── playbooks/
-│   └── PLAYBOOK_es.md    # Playbook en español LatAm con few-shot y adaptaciones
-├── prompts/
-│   └── es_prompts.json   # Prompts estructurados en español (system + few-shot)
-├── templates/
-│   └── messages_es.md    # Plantillas email/WhatsApp formales e informales
-├── tests/
-│   ├── test_sdr.py              # 26 tests unitarios del agente
-│   ├── test_scraper.py          # 21 tests unitarios del scraper
-│   └── test_playbook_prompts.py # 82 tests de localización en español
-├── playbooks/
-│   └── PLAYBOOK_es.md           # Playbook completo en español (LatAm)
-├── prompts/
-│   └── es_prompts.json          # Prompts JSON con few-shot y variantes por país
-├── templates/
-│   └── messages_es.md           # Plantillas de mensajes email/WhatsApp en español
-├── examples/
-│   └── leads_input.csv          # 10 leads de ejemplo (MIPYME Perú)
-└── output/                      # CSVs, reportes y logs se guardan aquí
+prompts = json.loads(Path(cfg.PROMPTS_ES).read_text(encoding="utf-8"))
+system_prompt = prompts["system"].replace("{PRODUCT}", cfg.PRODUCT["name"])
 ```
 
 ---
 
-## Localización en español
+## Columnas principales que genera el agente
 
-El agente incluye una localización completa en español neutro latinoamericano, lista para
-usar en Perú, Colombia y México.
+| Columna | Descripción |
+|---------|-------------|
+| `crm_stage` | Prospección / Calificado / En seguimiento / Descartado |
+| `lead_score` | 0–100 |
+| `fit_product` | si · no · dudoso |
+| `draft_subject` · `draft_message` | Listos para revisar y enviar |
+| `qualify_error` | Vacío si OK |
 
-### Archivos de localización
+---
 
-| Archivo | Descripción |
-|---|---|
-| `playbooks/PLAYBOOK_es.md` | Playbook completo: instrucción del sistema, adaptaciones por país, reglas de scoring y 3 ejemplos few-shot |
-| `prompts/es_prompts.json` | Prompts en JSON con system prompt, request template, few-shot examples y variantes por país |
-| `templates/messages_es.md` | Plantillas de mensajes listos para usar: email formal, email informal, WhatsApp corto y WhatsApp detallado |
+## Sitio web (GitHub Pages + Jekyll) — aquí sí hay “efectos”
 
-### Cómo usar el playbook en español
+GitHub **solo renderiza Markdown** en el README (sin Jekyll ni CSS). Cabecera con imagen de fondo y estilos: **`docs/`** compilado por Jekyll.
 
-1. **Cargar el system prompt desde `es_prompts.json`:**
+### Activar Pages (evitar 404 “There isn't a GitHub Pages site here”)
 
-```python
-import json, pathlib
-import config as cfg
+1. **Settings → Pages → Build and deployment.**  
+   Elige **`GitHub Actions`** como **Source** (no “Deploy from a branch”), salvo que sepas usar solo la carpeta `/docs` desde una rama.  
+2. Haz **push** a `main`: el workflow **Deploy GitHub Pages (Jekyll)** (`.github/workflows/pages-jekyll.yml`) construye `docs/` y publica el sitio.  
+3. URL típica: **`https://<org>.github.io/<repo>/`** · si el repo no es `pipeline-pro`, edita **`docs/_config.yml`** (`baseurl`) y usa la misma ruta en el navegador.
 
-prompts = json.loads(
-    pathlib.Path(cfg.PROMPTS_ES).read_text(encoding="utf-8")
-)
-system_prompt = prompts["system"].replace("{PRODUCT}", cfg.PRODUCT["name"])
-```
+Guía detallada: **`docs/PUBLISH.md`**.
 
-2. **Seleccionar variante de país** (pe / co / mx):
+### Qué incluye el sitio
 
-```python
-country = "pe"  # Perú
-variation = prompts["country_variations"][country]
-print(f"ID fiscal: {variation['fiscal_id']}")  # → RUC
-print(f"Tratamiento: {variation['treatment']}")
-```
+Tema **[Cayman](https://github.com/pages-themes/cayman)** + **`docs/assets/css/style.scss`**: cabecera con **`readme-hero.png`** como fondo y degradado encima.
 
-3. **Seleccionar canal de outreach:**
-
-```python
-channel = "whatsapp"  # o "email" / "both"
-channel_note = prompts["channel_notes"][channel]
-```
-
-4. **Incluir ejemplos few-shot** en el user prompt para mejorar la consistencia del LLM:
-
-```python
-few_shot = "\n\n".join(
-    f"Entrada:\n{ex['input']}\nSalida:\n{ex['output']}"
-    for ex in prompts["few_shot_examples"]
-)
-```
-
-5. **Ejecutar los tests de localización:**
+### Vista previa local
 
 ```bash
-pytest tests/test_playbook_prompts.py -v
+cd docs
+bundle install
+bundle exec jekyll serve --livereload --baseurl /pipeline-pro
 ```
 
-### Criterios de calificación (resumen)
+Abre `http://localhost:4000/pipeline-pro/` (cambia `/pipeline-pro` si tu `baseurl` es otro).
 
-| Score | Etapa CRM |
-|---|---|
-| 70–100 | Calificado |
-| 50–69 | En seguimiento |
-| 25–49 | Prospección |
-| 0–24 | Descartado |
+---
 
-> El comportamiento por defecto del agente **no cambia** si no usas `PLAYBOOK_ES`.
-> La localización es opcional y complementaria.
+## Tests
+
+```bash
+pytest -q
+```
+
+Suite amplia incluye scraper, SDR, playbook en español, outreach piloto (sin LLM en parte de los tests).
+
+---
+
+## Estructura del repositorio
+
+```
+agentepyme/
+├── pipeline.py           # scrape → qualify en un comando
+├── scraper.py · sdr_agent.py · llm_client.py · api.py
+├── wa_sender.py          # WhatsApp vía Green API (+ normalización PE)
+├── outreach_pilot.py     # Lógica piloto ángulos A/B
+├── scripts/
+│   ├── run_outreach_pilot.py
+│   ├── pick_pilot_leads.py
+│   └── validator_summary.py
+├── docs/                  # GitHub Pages (Jekyll Cayman)
+│   ├── _config.yml
+│   ├── index.md
+│   ├── Gemfile
+│   └── assets/
+├── playbooks/ · prompts/ · templates/
+├── tasks/                # Planner / backlog campaña
+├── tests/
+└── output/               # CSV generados (gitignore típico)
+```
+
+---
+
+## Licencia
+
+Sin licencia declarada en el repo: uso interno / aclarar con los mantenedores antes de redistribuir.

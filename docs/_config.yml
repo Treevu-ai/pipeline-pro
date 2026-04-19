@@ -1,0 +1,25 @@
+# Sitio Jekyll para GitHub Pages (Settings → Pages → Branch: main, folder: /docs)
+title: "Pipeline_X"
+tagline: "Agente SDR con IA · MIPYME LatAm"
+description: >
+  Pipeline de prospección B2B: scrape Google Maps, calificación con LLM (OpenAI / Groq),
+  borradores email/WhatsApp y piloto de outreach con deduplicación.
+
+# Tema con cabecera degradada y tipografía clara (Pages compila remoto)
+remote_theme: pages-themes/cayman@v0.2.0
+
+plugins:
+  - jekyll-remote-theme
+
+markdown: kramdown
+kramdown:
+  syntax_highlighter: rouge
+
+# URL del sitio (proyecto: https://<org>.github.io/<repo>/)
+# Debe coincidir con el nombre del repo en GitHub (la CI pasa --baseurl al build).
+url: "https://treevu-ai.github.io"
+baseurl: "/pipeline-pro"
+
+exclude:
+  - Gemfile
+  - Gemfile.lock

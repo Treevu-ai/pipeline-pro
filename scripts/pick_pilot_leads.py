@@ -25,6 +25,15 @@ from pathlib import Path
 
 PILOT_COLS = [
     "pilot_slot",
+    # Generación piloto (`scripts/run_outreach_pilot.py generate`)
+    "angle_id",
+    "hook_variant",
+    "planned_channel",
+    "pilot_whatsapp",
+    "pilot_email_subject",
+    "pilot_email_body",
+    "pilot_generated_at",
+    # Seguimiento manual tras envío
     "sent_at",
     "channel",
     "reply_status",
@@ -141,7 +150,8 @@ def main() -> int:
 
     print(f"Seleccionados: {len(picked)} / candidatos tras filtros: {len(filtered)} / total CSV: {len(rows)}")
     print(f"Escrito: {out_path.resolve()}")
-    print("\nSiguiente: completar columnas al enviar — sent_at, channel (whatsapp|email), reply_status (none|reply|no_reply).")
+    print("\nSiguiente: python scripts/run_outreach_pilot.py generate <este_csv>")
+    print("luego seguimiento: sent_at, channel (whatsapp|email), reply_status, reply_at, objection, notes.")
     return 0
 
 

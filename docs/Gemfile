@@ -1,0 +1,4 @@
+# bundle install && bundle exec jekyll serve --livereload (desde esta carpeta docs/)
+source "https://rubygems.org"
+
+gem "github-pages", group: :jekyll_plugins

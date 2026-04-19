@@ -91,6 +91,31 @@ def normalize_phone(phone: str) -> str:
     return re.sub(r"[^\d+]", "", phone)
 
 
+def whatsapp_digits_pe(raw: str) -> str:
+    """
+    Convierte un teléfono peruano (móvil 9XXXXXXXX o fijo Lima (01) …) a dígitos
+    internacionales sin '+' para WhatsApp / Green API (51…).
+
+    - Móvil 9 dígitos empezando en 9 → 51 + número.
+    - Ya en 51… (>=11 dígitos) → se devuelve tal cual.
+    - Fijo Lima típico 01 + 7 dígitos (9 dígitos en total) → 511 + 7 dígitos.
+    """
+    if not raw:
+        return ""
+    d = re.sub(r"\D", "", raw.strip())
+    if not d:
+        return ""
+    if d.startswith("51") and len(d) >= 11:
+        return d
+    if len(d) == 9 and d.startswith("9"):
+        return "51" + d
+    if d.startswith("01") and len(d) == 9:
+        rest = d[2:]
+        if len(rest) == 7:
+            return "511" + rest
+    return d
+
+
 def normalize_email(email: str) -> str:
     """
     Normaliza una dirección de email.

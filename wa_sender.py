@@ -11,11 +11,13 @@ Uso:
 from __future__ import annotations
 
 import logging
+import re
 import time
 
 import httpx
 
 import config as cfg
+import utils
 
 log = logging.getLogger("wa_sender")
 
@@ -61,12 +63,14 @@ def _token() -> str:
 def _chat_id(phone: str) -> str:
     """
     Convierte número a formato chatId de Green API.
-    Acepta: '51987654321', '+51987654321', '987654321' (asume Perú +51).
+    Acepta móvil PE, fijo Lima (01), o ya en 51…
     """
-    phone = phone.strip().lstrip("+").replace(" ", "").replace("-", "")
-    if not phone.startswith("51") and len(phone) == 9:
-        phone = "51" + phone          # asumir Perú si solo 9 dígitos
-    return f"{phone}@c.us"
+    digits = utils.whatsapp_digits_pe(phone)
+    if not digits:
+        digits = re.sub(r"\D", "", phone)
+    if len(digits) == 9 and digits.startswith("9"):
+        digits = "51" + digits
+    return f"{digits}@c.us"
 
 
 # ─── API pública ──────────────────────────────────────────────────────────────
